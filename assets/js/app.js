@@ -215,7 +215,7 @@
           <h3>${U.esc(p.nombre)}</h3>
           ${p.descripcion ? `<p class="tarjeta-prod__desc">${U.esc(p.descripcion)}</p>` : ""}
           <div class="tarjeta-prod__pie">
-            ${precio ? `<p class="precio">${precio}${p.unidad ? ` <small>por ${U.esc(p.unidad)}</small>` : ""}</p>` : `<p class="precio precio--consultar">Precio a consultar</p>`}
+            ${precio ? `<p class="precio">${precio} <small>aprox.${p.unidad ? ` por ${U.esc(p.unidad)}` : ""}</small></p>` : `<p class="precio precio--consultar">Precio a consultar</p>`}
             <span class="ctl">${controlHTML(p)}</span>
           </div>
         </div>
@@ -263,10 +263,8 @@
     $("#totales").hidden = !S.lista.length;
     $("#totalEstimado").textContent = t > 0 ? U.colones(t) : "A confirmar";
     $("#totalNota").textContent = sinPrecio
-      ? `${sinPrecio === 1 ? "1 producto" : sinPrecio + " productos"} con precio a confirmar: le enviamos el total final.`
-      : "Precios del catálogo. El almacén confirma disponibilidad.";
-    const fm = $("#formEnviar").monto;
-    if (!fm.dataset.tocado) fm.value = t > 0 && !sinPrecio ? t : "";
+      ? `${sinPrecio === 1 ? "1 producto" : sinPrecio + " productos"} con precio a confirmar. Los demás precios son aproximados: le enviamos el total final.`
+      : "Precios aproximados. Le confirmamos el total y la disponibilidad antes de cobrar.";
   }
 
   function abrirCarrito(abrir) {
@@ -335,7 +333,7 @@
       S.ultimo = { ...d, codigo: ped.codigo, total: Number(ped.total), pendientes: !!ped.precios_pendientes, archivo: archivoCompartir, errorComp, resumen: textoWhatsApp(d, ped.codigo, !!archivoCompartir) };
       mostrarListo();
       S.lista = [];
-      f.detalle.value = ""; f.comprobante.value = ""; f.referencia.value = ""; delete f.monto.dataset.tocado;
+      f.detalle.value = ""; f.comprobante.value = ""; f.referencia.value = ""; f.monto.value = "";
       $("#pagoYa").open = false;
       cambioCarrito();
     } catch (e3) {
@@ -437,7 +435,6 @@
       if (esMovil()) abrirCarrito(true);
       $("#libreTxt").focus();
     });
-    $("#formEnviar").monto.addEventListener("input", (e) => (e.target.dataset.tocado = "1"));
     $("#formEnviar").addEventListener("submit", enviar);
 
     $("#btnCopiar").addEventListener("click", async () => {
