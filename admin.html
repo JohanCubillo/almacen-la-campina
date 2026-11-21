@@ -20,7 +20,7 @@
       <h1>Panel del almacén</h1>
       <label>Correo<input type="email" name="email" required autocomplete="username" maxlength="120" /></label>
       <label>Contraseña<input type="password" name="password" required autocomplete="current-password" maxlength="128" /></label>
-      <button class="btn btn--rojo btn--full" type="submit">Entrar</button>
+      <button class="btn btn--negro btn--full" type="submit">Entrar</button>
       <p class="msg msg--error" id="loginMsg" role="alert"></p>
     </form>
   </section>
@@ -37,7 +37,7 @@
       <img id="qrMfa" class="qr" alt="Código QR para la app autenticadora" width="200" height="200" />
       <details class="secreto"><summary>¿No puede escanear? Use esta clave</summary><code id="secretoMfa"></code></details>
       <label>Código de 6 dígitos que muestra la app<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code" /></label>
-      <button class="btn btn--rojo btn--full" type="submit">Activar y entrar</button>
+      <button class="btn btn--negro btn--full" type="submit">Activar y entrar</button>
       <p class="msg msg--error" id="enrolarMsg" role="alert"></p>
       <button type="button" class="enlace" data-salir>Salir</button>
     </form>
@@ -50,7 +50,7 @@
       <p>Abra su app autenticadora y escriba el código de 6 dígitos de <b>Almacén La Campiña</b>.</p>
       <label class="sr" for="codigoDesafio">Código</label>
       <input id="codigoDesafio" class="codigo" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code" />
-      <button class="btn btn--rojo btn--full" type="submit">Verificar</button>
+      <button class="btn btn--negro btn--full" type="submit">Verificar</button>
       <p class="msg msg--error" id="desafioMsg" role="alert"></p>
       <button type="button" class="enlace" data-salir>Usar otra cuenta</button>
     </form>
@@ -114,7 +114,7 @@
           <h2>Ventas</h2>
           <div class="barra-herr__der">
             <input id="vBuscar" type="search" placeholder="Código o cliente…" maxlength="40" aria-label="Buscar venta" />
-            <button type="button" class="btn btn--rojo btn--sm" id="btnNuevaVenta">Nueva venta</button>
+            <button type="button" class="btn btn--negro btn--sm" id="btnNuevaVenta">Nueva venta</button>
           </div>
         </div>
         <dl class="cifras" id="cifrasVentas"></dl>
@@ -150,7 +150,7 @@
           <h2>Productos</h2>
           <div class="barra-herr__der">
             <input id="aBuscar" type="search" placeholder="Buscar…" maxlength="60" aria-label="Buscar producto" />
-            <button type="button" class="btn btn--rojo btn--sm" id="btnNuevoProd">Nuevo producto</button>
+            <button type="button" class="btn btn--negro btn--sm" id="btnNuevoProd">Nuevo producto</button>
           </div>
         </div>
         <ul id="listaProd" class="filas"></ul>
@@ -165,7 +165,7 @@
           <label class="crece">Nombre<input name="nombre" required minlength="2" maxlength="60" /></label>
           <label class="w-num">Orden<input name="orden" type="number" value="0" min="0" max="999" /></label>
           <div class="form-linea__btns">
-            <button class="btn btn--rojo btn--sm" type="submit" id="btnGuardarCat">Agregar categoría</button>
+            <button class="btn btn--negro btn--sm" type="submit" id="btnGuardarCat">Agregar categoría</button>
             <button class="btn btn--linea btn--sm" type="reset" hidden id="btnCancelarCat">Cancelar</button>
           </div>
         </form>
@@ -204,7 +204,7 @@
             <legend>Aviso en la parte de arriba del sitio</legend>
             <label>Texto del aviso (vacío = no se muestra)<input name="aviso" maxlength="160" placeholder="Ej: Esta semana cemento en promoción" /></label>
           </fieldset>
-          <button class="btn btn--rojo" type="submit">Guardar datos</button>
+          <button class="btn btn--negro" type="submit">Guardar datos</button>
           <p class="msg" id="ajMsg" role="status"></p>
         </form>
 
@@ -239,7 +239,7 @@
       <p class="msg msg--error" id="prodMsg" role="alert"></p>
       <div class="dlg__btns">
         <button type="button" class="btn btn--linea" id="btnCancelarProd">Cancelar</button>
-        <button type="submit" class="btn btn--rojo" id="btnGuardarProd">Guardar producto</button>
+        <button type="submit" class="btn btn--negro" id="btnGuardarProd">Guardar producto</button>
       </div>
     </form>
   </dialog>
@@ -278,7 +278,7 @@
       <p class="ayuda" id="itemsBloqueo" hidden>Los productos ya no se pueden cambiar porque la venta tiene pagos verificados o está cerrada.</p>
 
       <div class="venta__guardar">
-        <button type="button" class="btn btn--rojo" id="btnGuardarVenta">Guardar venta</button>
+        <button type="button" class="btn btn--negro" id="btnGuardarVenta">Guardar venta</button>
         <button type="button" class="btn btn--wa" id="btnCobrarWa">Enviar cobro por WhatsApp</button>
       </div>
       <p class="msg msg--error" id="ventaMsg" role="alert"></p>
@@ -316,7 +316,7 @@
           <label class="check check--fuerte"><input type="checkbox" name="verificado" /> Ya vi este dinero en la app del banco</label>
           <p class="ayuda">Si no lo ha visto en el banco, déjelo sin marcar: la venta queda “por verificar” hasta que lo confirme.</p>
           <p class="msg msg--error" id="pagoMsg" role="alert"></p>
-          <button class="btn btn--rojo" type="submit" id="btnGuardarPago">Registrar pago</button>
+          <button class="btn btn--negro" type="submit" id="btnGuardarPago">Registrar pago</button>
         </form>
       </details>
 

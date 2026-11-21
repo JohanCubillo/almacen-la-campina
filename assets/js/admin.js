@@ -179,8 +179,8 @@
           `<li><b>${U.esc(Number(i.c) || 1)}</b> ${i.u ? `<small>${U.esc(i.u)}</small> ` : ""}${U.esc(i.n)}${i.id ? "" : " <small>(fuera del catálogo)</small>"}</li>`).join("")}</ol>` : ""}
         ${c.detalle ? `<p class="cot__nota">${U.esc(c.detalle)}</p>` : ""}
         <div class="cot__acc">
-          <button type="button" class="btn btn--rojo btn--sm" data-venta-cot="${c.id}">Crear venta</button>
-          <a class="btn btn--wa btn--sm" href="${U.esc(wa)}" target="_blank" rel="noopener noreferrer">Responder por WhatsApp</a>
+          <button type="button" class="btn btn--negro btn--sm" data-venta-cot="${c.id}">Crear venta</button>
+          <a class="btn btn--linea btn--sm" href="${U.esc(wa)}" target="_blank" rel="noopener noreferrer">Responder por WhatsApp</a>
           <button type="button" class="btn btn--sm btn--linea" data-at="${c.id}" data-val="${!c.atendida}">${c.atendida ? "Volver a pendiente" : "Marcar atendida"}</button>
           <button type="button" class="enlace enlace--peligro" data-del-cot="${c.id}">Borrar</button>
         </div>
@@ -668,7 +668,7 @@
       </div>
       <div class="pago__acc">
         ${g.comprobante_path ? `<button type="button" class="btn btn--sm btn--linea" data-comp="${U.esc(g.comprobante_path)}">Ver comprobante</button>` : ""}
-        ${!g.anulado && !g.verificado ? `<button type="button" class="btn btn--sm btn--rojo" data-verificar="${g.id}" data-monto="${g.monto}" data-ref="${U.esc(g.referencia || "")}">Ya lo vi en el banco</button>` : ""}
+        ${!g.anulado && !g.verificado ? `<button type="button" class="btn btn--sm btn--negro" data-verificar="${g.id}" data-monto="${g.monto}" data-ref="${U.esc(g.referencia || "")}">Ya lo vi en el banco</button>` : ""}
         ${!g.anulado ? `<button type="button" class="enlace enlace--peligro" data-anular-pago="${g.id}">Anular</button>` : ""}
       </div>
     </li>`;
@@ -979,7 +979,7 @@
       </div>
       <div class="fila__acc">
         ${g.comprobante_path ? `<button type="button" class="btn btn--sm btn--linea" data-comp="${U.esc(g.comprobante_path)}">Comprobante</button>` : ""}
-        ${!g.anulado && !g.verificado ? `<button type="button" class="btn btn--sm btn--rojo" data-verificar="${g.id}" data-monto="${g.monto}" data-ref="${U.esc(g.referencia || "")}">Ya lo vi en el banco</button>` : ""}
+        ${!g.anulado && !g.verificado ? `<button type="button" class="btn btn--sm btn--negro" data-verificar="${g.id}" data-monto="${g.monto}" data-ref="${U.esc(g.referencia || "")}">Ya lo vi en el banco</button>` : ""}
         <button type="button" class="enlace" data-ver-venta="${g.pedidos?.id}">Ver venta</button>
       </div>
     </li>`;
