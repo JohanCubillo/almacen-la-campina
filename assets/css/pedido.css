@@ -1,5 +1,5 @@
 /* Página "Mi pedido" */
-.pag-pedido { background: var(--fondo-2); }
+.pag-pedido { background: #fff; }
 .mp { padding: 2.5rem 0 4rem; }
 .mp h1 { font-size: clamp(2.4rem, 5vw, 3.4rem); margin-bottom: 1.25rem; }
 .mp__buscar { display: grid; grid-template-columns: 1fr 1fr auto; gap: .75rem; align-items: end; max-width: 760px; background: #fff; border: 1px solid var(--borde); border-radius: 8px; padding: 1rem; }
