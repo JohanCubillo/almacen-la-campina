@@ -1,11 +1,11 @@
 // =====================================================
 //  CONFIGURACIÓN — cambiá solo estos valores
-//  Supabase > Project Settings > API (Project URL + anon public)
-//  ⚠️ NUNCA pongas aquí la service_role key.
+//  Supabase > Project Settings > API Keys (Project URL + Publishable key)
+//  ⚠️ NUNCA pongas aquí la secret / service_role key.
 // =====================================================
 window.APP_CONFIG = Object.freeze({
-  SUPABASE_URL: "https://TU-PROYECTO.supabase.co",
-  SUPABASE_ANON_KEY: "TU-ANON-KEY",
+  SUPABASE_URL: "https://osuhkkojtwweepniwxtp.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_RrfHmgCAMdJ3Lo9OmJJPQg_Fskjd_eQ",
 
   // Valores por defecto (se usan si Supabase no está configurado o no responde)
   NEGOCIO: "Almacén La Campiña",
