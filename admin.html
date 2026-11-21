@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="es-CR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://*.supabase.co; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-src 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="robots" content="noindex, nofollow, noarchive" />
+  <title>Panel · Almacén La Campiña</title>
+  <link rel="icon" href="assets/img/emblema.png" />
+  <link rel="stylesheet" href="assets/css/styles.css" />
+  <link rel="stylesheet" href="assets/css/admin.css" />
+</head>
+<body class="adm">
+
+  <!-- 1. Entrar -->
+  <section class="acceso" id="vLogin" hidden>
+    <form class="acceso__caja" id="formLogin">
+      <img src="assets/img/logo.png" alt="Almacén La Campiña" width="200" height="173" />
+      <h1>Panel del almacén</h1>
+      <label>Correo<input type="email" name="email" required autocomplete="username" maxlength="120" /></label>
+      <label>Contraseña<input type="password" name="password" required autocomplete="current-password" maxlength="128" /></label>
+      <button class="btn btn--rojo btn--full" type="submit">Entrar</button>
+      <p class="msg msg--error" id="loginMsg" role="alert"></p>
+    </form>
+  </section>
+
+  <!-- 2a. Activar verificación en 2 pasos -->
+  <section class="acceso" id="vEnrolar" hidden>
+    <form class="acceso__caja" id="formEnrolar">
+      <h1>Proteja la cuenta</h1>
+      <p>Para entrar al panel se pide un código del celular además de la contraseña. Configúrelo una sola vez:</p>
+      <ol class="pasos">
+        <li>Instale <b>Google Authenticator</b> o <b>Microsoft Authenticator</b>.</li>
+        <li>En la app toque <b>+</b> y escanee este código.</li>
+      </ol>
+      <img id="qrMfa" class="qr" alt="Código QR para la app autenticadora" width="200" height="200" />
+      <details class="secreto"><summary>¿No puede escanear? Use esta clave</summary><code id="secretoMfa"></code></details>
+      <label>Código de 6 dígitos que muestra la app<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code" /></label>
+      <button class="btn btn--rojo btn--full" type="submit">Activar y entrar</button>
+      <p class="msg msg--error" id="enrolarMsg" role="alert"></p>
+      <button type="button" class="enlace" data-salir>Salir</button>
+    </form>
+  </section>
+
+  <!-- 2b. Pedir código -->
+  <section class="acceso" id="vDesafio" hidden>
+    <form class="acceso__caja" id="formDesafio">
+      <h1>Código de verificación</h1>
+      <p>Abra su app autenticadora y escriba el código de 6 dígitos de <b>Almacén La Campiña</b>.</p>
+      <label class="sr" for="codigoDesafio">Código</label>
+      <input id="codigoDesafio" class="codigo" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code" />
+      <button class="btn btn--rojo btn--full" type="submit">Verificar</button>
+      <p class="msg msg--error" id="desafioMsg" role="alert"></p>
+      <button type="button" class="enlace" data-salir>Usar otra cuenta</button>
+    </form>
+  </section>
+
+  <!-- 3. Usuario sin permiso -->
+  <section class="acceso" id="vSinPermiso" hidden>
+    <div class="acceso__caja">
+      <h1>Esta cuenta no administra el almacén</h1>
+      <p>Pida al encargado del sitio que la agregue como administradora.</p>
+      <button type="button" class="btn btn--linea btn--full" data-salir>Salir</button>
+    </div>
+  </section>
+
+  <!-- Configuración pendiente -->
+  <section class="acceso" id="vSinConfig" hidden>
+    <div class="acceso__caja">
+      <h1>Falta conectar la base de datos</h1>
+      <p>Ponga la URL y la anon key de Supabase en <code>assets/js/config.js</code>. Mientras tanto el sitio público funciona con el catálogo de muestra.</p>
+      <a class="btn btn--linea btn--full" href="./">Ir al sitio</a>
+    </div>
+  </section>
+
+  <!-- 4. Panel -->
+  <div id="vPanel" hidden>
+    <header class="top">
+      <div class="wrap top__in">
+        <a href="./" class="marca" target="_blank" rel="noopener">
+          <img src="assets/img/emblema.png" alt="" width="44" height="44" />
+          <span class="marca__txt">Panel<br /><b>La Campiña</b></span>
+        </a>
+        <div class="usuario"><span id="userEmail"></span><button type="button" class="btn btn--sm btn--claro" data-salir>Salir</button></div>
+      </div>
+    </header>
+
+    <nav class="pestanas wrap" role="tablist" aria-label="Secciones del panel">
+      <button role="tab" class="pestana" aria-selected="true" aria-controls="tCot" id="tabCot">Cotizaciones <span class="badge" id="badgeCot" hidden></span></button>
+      <button role="tab" class="pestana" aria-selected="false" aria-controls="tVen" id="tabVen">Ventas</button>
+      <button role="tab" class="pestana" aria-selected="false" aria-controls="tCaja" id="tabCaja">Caja SINPE <span class="badge badge--amarillo" id="badgeCaja" hidden></span></button>
+      <button role="tab" class="pestana" aria-selected="false" aria-controls="tProd" id="tabProd">Productos</button>
+      <button role="tab" class="pestana" aria-selected="false" aria-controls="tCat" id="tabCat">Categorías</button>
+      <button role="tab" class="pestana" aria-selected="false" aria-controls="tAj" id="tabAj">Datos del negocio</button>
+    </nav>
+
+    <main class="wrap panel">
+      <!-- COTIZACIONES -->
+      <section id="tCot" role="tabpanel" aria-labelledby="tabCot">
+        <div class="barra-herr">
+          <h2>Cotizaciones</h2>
+          <div class="barra-herr__der">
+            <label class="check"><input type="checkbox" id="verAtendidas" /> Ver también las atendidas</label>
+            <button type="button" class="btn btn--sm btn--linea" id="btnRecargarCot">Actualizar</button>
+          </div>
+        </div>
+        <div id="listaCot" class="cots"></div>
+      </section>
+
+      <!-- VENTAS -->
+      <section id="tVen" role="tabpanel" aria-labelledby="tabVen" hidden>
+        <div class="barra-herr">
+          <h2>Ventas</h2>
+          <div class="barra-herr__der">
+            <input id="vBuscar" type="search" placeholder="Código o cliente…" maxlength="40" aria-label="Buscar venta" />
+            <button type="button" class="btn btn--rojo btn--sm" id="btnNuevaVenta">Nueva venta</button>
+          </div>
+        </div>
+        <dl class="cifras" id="cifrasVentas"></dl>
+        <div class="segmentos" role="radiogroup" aria-label="Filtrar ventas" id="filtroVentas">
+          <button type="button" role="radio" aria-checked="true" data-f="cobrar">Por cobrar</button>
+          <button type="button" role="radio" aria-checked="false" data-f="por_verificar">Por verificar</button>
+          <button type="button" role="radio" aria-checked="false" data-f="entregar">Pagadas sin entregar</button>
+          <button type="button" role="radio" aria-checked="false" data-f="todas">Todas</button>
+        </div>
+        <ul id="listaVentas" class="filas"></ul>
+      </section>
+
+      <!-- CAJA SINPE -->
+      <section id="tCaja" role="tabpanel" aria-labelledby="tabCaja" hidden>
+        <div class="barra-herr">
+          <h2>Caja SINPE</h2>
+          <div class="barra-herr__der">
+            <label class="fecha-caja">Día <input type="date" id="cajaDia" /></label>
+            <button type="button" class="btn btn--sm btn--linea" id="btnCsvDia">Descargar día (CSV)</button>
+            <button type="button" class="btn btn--sm btn--linea" id="btnCsvMes">Descargar mes (CSV)</button>
+          </div>
+        </div>
+        <div class="tarjeta conciliar" id="resumenCaja"></div>
+        <h3 class="subt" id="tituloPorVerificar">Pagos por verificar en el banco</h3>
+        <ul id="listaPorVerificar" class="filas"></ul>
+        <h3 class="subt">Pagos del día</h3>
+        <ul id="listaPagosDia" class="filas"></ul>
+      </section>
+
+      <!-- PRODUCTOS -->
+      <section id="tProd" role="tabpanel" aria-labelledby="tabProd" hidden>
+        <div class="barra-herr">
+          <h2>Productos</h2>
+          <div class="barra-herr__der">
+            <input id="aBuscar" type="search" placeholder="Buscar…" maxlength="60" aria-label="Buscar producto" />
+            <button type="button" class="btn btn--rojo btn--sm" id="btnNuevoProd">Nuevo producto</button>
+          </div>
+        </div>
+        <ul id="listaProd" class="filas"></ul>
+      </section>
+
+      <!-- CATEGORÍAS -->
+      <section id="tCat" role="tabpanel" aria-labelledby="tabCat" hidden>
+        <div class="barra-herr"><h2>Categorías</h2></div>
+        <form id="formCat" class="tarjeta form-linea">
+          <input type="hidden" name="id" />
+          <label class="w-ico">Ícono<input name="icono" maxlength="4" placeholder="🧱" /></label>
+          <label class="crece">Nombre<input name="nombre" required minlength="2" maxlength="60" /></label>
+          <label class="w-num">Orden<input name="orden" type="number" value="0" min="0" max="999" /></label>
+          <div class="form-linea__btns">
+            <button class="btn btn--rojo btn--sm" type="submit" id="btnGuardarCat">Agregar categoría</button>
+            <button class="btn btn--linea btn--sm" type="reset" hidden id="btnCancelarCat">Cancelar</button>
+          </div>
+        </form>
+        <ul id="listaCat" class="filas"></ul>
+      </section>
+
+      <!-- AJUSTES -->
+      <section id="tAj" role="tabpanel" aria-labelledby="tabAj" hidden>
+        <div class="barra-herr"><h2>Datos del negocio</h2></div>
+        <form id="formAjustes" class="tarjeta ajustes">
+          <fieldset>
+            <legend>Contacto</legend>
+            <div class="dos">
+              <label>Teléfono principal<input name="telefono" maxlength="20" /></label>
+              <label>Otro teléfono<input name="telefono2" maxlength="20" /></label>
+            </div>
+            <label>WhatsApp (con 506 adelante, solo números)<input name="whatsapp" inputmode="numeric" pattern="[0-9]{11,15}" maxlength="15" placeholder="50687365733" required /></label>
+            <label>Dirección<input name="direccion" maxlength="200" /></label>
+            <label>Página de Facebook<input name="facebook" type="url" pattern="https://.*" maxlength="300" /></label>
+          </fieldset>
+          <fieldset>
+            <legend>SINPE Móvil</legend>
+            <p class="ayuda">Aparece en el mensaje de cobro y en el sitio.</p>
+            <div class="dos">
+              <label>Número que recibe SINPE<input name="sinpe_numero" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" placeholder="87365733" /></label>
+              <label>A nombre de (titular)<input name="sinpe_titular" maxlength="80" placeholder="Como sale en el banco" /></label>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>Horario</legend>
+            <p class="ayuda">Con el horario el sitio muestra “Abierto ahora” o “Cerrado”.</p>
+            <div id="horarioDias" class="dias"></div>
+            <label>Texto extra de horario (opcional)<input name="horario" maxlength="120" placeholder="Ej: Feriados cerrado" /></label>
+          </fieldset>
+          <fieldset>
+            <legend>Aviso en la parte de arriba del sitio</legend>
+            <label>Texto del aviso (vacío = no se muestra)<input name="aviso" maxlength="160" placeholder="Ej: Esta semana cemento en promoción" /></label>
+          </fieldset>
+          <button class="btn btn--rojo" type="submit">Guardar datos</button>
+          <p class="msg" id="ajMsg" role="status"></p>
+        </form>
+
+        <details class="tarjeta actividad">
+          <summary>Actividad reciente del panel</summary>
+          <ul id="listaAuditoria"></ul>
+        </details>
+      </section>
+    </main>
+  </div>
+
+  <!-- Formulario de producto -->
+  <dialog id="dlgProd" class="dlg" aria-labelledby="dlgTitulo">
+    <form id="formProd" class="dlg__form">
+      <h2 id="dlgTitulo">Nuevo producto</h2>
+      <input type="hidden" name="id" />
+      <label>Nombre<input name="nombre" required minlength="2" maxlength="100" /></label>
+      <label>Descripción corta<textarea name="descripcion" rows="2" maxlength="500"></textarea></label>
+      <div class="dos">
+        <label>Precio en colones<input name="precio" type="number" min="0" step="0.01" placeholder="Vacío = a consultar" /></label>
+        <label>Se vende por<input name="unidad" maxlength="30" placeholder="saco, unidad, metro…" /></label>
+      </div>
+      <label>Categoría<select name="categoria_id"></select></label>
+      <div class="foto-campo">
+        <img id="prevFoto" alt="" hidden />
+        <label>Foto (se ajusta sola, máx. 2 MB)<input name="foto" type="file" accept="image/jpeg,image/png,image/webp" /></label>
+      </div>
+      <div class="checks">
+        <label class="check"><input type="checkbox" name="destacado" /> Marcar como recomendado</label>
+        <label class="check"><input type="checkbox" name="activo" checked /> Mostrar en el sitio</label>
+      </div>
+      <p class="msg msg--error" id="prodMsg" role="alert"></p>
+      <div class="dlg__btns">
+        <button type="button" class="btn btn--linea" id="btnCancelarProd">Cancelar</button>
+        <button type="submit" class="btn btn--rojo" id="btnGuardarProd">Guardar producto</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Detalle de venta -->
+  <dialog id="dlgVenta" class="dlg dlg--ancho" aria-labelledby="ventaTitulo">
+    <div class="venta">
+      <header class="venta__head">
+        <div>
+          <h2 id="ventaTitulo">Venta</h2>
+          <p class="venta__estado" id="ventaEstado"></p>
+        </div>
+        <span class="venta__codigo" id="ventaCodigo"></span>
+        <button type="button" class="cerrar-x" id="btnCerrarVenta" aria-label="Cerrar">✕</button>
+      </header>
+
+      <form id="formVenta" class="venta__cliente">
+        <label>Cliente<input name="cliente_nombre" required minlength="2" maxlength="80" /></label>
+        <label>Teléfono<input name="cliente_telefono" inputmode="tel" maxlength="20" /></label>
+        <label class="crece">Nota<input name="nota" maxlength="500" /></label>
+      </form>
+
+      <h3 class="subt">Productos</h3>
+      <div class="items-wrap">
+        <table class="items">
+          <thead><tr><th>Descripción</th><th class="num">Cant.</th><th class="num">Precio ₡</th><th class="num">Subtotal</th><th><span class="sr">Quitar</span></th></tr></thead>
+          <tbody id="itemsVenta"></tbody>
+          <tfoot><tr><th colspan="3">Total</th><td class="num" id="ventaTotal"></td><td></td></tr></tfoot>
+        </table>
+      </div>
+      <div class="items-acc" id="itemsAcc">
+        <label class="sr" for="agregarItemSel">Agregar del catálogo</label>
+        <select id="agregarItemSel"><option value="">Agregar del catálogo…</option></select>
+        <button type="button" class="btn btn--sm btn--linea" id="btnItemLibre">Agregar renglón libre</button>
+      </div>
+      <p class="ayuda" id="itemsBloqueo" hidden>Los productos ya no se pueden cambiar porque la venta tiene pagos verificados o está cerrada.</p>
+
+      <div class="venta__guardar">
+        <button type="button" class="btn btn--rojo" id="btnGuardarVenta">Guardar venta</button>
+        <button type="button" class="btn btn--wa" id="btnCobrarWa">Enviar cobro por WhatsApp</button>
+      </div>
+      <p class="msg msg--error" id="ventaMsg" role="alert"></p>
+
+      <h3 class="subt">Pagos <span class="saldo" id="ventaSaldo"></span></h3>
+      <ul class="pagos" id="pagosVenta"></ul>
+
+      <details class="tarjeta registrar" id="boxPago">
+        <summary>Registrar un pago</summary>
+        <form id="formPago" class="registrar__form">
+          <div class="pegar">
+            <label>Pegue aquí el mensaje o notificación del banco (opcional)
+              <textarea id="txtBanco" rows="2" maxlength="600" placeholder="Ej: Ha recibido ₡45.000,00 de MARIA PEREZ por SINPE Movil. Ref: 2026112012345678"></textarea></label>
+            <button type="button" class="btn btn--sm btn--linea" id="btnLeerBanco">Leer datos del mensaje</button>
+          </div>
+          <div class="dos">
+            <label>Forma de pago
+              <select name="metodo">
+                <option value="sinpe">SINPE Móvil</option>
+                <option value="efectivo">Efectivo</option>
+                <option value="transferencia">Transferencia</option>
+                <option value="tarjeta">Tarjeta</option>
+              </select></label>
+            <label>Monto ₡<input name="monto" type="number" min="1" step="0.01" required /></label>
+          </div>
+          <label>Número de comprobante / referencia<input name="referencia" maxlength="40" pattern="[0-9A-Za-z\-]{4,40}" autocomplete="off" /></label>
+          <div class="dos">
+            <label>Teléfono que pagó<input name="telefono_origen" inputmode="tel" maxlength="20" /></label>
+            <label>Nombre que pagó<input name="nombre_origen" maxlength="100" /></label>
+          </div>
+          <div class="dos">
+            <label>Fecha y hora del pago<input name="fecha" type="datetime-local" required /></label>
+            <label>Foto del comprobante<input name="comprobante" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" /></label>
+          </div>
+          <label class="check check--fuerte"><input type="checkbox" name="verificado" /> Ya vi este dinero en la app del banco</label>
+          <p class="ayuda">Si no lo ha visto en el banco, déjelo sin marcar: la venta queda “por verificar” hasta que lo confirme.</p>
+          <p class="msg msg--error" id="pagoMsg" role="alert"></p>
+          <button class="btn btn--rojo" type="submit" id="btnGuardarPago">Registrar pago</button>
+        </form>
+      </details>
+
+      <div class="venta__cierre">
+        <button type="button" class="btn btn--linea" id="btnEntregar">Marcar como entregada</button>
+        <button type="button" class="enlace enlace--peligro" id="btnAnularVenta">Anular venta</button>
+        <button type="button" class="enlace enlace--peligro" id="btnBorrarVenta" hidden>Borrar venta vacía</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="aviso-toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="assets/vendor/supabase-2.119.2.js"></script>
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="es-CR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://*.supabase.co; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-src https://www.google.com https://maps.google.com; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
+  <!-- Demo: quitar "noindex" cuando el dueño apruebe el sitio -->
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Almacén La Campiña — Materiales y ferretería en Cariari, Pococí</title>
+  <meta name="description" content="Materiales de construcción, ferretería, mascotas y pesca en Barrio San Marcos, Cariari. Arme su lista y cotice por WhatsApp al 8736-5733." />
+  <meta name="theme-color" content="#18432A" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Almacén La Campiña — Construyendo sueños" />
+  <meta property="og:description" content="Arme su lista de materiales y cotícela por WhatsApp. Barrio San Marcos, Cariari de Pococí." />
+  <meta property="og:image" content="assets/img/logo.png" />
+  <link rel="icon" href="assets/img/emblema.png" />
+  <link rel="preload" href="assets/fonts/barlow-condensed-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="stylesheet" href="assets/css/styles.css" />
+</head>
+<body>
+  <a class="skip" href="#catalogo">Saltar al catálogo</a>
+  <p id="aviso" class="aviso" hidden></p>
+
+  <header class="top">
+    <div class="wrap top__in">
+      <a href="#" class="marca" aria-label="Almacén La Campiña, inicio">
+        <img src="assets/img/emblema.png" alt="" width="44" height="44" />
+        <span class="marca__txt">Almacén<br /><b>La Campiña</b></span>
+      </a>
+      <nav class="top__nav" aria-label="Secciones">
+        <a href="#catalogo">Catálogo</a>
+        <a href="#visitenos">Cómo llegar</a>
+        <a class="top__tel" href="#" data-tel>Llamar</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- HERO -->
+    <section class="hero">
+      <div class="wrap hero__in">
+        <div class="hero__txt">
+          <h1>Todo para construir y reparar, a la vuelta en Cariari.</h1>
+          <p class="hero__lead">Materiales, ferretería, mascotas y pesca. Arme su lista aquí, mándela por WhatsApp y le respondemos con precios.</p>
+          <form class="buscador" role="search" id="buscadorHero">
+            <label class="sr" for="qHero">Buscar en el catálogo</label>
+            <input id="qHero" type="search" placeholder="¿Qué anda buscando? Cemento, varilla, alimento…" autocomplete="off" maxlength="60" />
+            <button class="btn btn--amarillo" type="submit">Buscar</button>
+          </form>
+          <p class="estado" id="estado" aria-live="polite"></p>
+        </div>
+        <figure class="hero__sello">
+          <img src="assets/img/logo.png" alt="Logo de Almacén La Campiña: Construyendo sueños" width="405" height="350" />
+        </figure>
+      </div>
+      <div class="cinta" aria-hidden="true"></div>
+    </section>
+
+    <!-- CATÁLOGO + LISTA -->
+    <section id="catalogo" class="catalogo">
+      <div class="wrap catalogo__grid">
+        <div class="catalogo__main">
+          <div class="catalogo__head">
+            <h2>Catálogo</h2>
+            <p class="muted">Precios de referencia. Si no lo ve, igual pregúntenos: tenemos más de lo que cabe aquí.</p>
+          </div>
+
+          <div class="filtros" role="toolbar" aria-label="Categorías">
+            <div id="chips" class="chips"></div>
+          </div>
+          <label class="sr" for="q">Buscar producto</label>
+          <input id="q" class="campo-buscar" type="search" placeholder="Filtrar por nombre…" autocomplete="off" maxlength="60" />
+
+          <ul id="lista" class="productos" aria-live="polite" aria-busy="true">
+            <li class="prod prod--skel"></li><li class="prod prod--skel"></li><li class="prod prod--skel"></li>
+          </ul>
+          <div id="vacio" class="vacio" hidden>
+            <p><strong>No aparece en el catálogo.</strong> Escríbalo en su lista como “otro producto” y se lo cotizamos igual.</p>
+            <button class="btn btn--linea" id="btnAgregarLibre" type="button">Agregarlo a mi lista</button>
+          </div>
+        </div>
+
+        <!-- PROFORMA -->
+        <aside class="proforma-wrap" id="proformaWrap" aria-labelledby="proformaTitulo">
+          <div class="proforma" id="proforma" role="dialog" aria-modal="false">
+            <div class="proforma__perfo" aria-hidden="true"></div>
+            <header class="proforma__head">
+              <div>
+                <h2 id="proformaTitulo">Mi lista</h2>
+                <p class="proforma__sub">Para cotizar en Almacén La Campiña</p>
+              </div>
+              <span class="proforma__num" id="proformaNum" aria-label="Número de lista"></span>
+              <button class="proforma__cerrar" id="btnCerrarLista" type="button" aria-label="Cerrar lista">✕</button>
+            </header>
+
+            <ol class="renglones" id="renglones"></ol>
+            <p class="proforma__vacia" id="listaVacia">Toque <b>Agregar</b> en los productos que necesite. También puede escribir aquí lo que no esté en el catálogo.</p>
+
+            <form id="formLibre" class="libre">
+              <label class="sr" for="libreTxt">Otro producto</label>
+              <input id="libreTxt" maxlength="80" placeholder="Otro producto (ej. 2 galones de pintura blanca)" autocomplete="off" />
+              <button class="btn btn--linea btn--sm" type="submit">Añadir</button>
+            </form>
+
+            <form id="formEnviar" class="enviar" novalidate>
+              <div class="enviar__fila">
+                <label>Su nombre<input name="nombre" required minlength="2" maxlength="80" autocomplete="name" /></label>
+                <label>Teléfono<input name="telefono" required inputmode="tel" maxlength="20" placeholder="8888-8888" autocomplete="tel" /></label>
+              </div>
+              <label>Nota (opcional)<textarea name="detalle" rows="2" maxlength="500" placeholder="Ej: lo recojo el sábado en la mañana"></textarea></label>
+              <!-- trampa para bots: los humanos no la ven -->
+              <div class="hp" aria-hidden="true"><label>Empresa<input name="empresa" tabindex="-1" autocomplete="off" /></label></div>
+              <p class="enviar__error" id="enviarError" role="alert"></p>
+              <button class="btn btn--wa btn--full" type="submit" id="btnEnviar">Enviar lista por WhatsApp</button>
+              <p class="enviar__nota">Se abre WhatsApp con el pedido ya escrito para el <span class="nw" data-wa-num></span>. Le respondemos con el total y un código para pagar por SINPE Móvil.</p>
+            </form>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- VISÍTENOS -->
+    <section id="visitenos" class="visita">
+      <div class="wrap visita__grid">
+        <div class="visita__txt">
+          <h2>Visítenos</h2>
+          <p class="visita__dir" data-dir></p>
+          <table class="horario" id="tablaHorario" hidden>
+            <caption class="sr">Horario de atención</caption>
+            <tbody></tbody>
+          </table>
+          <p class="muted" id="horarioTexto"></p>
+          <div class="acciones">
+            <a class="btn btn--rojo" id="btnLlegar" href="#" target="_blank" rel="noopener noreferrer">Abrir en Google Maps</a>
+            <a class="btn btn--linea" href="#" data-tel>Llamar al <span data-tel-num></span></a>
+          </div>
+          <ul class="contactos">
+            <li>WhatsApp <a href="#" data-wa target="_blank" rel="noopener noreferrer"><span data-wa-num></span></a></li>
+            <li id="liTel2">Otro número <span data-tel2></span></li>
+            <li id="liSinpe" hidden>SINPE Móvil <span data-sinpe></span></li>
+            <li>Facebook <a href="#" id="lnkFb" target="_blank" rel="noopener noreferrer">Almacén La Campiña</a></li>
+          </ul>
+        </div>
+        <div class="visita__mapa">
+          <iframe id="mapa" title="Mapa de Almacén La Campiña en Cariari" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="pie">
+    <div class="wrap pie__in">
+      <p><b>Almacén La Campiña</b> — Construyendo sueños en Cariari de Pococí.</p>
+      <p class="muted-claro">© <span id="anio"></span></p>
+    </div>
+  </footer>
+
+  <!-- Barra de acciones (móvil) -->
+  <nav class="barra" aria-label="Acciones rápidas">
+    <a href="#" data-tel class="barra__btn">Llamar</a>
+    <a href="#" data-wa target="_blank" rel="noopener noreferrer" class="barra__btn">WhatsApp</a>
+    <button type="button" class="barra__btn barra__lista" id="btnAbrirLista" aria-controls="proforma" aria-expanded="false">
+      Mi lista <span class="contador" id="contador">0</span>
+    </button>
+  </nav>
+  <div class="velo" id="velo" hidden></div>
+  <div class="aviso-toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="assets/vendor/supabase-2.119.2.js"></script>
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/app.js"></script>
+</body>
+</html>
