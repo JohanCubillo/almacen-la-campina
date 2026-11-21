@@ -41,10 +41,21 @@ window.U = {
     } catch { return fallback; }
   },
   soloDigitos(s) { return String(s ?? "").replace(/\D/g, ""); },
+  fmtTel(n) {
+    const d = String(n ?? "").replace(/\D/g, "").replace(/^506(?=\d{8}$)/, "");
+    return d.length === 8 ? `${d.slice(0, 4)}-${d.slice(4)}` : String(n ?? "");
+  },
   colones(n) {
     if (n === null || n === undefined || n === "") return null;
     return "₡" + Number(n).toLocaleString("es-CR", { maximumFractionDigits: 2 });
   },
+  normalizarCodigo(c) { return String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12); },
+  waLink(numero, msg) {
+    const n = String(numero || window.APP_CONFIG.WHATSAPP).replace(/\D/g, "");
+    return `https://wa.me/${n}${msg ? "?text=" + encodeURIComponent(msg) : ""}`;
+  },
+  abrir(url) { const w = window.open(url, "_blank"); if (w) w.opener = null; else location.href = url; },
+
   DIAS: ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"],
   // horario_semana: {"1":["07:00","17:00"], "0":null, ...}
   parseHorario(txt) {
@@ -70,5 +81,77 @@ window.U = {
     const parts = Object.fromEntries(f.formatToParts(new Date()).map((p) => [p.type, p.value]));
     const dia = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(parts.weekday);
     return { dia, min: Number(parts.hour) * 60 + Number(parts.minute) };
+  },
+
+  // ---------- pedidos guardados en este aparato ----------
+  pedidosLocales() {
+    try {
+      const l = JSON.parse(localStorage.getItem("lc_pedidos_v1") || "[]");
+      return Array.isArray(l) ? l.filter((p) => p && /^LC[A-Z0-9]{5,8}$/.test(p.codigo) && typeof p.tel === "string").slice(0, 10) : [];
+    } catch { return []; }
+  },
+  guardarPedidoLocal(codigo, tel) {
+    try {
+      const l = U.pedidosLocales().filter((p) => p.codigo !== codigo);
+      l.unshift({ codigo, tel: String(tel).slice(0, 20), fecha: new Date().toISOString() });
+      localStorage.setItem("lc_pedidos_v1", JSON.stringify(l.slice(0, 10)));
+    } catch { /* sin almacenamiento */ }
+  },
+
+  // ---------- imágenes ----------
+  // Reescala y re-codifica (también elimina datos EXIF/GPS). Devuelve un Blob.
+  comprimirImagen(file, max = 1600, tipo = "image/jpeg", calidad = 0.85) {
+    return new Promise((res, rej) => {
+      const img = new Image(), src = URL.createObjectURL(file);
+      img.onload = () => {
+        const k = Math.min(1, max / Math.max(img.width, img.height));
+        const cv = document.createElement("canvas");
+        cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+        const ctx = cv.getContext("2d");
+        ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, cv.width, cv.height);
+        ctx.drawImage(img, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(src);
+        cv.toBlob((b) => (b ? res(b) : rej(new Error("No se pudo procesar la imagen."))), tipo, calidad);
+      };
+      img.onerror = () => { URL.revokeObjectURL(src); rej(new Error("El archivo no es una imagen válida.")); };
+      img.src = src;
+    });
+  },
+
+  // Sube el comprobante de un pedido (cliente sin cuenta): pide permiso, sube y avisa.
+  // Devuelve el File listo para compartir por WhatsApp.
+  async subirComprobanteCliente(codigo, tel, file, extra = {}) {
+    if (!window.db) throw new Error("La tienda en línea no está conectada.");
+    const esPdf = file.type === "application/pdf";
+    if (!esPdf && !/^image\//.test(file.type)) throw new Error("Adjunte una foto o un PDF del comprobante.");
+    if (file.size > 20 * 1024 * 1024) throw new Error("El archivo es muy pesado.");
+    const blob = esPdf ? file : await U.comprimirImagen(file);
+    if (blob.size > 5 * 1024 * 1024) throw new Error("El comprobante pesa más de 5 MB. Envíe una foto más liviana.");
+    const ext = esPdf ? "pdf" : "jpg";
+
+    const s = await db.rpc("solicitar_subida", { p_codigo: codigo, p_telefono: tel, p_ext: ext });
+    if (s.error) throw new Error("No se pudo preparar la subida. Intente de nuevo.");
+    if (!s.data?.ok) throw new Error(s.data?.error || "No se pudo preparar la subida.");
+
+    const up = await db.storage.from("comprobantes").upload(s.data.ruta, blob, { contentType: esPdf ? "application/pdf" : "image/jpeg", upsert: false });
+    if (up.error) throw new Error("No se pudo subir el archivo. Revise su conexión e intente de nuevo.");
+
+    const monto = Number(extra.monto) > 0 ? Number(extra.monto) : null;
+    const r = await db.rpc("reportar_comprobante", {
+      p_codigo: codigo, p_telefono: tel, p_ruta: s.data.ruta,
+      p_monto: monto, p_referencia: extra.referencia || null, p_nota: extra.nota || null
+    });
+    if (r.error) throw new Error("El archivo se subió pero no se pudo registrar. Intente de nuevo.");
+    if (!r.data?.ok) throw new Error(r.data?.error || "No se pudo registrar el comprobante.");
+    return new File([blob], `comprobante-${codigo}.${ext}`, { type: blob.type || (esPdf ? "application/pdf" : "image/jpeg") });
+  },
+
+  // Compartir archivo + texto (abre el menú del celular; el cliente elige el chat del almacén)
+  puedeCompartirArchivo(file) {
+    try { return !!(file && navigator.canShare && navigator.canShare({ files: [file] })); } catch { return false; }
+  },
+  async compartir(file, texto) {
+    try { await navigator.share({ files: [file], text: texto }); return true; }
+    catch (e) { return e && e.name === "AbortError" ? false : null; }
   }
 };

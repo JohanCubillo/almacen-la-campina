@@ -1,0 +1,52 @@
+/* Página "Mi pedido" */
+.pag-pedido { background: var(--fondo-2); }
+.mp { padding: 2.5rem 0 4rem; }
+.mp h1 { font-size: clamp(2.4rem, 5vw, 3.4rem); margin-bottom: 1.25rem; }
+.mp__buscar { display: grid; grid-template-columns: 1fr 1fr auto; gap: .75rem; align-items: end; max-width: 760px; background: #fff; border: 1px solid var(--borde); border-radius: 8px; padding: 1rem; }
+.mp__buscar label { display: grid; gap: .3rem; font-weight: 600; font-size: .92rem; color: var(--gris); }
+.mp__buscar input { font: inherit; padding: .65em .8em; border: 1px solid var(--borde); border-radius: 6px; min-height: 48px; }
+.mp__buscar input:focus { outline: 2px solid var(--cinta); border-color: var(--negro); }
+.mp__buscar input[name=codigo] { font-family: var(--cond); font-weight: 700; font-size: 1.25rem; letter-spacing: .06em; text-transform: uppercase; }
+.mp__buscar .enviar__error { grid-column: 1 / -1; }
+.mp__recientes { margin: 1rem 0 0; }
+.mp__recientes p { margin: 0 0 .4rem; color: var(--gris); font-size: .92rem; }
+.mp__recientes .chips { flex-wrap: wrap; width: auto; }
+
+.mp__res { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 1.5rem; margin-top: 2rem; align-items: start; }
+.mp__ticket { position: relative; max-height: none; }
+.mp__estado { margin: .9rem 0; padding: .6em .8em; border-radius: 4px; font-weight: 700; background: var(--fondo-2); }
+.mp__estado[data-tono="amarillo"] { background: #FFF3C4; }
+.mp__estado[data-tono="ok"] { background: var(--negro); color: #fff; }
+.mp__items { width: 100%; border-collapse: collapse; font-size: .95rem; }
+.mp__items th, .mp__items td { text-align: left; padding: .5em .3em; border-bottom: 1px solid var(--renglon); vertical-align: top; }
+.mp__items thead th { font-size: .8rem; color: var(--gris); }
+.mp__items .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mp__items tfoot th { text-align: right; font-family: var(--cond); font-size: 1.2rem; border: 0; }
+.mp__items tfoot td { font-family: var(--cond); font-weight: 800; font-size: 1.45rem; border: 0; }
+.mp__items tfoot td small { display: block; font-family: var(--base); font-weight: 600; font-size: .78rem; color: var(--gris); white-space: normal; }
+.mp__res, .mp__ticket, .mp__lado { min-width: 0; }
+.mp__nota:empty { display: none; }
+
+.mp__lado { display: grid; gap: 1rem; }
+.mp__caja { background: #fff; border: 1px solid var(--borde); border-radius: 8px; padding: 1.2rem; }
+.mp__caja h2 { font-size: 1.6rem; margin-bottom: .6rem; }
+.mp__caja p { margin: 0; }
+.mp__comps { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; }
+.mp__comps li { padding: .55em .7em; border-radius: 4px; background: var(--fondo-2); font-size: .95rem; }
+.mp__comps li[data-estado="nuevo"] { background: #FFF3C4; }
+.mp__comps li[data-estado="registrado"] { background: var(--negro); color: #fff; }
+
+@media (max-width: 860px) {
+  .mp__res { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .mp__buscar { grid-template-columns: 1fr; }
+  .mp__items { font-size: .86rem; }
+  .mp__items td.num, .mp__items th.num { white-space: normal; }
+}
+
+/* En esta página la proforma es un comprobante fijo, no el carrito deslizable */
+.pag-pedido { padding-bottom: 0; }
+.pag-pedido .proforma { position: relative; left: auto; right: auto; bottom: auto; z-index: auto; transform: none; visibility: visible; max-height: none; overflow: visible; border-radius: 2px; }
+.pag-pedido .proforma__num { display: inline-block; }
+.pag-pedido .proforma__perfo { display: block; }

@@ -87,8 +87,7 @@
     </header>
 
     <nav class="pestanas wrap" role="tablist" aria-label="Secciones del panel">
-      <button role="tab" class="pestana" aria-selected="true" aria-controls="tCot" id="tabCot">Cotizaciones <span class="badge" id="badgeCot" hidden></span></button>
-      <button role="tab" class="pestana" aria-selected="false" aria-controls="tVen" id="tabVen">Ventas</button>
+      <button role="tab" class="pestana" aria-selected="true" aria-controls="tVen" id="tabVen">Pedidos y ventas <span class="badge" id="badgeVen" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCaja" id="tabCaja">Caja SINPE <span class="badge badge--amarillo" id="badgeCaja" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tProd" id="tabProd">Productos</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCat" id="tabCat">Categorías</button>
@@ -96,22 +95,10 @@
     </nav>
 
     <main class="wrap panel">
-      <!-- COTIZACIONES -->
-      <section id="tCot" role="tabpanel" aria-labelledby="tabCot">
-        <div class="barra-herr">
-          <h2>Cotizaciones</h2>
-          <div class="barra-herr__der">
-            <label class="check"><input type="checkbox" id="verAtendidas" /> Ver también las atendidas</label>
-            <button type="button" class="btn btn--sm btn--linea" id="btnRecargarCot">Actualizar</button>
-          </div>
-        </div>
-        <div id="listaCot" class="cots"></div>
-      </section>
-
       <!-- VENTAS -->
-      <section id="tVen" role="tabpanel" aria-labelledby="tabVen" hidden>
+      <section id="tVen" role="tabpanel" aria-labelledby="tabVen">
         <div class="barra-herr">
-          <h2>Ventas</h2>
+          <h2>Pedidos y ventas</h2>
           <div class="barra-herr__der">
             <input id="vBuscar" type="search" placeholder="Código o cliente…" maxlength="40" aria-label="Buscar venta" />
             <button type="button" class="btn btn--negro btn--sm" id="btnNuevaVenta">Nueva venta</button>
@@ -119,7 +106,8 @@
         </div>
         <dl class="cifras" id="cifrasVentas"></dl>
         <div class="segmentos" role="radiogroup" aria-label="Filtrar ventas" id="filtroVentas">
-          <button type="button" role="radio" aria-checked="true" data-f="cobrar">Por cobrar</button>
+          <button type="button" role="radio" aria-checked="true" data-f="nuevos">Nuevos <span class="badge" id="badgeNuevos" hidden></span></button>
+          <button type="button" role="radio" aria-checked="false" data-f="cobrar">Por cobrar</button>
           <button type="button" role="radio" aria-checked="false" data-f="por_verificar">Por verificar</button>
           <button type="button" role="radio" aria-checked="false" data-f="entregar">Pagadas sin entregar</button>
           <button type="button" role="radio" aria-checked="false" data-f="todas">Todas</button>
@@ -161,7 +149,6 @@
         <div class="barra-herr"><h2>Categorías</h2></div>
         <form id="formCat" class="tarjeta form-linea">
           <input type="hidden" name="id" />
-          <label class="w-ico">Ícono<input name="icono" maxlength="4" placeholder="🧱" /></label>
           <label class="crece">Nombre<input name="nombre" required minlength="2" maxlength="60" /></label>
           <label class="w-num">Orden<input name="orden" type="number" value="0" min="0" max="999" /></label>
           <div class="form-linea__btns">
@@ -283,6 +270,11 @@
       </div>
       <p class="msg msg--error" id="ventaMsg" role="alert"></p>
 
+      <section id="boxCompCliente" hidden>
+        <h3 class="subt">Comprobantes enviados por el cliente</h3>
+        <ul class="pagos" id="compCliente"></ul>
+      </section>
+
       <h3 class="subt">Pagos <span class="saldo" id="ventaSaldo"></span></h3>
       <ul class="pagos" id="pagosVenta"></ul>
 
@@ -315,6 +307,7 @@
           </div>
           <label class="check check--fuerte"><input type="checkbox" name="verificado" /> Ya vi este dinero en la app del banco</label>
           <p class="ayuda">Si no lo ha visto en el banco, déjelo sin marcar: la venta queda “por verificar” hasta que lo confirme.</p>
+          <p class="aviso-comp" id="avisoComp" hidden>Se va a registrar con el comprobante que envió el cliente.</p>
           <p class="msg msg--error" id="pagoMsg" role="alert"></p>
           <button class="btn btn--negro" type="submit" id="btnGuardarPago">Registrar pago</button>
         </form>

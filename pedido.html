@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es-CR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://*.supabase.co; font-src 'self'; connect-src 'self' https://*.supabase.co wss://*.supabase.co; frame-src 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests" />
+  <meta name="referrer" content="no-referrer" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Mi pedido — Almacén La Campiña</title>
+  <meta name="theme-color" content="#000000" />
+  <link rel="icon" href="assets/img/emblema.png" />
+  <link rel="stylesheet" href="assets/css/styles.css" />
+  <link rel="stylesheet" href="assets/css/pedido.css" />
+</head>
+<body class="pag-pedido">
+  <header class="top">
+    <div class="wrap top__in">
+      <a href="./" class="marca" aria-label="Almacén La Campiña, inicio">
+        <img src="assets/img/emblema.png" alt="" width="44" height="44" />
+        <span class="marca__txt">Almacén<br /><b>La Campiña</b></span>
+      </a>
+      <nav class="top__nav" aria-label="Secciones">
+        <a href="./#catalogo">Catálogo</a>
+        <a class="top__tel" href="./">Volver a la tienda</a>
+      </nav>
+    </div>
+  </header>
+  <div class="cinta" aria-hidden="true"></div>
+
+  <main class="wrap mp">
+    <h1>Mi pedido</h1>
+
+    <form id="formBuscar" class="mp__buscar" novalidate>
+      <label>Código del pedido<input name="codigo" required maxlength="12" autocomplete="off" autocapitalize="characters" placeholder="LC…" /></label>
+      <label>Teléfono del pedido<input name="telefono" required inputmode="tel" maxlength="20" placeholder="8888-8888" autocomplete="tel" /></label>
+      <button class="btn btn--negro" type="submit" id="btnBuscar">Ver pedido</button>
+      <p class="enviar__error" id="buscarError" role="alert"></p>
+    </form>
+    <div id="recientes" class="mp__recientes" hidden>
+      <p>Pedidos hechos en este aparato:</p>
+      <div id="listaRecientes" class="chips"></div>
+    </div>
+
+    <section id="resultado" class="mp__res" hidden aria-live="polite">
+      <article class="proforma mp__ticket">
+        <div class="proforma__perfo" aria-hidden="true"></div>
+        <header class="proforma__head">
+          <div>
+            <h2 id="rCliente"></h2>
+            <p class="proforma__sub" id="rFecha"></p>
+          </div>
+          <span class="proforma__num" id="rCodigo"></span>
+        </header>
+        <p class="mp__estado" id="rEstado"></p>
+        <table class="mp__items">
+          <thead><tr><th>Cant.</th><th>Producto</th><th class="num">Precio</th><th class="num">Subtotal</th></tr></thead>
+          <tbody id="rItems"></tbody>
+          <tfoot>
+            <tr><th colspan="3">Total</th><td class="num" id="rTotal"></td></tr>
+            <tr id="filaPagado" hidden><th colspan="3">Pagado y confirmado</th><td class="num" id="rPagado"></td></tr>
+          </tfoot>
+        </table>
+        <p class="mp__nota" id="rNota"></p>
+      </article>
+
+      <div class="mp__lado">
+        <section class="mp__caja" id="cajaPagar" hidden>
+          <h2>Cómo pagar</h2>
+          <p id="rComoPagar"></p>
+        </section>
+
+        <section class="mp__caja" id="cajaComprobantes" hidden>
+          <h2>Comprobantes enviados</h2>
+          <ul id="rComprobantes" class="mp__comps"></ul>
+        </section>
+
+        <section class="mp__caja" id="cajaSubir" hidden>
+          <h2>Enviar comprobante de pago</h2>
+          <form id="formSubir" class="enviar" novalidate>
+            <label>Foto o PDF del comprobante<input name="archivo" type="file" accept="image/*,application/pdf" required /></label>
+            <div class="enviar__fila">
+              <label>Monto pagado ₡<input name="monto" type="number" min="1" step="0.01" inputmode="decimal" /></label>
+              <label>Nº de comprobante (opcional)<input name="referencia" maxlength="40" autocomplete="off" /></label>
+            </div>
+            <label>Nota (opcional)<input name="nota" maxlength="300" /></label>
+            <p class="enviar__error" id="subirError" role="alert"></p>
+            <button class="btn btn--amarillo btn--full" type="submit" id="btnSubir">Enviar comprobante</button>
+          </form>
+          <div id="subidoOk" class="listo" hidden>
+            <p class="listo__titulo">Comprobante recibido</p>
+            <p class="listo__txt">Lo revisamos en el banco y le confirmamos por WhatsApp.</p>
+            <div class="listo__acc">
+              <button type="button" class="btn btn--amarillo btn--full" id="btnCompartir" hidden>Enviarlo también por WhatsApp</button>
+              <button type="button" class="btn btn--negro btn--full" id="btnAvisar">Avisar al almacén por WhatsApp</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <footer class="pie">
+    <div class="wrap pie__in">
+      <p><b>Almacén La Campiña</b> — Construyendo sueños en Cariari de Pococí.</p>
+      <p class="muted-claro">¿Dudas? Escríbanos por <a id="lnkWa" href="#" target="_blank" rel="noopener noreferrer">WhatsApp</a>.</p>
+    </div>
+  </footer>
+  <div class="aviso-toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="assets/vendor/supabase-2.119.2.js"></script>
+  <script src="assets/js/config.js"></script>
+  <script src="assets/js/pedido.js"></script>
+</body>
+</html>

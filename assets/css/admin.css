@@ -1,5 +1,5 @@
 /* Panel — mismo sistema visual que el sitio, en clave de trabajo */
-html:not(.listo) body { visibility: hidden; }
+html:not(.panel-ok) body { visibility: hidden; }
 .adm { background: var(--fondo-2); padding-bottom: 3rem; }
 .adm .top { position: sticky; }
 
@@ -231,3 +231,6 @@ html:not(.listo) body { visibility: hidden; }
 .pestana[aria-selected="true"] { border-color: var(--cinta); box-shadow: inset 0 -3px 0 var(--negro); }
 .secreto code { border-color: var(--gris-claro); }
 .pegar { border-color: var(--gris-claro); }
+.etq--web { background: #fff; color: var(--negro); border-color: var(--negro); }
+.aviso-comp { margin: 0; background: #FFF3C4; border-left: 4px solid var(--cinta); padding: .5em .7em; font-weight: 600; }
+.fila__img { color: var(--gris-claro); }

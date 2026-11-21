@@ -7,14 +7,15 @@
     document.documentElement.replaceChildren();
     return;
   }
-  document.documentElement.classList.add("listo");
+  document.documentElement.classList.add("panel-ok");
 
   const C = window.APP_CONFIG, db = window.db, U = window.U;
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const INACTIVIDAD_MIN = 30;
 
-  let categorias = [], productos = [], cotizacionesCache = [], ajustesCache = {};
+  let categorias = [], productos = [], ajustesCache = {};
+  const SIN_FOTO = `<svg viewBox="0 0 48 48" width="28" height="28" aria-hidden="true"><rect x="7" y="11" width="34" height="26" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="21" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 35l10-9 7 6 5-4 9 7" fill="none" stroke="currentColor" stroke-width="2"/></svg>`;
   let factorPendiente = null;
 
   const VISTAS = ["vLogin", "vEnrolar", "vDesafio", "vSinPermiso", "vSinConfig", "vPanel"];
@@ -135,7 +136,9 @@
     vigilarInactividad();
     pintarDiasHorario();
     await cargarCategorias();
-    await Promise.all([cargarProductos(), cargarCotizaciones(), cargarAjustes(), contarPorVerificar()]);
+    await Promise.all([cargarProductos(), cargarAjustes(), contarPorVerificar()]);
+    await cargarVentas();
+    setInterval(() => { if (!document.hidden && !$("#dlgVenta").open) { cargarVentas(); contarPorVerificar(); } }, 60000);
   }
 
   // ---------- pestañas ----------
@@ -153,64 +156,6 @@
     n.focus(); n.click();
   });
 
-  // ---------- COTIZACIONES ----------
-  async function cargarCotizaciones() {
-    let q = db.from("cotizaciones").select("id,nombre,telefono,detalle,items,atendida,created_at").order("created_at", { ascending: false }).limit(200);
-    if (!$("#verAtendidas").checked) q = q.eq("atendida", false);
-    const { data, error } = await q;
-    if (error) return toast(errTxt(error), true);
-
-    cotizacionesCache = data;
-    const { count } = await db.from("cotizaciones").select("id", { count: "exact", head: true }).eq("atendida", false);
-    $("#badgeCot").hidden = !count;
-    $("#badgeCot").textContent = count || "";
-
-    $("#listaCot").innerHTML = data.length ? data.map((c) => {
-      const tel = U.soloDigitos(c.telefono);
-      const telWa = tel.length === 8 ? "506" + tel : tel;
-      const items = Array.isArray(c.items) ? c.items : [];
-      const wa = `https://wa.me/${telWa}?text=${encodeURIComponent(`¡Hola, ${c.nombre}! Le escribimos de ${C.NEGOCIO} por su cotización.`)}`;
-      return `<article class="cot ${c.atendida ? "cot--lista" : ""}">
-        <header class="cot__head">
-          <div><h3>${U.esc(c.nombre)}</h3><a href="tel:+${U.esc(telWa)}">${U.esc(c.telefono)}</a></div>
-          <time datetime="${U.esc(c.created_at)}">${new Date(c.created_at).toLocaleString("es-CR", { dateStyle: "medium", timeStyle: "short" })}</time>
-        </header>
-        ${items.length ? `<ol class="cot__items">${items.map((i) =>
-          `<li><b>${U.esc(Number(i.c) || 1)}</b> ${i.u ? `<small>${U.esc(i.u)}</small> ` : ""}${U.esc(i.n)}${i.id ? "" : " <small>(fuera del catálogo)</small>"}</li>`).join("")}</ol>` : ""}
-        ${c.detalle ? `<p class="cot__nota">${U.esc(c.detalle)}</p>` : ""}
-        <div class="cot__acc">
-          <button type="button" class="btn btn--negro btn--sm" data-venta-cot="${c.id}">Crear venta</button>
-          <a class="btn btn--linea btn--sm" href="${U.esc(wa)}" target="_blank" rel="noopener noreferrer">Responder por WhatsApp</a>
-          <button type="button" class="btn btn--sm btn--linea" data-at="${c.id}" data-val="${!c.atendida}">${c.atendida ? "Volver a pendiente" : "Marcar atendida"}</button>
-          <button type="button" class="enlace enlace--peligro" data-del-cot="${c.id}">Borrar</button>
-        </div>
-      </article>`;
-    }).join("") : `<p class="vacio-adm">${$("#verAtendidas").checked ? "Todavía no han llegado cotizaciones." : "No hay cotizaciones pendientes."}</p>`;
-  }
-  $("#verAtendidas").addEventListener("change", cargarCotizaciones);
-  $("#btnRecargarCot").addEventListener("click", cargarCotizaciones);
-  $("#listaCot").addEventListener("click", async (e) => {
-    const b = e.target.closest("button");
-    if (!b) return;
-    if (b.dataset.ventaCot) {
-      const c = cotizacionesCache.find((x) => x.id == b.dataset.ventaCot);
-      if (c) ventaDesdeCotizacion(c);
-      return;
-    }
-    if (b.dataset.at) {
-      const { error } = await db.from("cotizaciones").update({ atendida: b.dataset.val === "true" }).eq("id", b.dataset.at);
-      if (error) return toast(errTxt(error), true);
-      toast(b.dataset.val === "true" ? "Marcada como atendida" : "Volvió a pendientes");
-      cargarCotizaciones();
-    }
-    if (b.dataset.delCot && confirm("¿Borrar esta cotización? No se puede recuperar.")) {
-      const { error } = await db.from("cotizaciones").delete().eq("id", b.dataset.delCot);
-      if (error) return toast(errTxt(error), true);
-      toast("Cotización borrada");
-      cargarCotizaciones();
-    }
-  });
-
   // ---------- CATEGORÍAS ----------
   async function cargarCategorias() {
     const { data, error } = await db.from("categorias").select("*").order("orden");
@@ -218,7 +163,6 @@
     categorias = data;
     $("#listaCat").innerHTML = categorias.map((c) => `
       <li class="fila">
-        <span class="fila__ico" aria-hidden="true">${U.esc(c.icono || "🧰")}</span>
         <div class="fila__txt"><b>${U.esc(c.nombre)}</b><small>Orden ${Number(c.orden) || 0} · ${productos.filter((p) => p.categoria_id === c.id).length} productos</small></div>
         <div class="fila__acc">
           <button type="button" class="btn btn--sm btn--linea" data-edit-cat="${c.id}">Editar</button>
@@ -226,14 +170,13 @@
         </div>
       </li>`).join("") || `<li class="vacio-adm">Aún no hay categorías.</li>`;
     $("#formProd [name=categoria_id]").innerHTML = `<option value="">Sin categoría</option>` +
-      categorias.map((c) => `<option value="${c.id}">${U.esc(c.icono || "")} ${U.esc(c.nombre)}</option>`).join("");
+      categorias.map((c) => `<option value="${c.id}">${U.esc(c.nombre)}</option>`).join("");
   }
 
   function modoCat(c) {
     const f = $("#formCat");
     f.id.value = c?.id || "";
     f.nombre.value = c?.nombre || "";
-    f.icono.value = c?.icono || "";
     f.orden.value = c?.orden ?? 0;
     $("#btnGuardarCat").textContent = c ? "Guardar cambios" : "Agregar categoría";
     $("#btnCancelarCat").hidden = !c;
@@ -243,7 +186,7 @@
   $("#formCat").addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = e.currentTarget;
-    const d = { nombre: f.nombre.value.trim(), icono: f.icono.value.trim() || "🧰", orden: Math.max(0, parseInt(f.orden.value, 10) || 0) };
+    const d = { nombre: f.nombre.value.trim(), orden: Math.max(0, parseInt(f.orden.value, 10) || 0) };
     const { error } = f.id.value ? await db.from("categorias").update(d).eq("id", f.id.value) : await db.from("categorias").insert(d);
     if (error) return toast(errTxt(error), true);
     toast(f.id.value ? "Categoría actualizada" : "Categoría agregada");
@@ -284,7 +227,7 @@
       const c = cat(p.categoria_id);
       const url = p.imagen_url ? U.safeUrl(p.imagen_url, "") : "";
       return `<li class="fila ${p.activo ? "" : "fila--oculta"}">
-        <span class="fila__img">${url ? `<img src="${U.esc(url)}" alt="" loading="lazy" />` : `<span aria-hidden="true">${U.esc(c?.icono || "🧰")}</span>`}</span>
+        <span class="fila__img">${url ? `<img src="${U.esc(url)}" alt="" loading="lazy" />` : SIN_FOTO}</span>
         <div class="fila__txt">
           <b>${U.esc(p.nombre)}</b>
           <small>${U.esc(c?.nombre || "Sin categoría")} · ${U.colones(p.precio) ? U.esc(U.colones(p.precio)) + (p.unidad ? " por " + U.esc(p.unidad) : "") : "Precio a consultar"}</small>
@@ -500,19 +443,26 @@
   const localCRaISO = (v) => new Date(v + ":00-06:00").toISOString();   // Costa Rica no usa horario de verano
   const rangoDia = (d) => [new Date(d + "T00:00:00-06:00").toISOString(), new Date(new Date(d + "T00:00:00-06:00").getTime() + 864e5).toISOString()];
 
-  let ventas = [], filtroVenta = "cobrar";
-  let V = null;   // venta abierta: { pedido|null, items:[], pagos:[], cotizacion_id, dirty }
+  let ventas = [], filtroVenta = "nuevos", compNuevos = new Set();
+  let V = null;   // venta abierta: { pedido|null, items:[], pagos:[], comps:[], dirty }
 
   // ---------- lista de ventas ----------
   async function cargarVentas() {
     const { data, error } = await db.from("pedidos")
-      .select("id,codigo,cliente_nombre,cliente_telefono,estado,estado_pago,total,pagado_registrado,pagado_verificado,created_at")
+      .select("id,codigo,origen,revisado,cliente_nombre,cliente_telefono,estado,estado_pago,total,pagado_registrado,pagado_verificado,created_at")
       .order("created_at", { ascending: false }).limit(500);
     if (error) return toast(errTxt(error), true);
     ventas = data;
+    const cn = await db.from("comprobantes_cliente").select("pedido_id").eq("estado", "nuevo");
+    compNuevos = new Set((cn.data || []).map((r) => r.pedido_id));
+    const nuevos = ventas.filter(esNuevo).length;
+    $("#badgeVen").hidden = $("#badgeNuevos").hidden = !nuevos;
+    $("#badgeVen").textContent = $("#badgeNuevos").textContent = nuevos || "";
     pintarCifras();
     pintarVentas();
   }
+
+  const esNuevo = (v) => v.estado !== "anulada" && (!v.revisado || compNuevos.has(v.id));
 
   function pintarCifras() {
     const mes = hoyCR().slice(0, 7);
@@ -531,6 +481,7 @@
   function pintarVentas() {
     const q = $("#vBuscar").value.trim().toLowerCase();
     const pasa = {
+      nuevos: esNuevo,
       cobrar: (v) => v.estado === "abierta" && ["sin_pago", "parcial"].includes(v.estado_pago),
       por_verificar: (v) => v.estado !== "anulada" && Number(v.pagado_registrado) > Number(v.pagado_verificado),
       entregar: (v) => v.estado === "abierta" && ["pagado", "sobrepago"].includes(v.estado_pago),
@@ -545,6 +496,9 @@
           <b>${U.esc(v.cliente_nombre)}</b>
           <small>${fechaCR(v.created_at)}${v.cliente_telefono ? " · " + U.esc(v.cliente_telefono) : ""}</small>
           <span class="etiquetas">
+            ${v.origen === "web" ? '<span class="etq etq--web">Pedido web</span>' : ""}
+            ${!v.revisado && v.estado !== "anulada" ? '<span class="etq etq--rec">Nuevo</span>' : ""}
+            ${compNuevos.has(v.id) ? '<span class="etq etq--por_verificar">Comprobante nuevo</span>' : ""}
             ${v.estado === "anulada" ? '<span class="etq">Anulada</span>' : `<span class="etq etq--${v.estado_pago}">${ETQ_PAGO[v.estado_pago]}</span>`}
             ${v.estado === "entregada" ? '<span class="etq etq--ok">Entregada</span>' : ""}
           </span>
@@ -552,7 +506,7 @@
         <div class="fila__monto"><b>${fmt(v.total)}</b>${v.estado !== "anulada" && saldo > 0 ? `<small>Falta ${fmt(saldo)}</small>` : ""}</div>
         <div class="fila__acc"><button type="button" class="btn btn--sm btn--linea" data-ver-venta="${v.id}">Abrir</button></div>
       </li>`;
-    }).join("") || `<li class="vacio-adm">${filtroVenta === "todas" ? "Todavía no hay ventas. Créelas desde una cotización o con Nueva venta." : "No hay ventas en este grupo."}</li>`;
+    }).join("") || `<li class="vacio-adm">${filtroVenta === "nuevos" ? "No hay pedidos nuevos. Los pedidos que hagan los clientes en la página aparecen aquí." : filtroVenta === "todas" ? "Todavía no hay ventas." : "No hay ventas en este grupo."}</li>`;
   }
 
   $("#filtroVentas").addEventListener("click", (e) => {
@@ -567,17 +521,8 @@
   $("#btnNuevaVenta").addEventListener("click", () => abrirBorrador({ cliente_nombre: "", cliente_telefono: "", items: [] }));
 
   // ---------- abrir / borrador ----------
-  function ventaDesdeCotizacion(c) {
-    const items = (Array.isArray(c.items) ? c.items : []).map((i) => {
-      const p = i.id ? productos.find((x) => x.id === i.id) : null;
-      return { producto_id: p ? p.id : null, descripcion: String(i.n || "").slice(0, 120) + (i.u && !p ? ` (${i.u})` : ""), cantidad: Number(i.c) || 1, precio_unit: p && p.precio != null ? Number(p.precio) : 0 };
-    });
-    if (c.detalle && !items.length) items.push({ producto_id: null, descripcion: c.detalle.slice(0, 120), cantidad: 1, precio_unit: 0 });
-    abrirBorrador({ cliente_nombre: c.nombre, cliente_telefono: c.telefono, nota: c.detalle || "", items, cotizacion_id: c.id });
-  }
-
   function abrirBorrador(b) {
-    V = { pedido: null, items: b.items, pagos: [], cotizacion_id: b.cotizacion_id || null, dirty: true };
+    V = { pedido: null, items: b.items, pagos: [], comps: [], dirty: true };
     const f = $("#formVenta");
     f.cliente_nombre.value = b.cliente_nombre || "";
     f.cliente_telefono.value = b.cliente_telefono || "";
@@ -588,13 +533,17 @@
   }
 
   async function abrirVenta(id) {
-    const [p, it, pg] = await Promise.all([
+    const [p, it, pg, cc] = await Promise.all([
       db.from("pedidos").select("*").eq("id", id).single(),
       db.from("pedido_items").select("*").eq("pedido_id", id).order("id"),
-      db.from("pagos").select("*").eq("pedido_id", id).order("fecha")
+      db.from("pagos").select("*").eq("pedido_id", id).order("fecha"),
+      db.from("comprobantes_cliente").select("*").eq("pedido_id", id).order("id")
     ]);
-    if (p.error || it.error || pg.error) return toast(errTxt(p.error || it.error || pg.error), true);
-    V = { pedido: p.data, items: it.data.map((i) => ({ ...i })), pagos: pg.data, cotizacion_id: p.data.cotizacion_id, dirty: false };
+    if (p.error || it.error || pg.error || cc.error) return toast(errTxt(p.error || it.error || pg.error || cc.error), true);
+    V = { pedido: p.data, items: it.data.map((i) => ({ ...i })), pagos: pg.data, comps: cc.data, dirty: false };
+    if (!p.data.revisado) {
+      db.from("pedidos").update({ revisado: true }).eq("id", id).then(({ error }) => { if (!error) { const v = ventas.find((x) => x.id === id); if (v) v.revisado = true; } });
+    }
     const f = $("#formVenta");
     f.cliente_nombre.value = p.data.cliente_nombre;
     f.cliente_telefono.value = p.data.cliente_telefono || "";
@@ -633,6 +582,24 @@
     $("#btnCobrarWa").hidden = !p || p.estado === "anulada" || (Number(p.total) > 0 && Number(p.pagado_registrado) >= Number(p.total));
     $("#ventaMsg").textContent = "";
 
+    // comprobantes enviados por el cliente
+    const etqComp = { nuevo: '<span class="etq etq--por_verificar">Nuevo</span>', registrado: '<span class="etq etq--pagado">Registrado como pago</span>', rechazado: '<span class="etq">Rechazado</span>' };
+    $("#boxCompCliente").hidden = !(V.comps && V.comps.length);
+    $("#compCliente").innerHTML = (V.comps || []).map((c) => `<li class="pago">
+      <div class="pago__monto">${c.monto_reportado ? fmt(c.monto_reportado) : "Sin monto"}<small>según el cliente</small></div>
+      <div class="pago__datos">
+        ${c.referencia_reportada ? `<span>Comprobante <b>${U.esc(c.referencia_reportada)}</b></span>` : ""}
+        <span>${fechaCR(c.created_at)}</span>
+        <span>${etqComp[c.estado] || ""}${c.estado === "rechazado" && c.motivo_rechazo ? " " + U.esc(c.motivo_rechazo) : ""}</span>
+        ${c.nota ? `<span>Nota: ${U.esc(c.nota)}</span>` : ""}
+      </div>
+      <div class="pago__acc">
+        <button type="button" class="btn btn--sm btn--linea" data-comp="${U.esc(c.ruta)}">Ver comprobante</button>
+        ${c.estado === "nuevo" && p && p.estado !== "anulada" ? `<button type="button" class="btn btn--sm btn--negro" data-registrar-comp="${c.id}">Registrar como pago</button>
+        <button type="button" class="enlace enlace--peligro" data-rechazar-comp="${c.id}">Rechazar</button>` : ""}
+      </div>
+    </li>`).join("");
+
     // pagos
     $("#ventaSaldo").textContent = p ? `· Total ${fmt(p.total)} · Registrado ${fmt(p.pagado_registrado)} · Verificado ${fmt(p.pagado_verificado)}` : "";
     $("#pagosVenta").innerHTML = p ? (V.pagos.map(pagoHTML).join("") || `<li class="vacio-adm">Sin pagos registrados.</li>`) : `<li class="vacio-adm">Guarde la venta para registrar pagos.</li>`;
@@ -645,6 +612,9 @@
     fp.fecha.value = ahoraLocalCR();
     fp.fecha.max = ahoraLocalCR();
     fp.nombre_origen.value = "";
+    delete fp.dataset.compId; delete fp.dataset.ruta;
+    $("#avisoComp").hidden = true;
+    fp.comprobante.disabled = false;
     $("#pagoMsg").textContent = "";
 
     $("#btnEntregar").hidden = !p || cerrada;
@@ -729,10 +699,9 @@
     try {
       let id = V.pedido?.id;
       if (!id) {
-        const r = await db.from("pedidos").insert({ ...d, cotizacion_id: V.cotizacion_id }).select("id").single();
+        const r = await db.from("pedidos").insert(d).select("id").single();
         if (r.error) throw r.error;
         id = r.data.id;
-        if (V.cotizacion_id) await db.from("cotizaciones").update({ atendida: true }).eq("id", V.cotizacion_id);
       } else {
         const r = await db.from("pedidos").update(d).eq("id", id);
         if (r.error) throw r.error;
@@ -745,7 +714,6 @@
       toast("Venta guardada");
       await abrirVenta(id);
       cargarVentas();
-      if (V.cotizacion_id) cargarCotizaciones();
       return true;
     } catch (err) {
       msg.textContent = errTxt(err);
@@ -852,6 +820,7 @@
     const btn = $("#btnGuardarPago");
     btn.disabled = true; msg.textContent = "";
     try {
+      if (f.dataset.ruta) d.comprobante_path = f.dataset.ruta;
       const r = await db.from("pagos").insert(d).select("id").single();
       if (r.error) {
         if (r.error.code === "23505") {
@@ -861,7 +830,11 @@
         }
         throw r.error;
       }
-      const archivo = f.comprobante.files[0];
+      if (f.dataset.compId) {
+        const u = await db.from("comprobantes_cliente").update({ estado: "registrado", pago_id: r.data.id }).eq("id", f.dataset.compId);
+        if (u.error) toast("El pago quedó registrado, pero no se pudo marcar el comprobante del cliente: " + errTxt(u.error), true);
+      }
+      const archivo = f.dataset.ruta ? null : f.comprobante.files[0];
       if (archivo) {
         try {
           const ruta = await subirComprobante(archivo);
@@ -906,6 +879,40 @@
       if (error) return toast(errTxt(error), true);
       toast("Pago anulado");
       await abrirVenta(V.pedido.id); cargarVentas(); contarPorVerificar();
+    }
+  });
+
+  $("#compCliente").addEventListener("click", async (e) => {
+    const b = e.target.closest("button");
+    if (!b) return;
+    if (b.dataset.comp) return verComprobante(b.dataset.comp);
+    const c = (V.comps || []).find((x) => x.id == (b.dataset.registrarComp || b.dataset.rechazarComp));
+    if (!c) return;
+    if (b.dataset.registrarComp) {
+      const fp = $("#formPago");
+      $("#boxPago").open = true;
+      fp.metodo.value = "sinpe";
+      if (c.monto_reportado) fp.monto.value = c.monto_reportado;
+      fp.referencia.value = c.referencia_reportada || "";
+      fp.telefono_origen.value = V.pedido.cliente_telefono || "";
+      fp.nombre_origen.value = V.pedido.cliente_nombre || "";
+      fp.fecha.value = ahoraLocalCR();
+      fp.dataset.compId = c.id; fp.dataset.ruta = c.ruta;
+      fp.comprobante.value = ""; fp.comprobante.disabled = true;
+      $("#avisoComp").hidden = false;
+      $("#pagoMsg").className = "msg";
+      $("#pagoMsg").textContent = "Abra el comprobante, copie el número de referencia y revise el monto antes de registrar.";
+      fp.referencia.focus();
+      verComprobante(c.ruta);
+    }
+    if (b.dataset.rechazarComp) {
+      const motivo = prompt("¿Por qué se rechaza este comprobante? El cliente verá el motivo en “Mi pedido”.");
+      if (motivo === null) return;
+      if (motivo.trim().length < 5) return toast("Escriba un motivo más claro (mínimo 5 letras).", true);
+      const { error } = await db.from("comprobantes_cliente").update({ estado: "rechazado", motivo_rechazo: motivo.trim().slice(0, 300) }).eq("id", c.id);
+      if (error) return toast(errTxt(error), true);
+      toast("Comprobante rechazado");
+      await abrirVenta(V.pedido.id); cargarVentas();
     }
   });
 

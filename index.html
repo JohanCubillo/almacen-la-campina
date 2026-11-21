@@ -8,11 +8,11 @@
   <!-- Demo: quitar "noindex" cuando el dueño apruebe el sitio -->
   <meta name="robots" content="noindex, nofollow" />
   <title>Almacén La Campiña — Materiales y ferretería en Cariari, Pococí</title>
-  <meta name="description" content="Materiales de construcción, ferretería, mascotas y pesca en Barrio San Marcos, Cariari. Arme su lista y cotice por WhatsApp al 8736-5733." />
+  <meta name="description" content="Materiales de construcción, ferretería, mascotas y pesca en Barrio San Marcos, Cariari. Haga su pedido en línea y pague por SINPE Móvil." />
   <meta name="theme-color" content="#000000" />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Almacén La Campiña — Construyendo sueños" />
-  <meta property="og:description" content="Arme su lista de materiales y cotícela por WhatsApp. Barrio San Marcos, Cariari de Pococí." />
+  <meta property="og:description" content="Arme su pedido en línea y páguelo por SINPE Móvil. Barrio San Marcos, Cariari de Pococí." />
   <meta property="og:image" content="assets/img/logo.png" />
   <link rel="icon" href="assets/img/emblema.png" />
   <link rel="preload" href="assets/fonts/barlow-condensed-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin />
@@ -24,12 +24,13 @@
 
   <header class="top">
     <div class="wrap top__in">
-      <a href="#" class="marca" aria-label="Almacén La Campiña, inicio">
+      <a href="./" class="marca" aria-label="Almacén La Campiña, inicio">
         <img src="assets/img/emblema.png" alt="" width="44" height="44" />
         <span class="marca__txt">Almacén<br /><b>La Campiña</b></span>
       </a>
       <nav class="top__nav" aria-label="Secciones">
         <a href="#catalogo">Catálogo</a>
+        <a class="top__mp" href="pedido.html">Mi pedido</a>
         <a href="#visitenos">Cómo llegar</a>
         <a class="top__tel" href="#" data-tel>Llamar</a>
       </nav>
@@ -42,7 +43,7 @@
       <div class="wrap hero__in">
         <div class="hero__txt">
           <h1>Todo para construir y reparar, a la vuelta en Cariari.</h1>
-          <p class="hero__lead">Materiales, ferretería, mascotas y pesca. Arme su lista aquí, mándela por WhatsApp y le respondemos con precios.</p>
+          <p class="hero__lead">Materiales, ferretería, mascotas y pesca. Arme su pedido aquí, páguelo por SINPE Móvil y pase a recogerlo.</p>
           <form class="buscador" role="search" id="buscadorHero">
             <label class="sr" for="qHero">Buscar en el catálogo</label>
             <input id="qHero" type="search" placeholder="¿Qué anda buscando? Cemento, varilla, alimento…" autocomplete="off" maxlength="60" />
@@ -57,13 +58,13 @@
       <div class="cinta" aria-hidden="true"></div>
     </section>
 
-    <!-- CATÁLOGO + LISTA -->
+    <!-- CATÁLOGO + CARRITO -->
     <section id="catalogo" class="catalogo">
       <div class="wrap catalogo__grid">
         <div class="catalogo__main">
           <div class="catalogo__head">
             <h2>Catálogo</h2>
-            <p class="muted">Precios de referencia. Si no lo ve, igual pregúntenos: tenemos más de lo que cabe aquí.</p>
+            <p class="muted">Si no ve lo que necesita, escríbalo en el carrito y se lo cotizamos.</p>
           </div>
 
           <div class="filtros" role="toolbar" aria-label="Categorías">
@@ -73,48 +74,81 @@
           <input id="q" class="campo-buscar" type="search" placeholder="Filtrar por nombre…" autocomplete="off" maxlength="60" />
 
           <ul id="lista" class="productos" aria-live="polite" aria-busy="true">
-            <li class="prod prod--skel"></li><li class="prod prod--skel"></li><li class="prod prod--skel"></li>
+            <li class="tarjeta-prod tarjeta-prod--skel"></li><li class="tarjeta-prod tarjeta-prod--skel"></li><li class="tarjeta-prod tarjeta-prod--skel"></li>
           </ul>
           <div id="vacio" class="vacio" hidden>
-            <p><strong>No aparece en el catálogo.</strong> Escríbalo en su lista como “otro producto” y se lo cotizamos igual.</p>
-            <button class="btn btn--linea" id="btnAgregarLibre" type="button">Agregarlo a mi lista</button>
+            <p><strong>No aparece en el catálogo.</strong> Agréguelo al carrito como “otro producto” y se lo cotizamos igual.</p>
+            <button class="btn btn--linea" id="btnAgregarLibre" type="button">Agregarlo al carrito</button>
           </div>
         </div>
 
-        <!-- PROFORMA -->
+        <!-- CARRITO (proforma) -->
         <aside class="proforma-wrap" id="proformaWrap" aria-labelledby="proformaTitulo">
           <div class="proforma" id="proforma" role="dialog" aria-modal="false">
             <div class="proforma__perfo" aria-hidden="true"></div>
             <header class="proforma__head">
               <div>
-                <h2 id="proformaTitulo">Mi lista</h2>
-                <p class="proforma__sub">Para cotizar en Almacén La Campiña</p>
+                <h2 id="proformaTitulo" tabindex="-1">Carrito</h2>
+                <p class="proforma__sub">Almacén La Campiña</p>
               </div>
-              <span class="proforma__num" id="proformaNum" aria-label="Número de lista"></span>
-              <button class="proforma__cerrar" id="btnCerrarLista" type="button" aria-label="Cerrar lista">✕</button>
+              <button class="proforma__cerrar" id="btnCerrarLista" type="button" aria-label="Cerrar carrito">✕</button>
             </header>
 
-            <ol class="renglones" id="renglones"></ol>
-            <p class="proforma__vacia" id="listaVacia">Toque <b>Agregar</b> en los productos que necesite. También puede escribir aquí lo que no esté en el catálogo.</p>
+            <!-- Paso 1: armar el pedido -->
+            <div id="pasoCarrito">
+              <ol class="renglones" id="renglones"></ol>
+              <p class="proforma__vacia" id="listaVacia">Toque <b>Agregar</b> en los productos que necesite. Lo que no esté en el catálogo lo puede escribir aquí abajo.</p>
 
-            <form id="formLibre" class="libre">
-              <label class="sr" for="libreTxt">Otro producto</label>
-              <input id="libreTxt" maxlength="80" placeholder="Otro producto (ej. 2 galones de pintura blanca)" autocomplete="off" />
-              <button class="btn btn--linea btn--sm" type="submit">Añadir</button>
-            </form>
+              <form id="formLibre" class="libre">
+                <label class="sr" for="libreTxt">Otro producto</label>
+                <input id="libreTxt" maxlength="80" placeholder="Otro producto (ej. 2 galones de pintura blanca)" autocomplete="off" />
+                <button class="btn btn--linea btn--sm" type="submit">Añadir</button>
+              </form>
 
-            <form id="formEnviar" class="enviar" novalidate>
-              <div class="enviar__fila">
-                <label>Su nombre<input name="nombre" required minlength="2" maxlength="80" autocomplete="name" /></label>
-                <label>Teléfono<input name="telefono" required inputmode="tel" maxlength="20" placeholder="8888-8888" autocomplete="tel" /></label>
+              <div class="totales" id="totales" hidden>
+                <div class="totales__fila"><span>Total estimado</span><b id="totalEstimado"></b></div>
+                <p class="totales__nota" id="totalNota"></p>
               </div>
-              <label>Nota (opcional)<textarea name="detalle" rows="2" maxlength="500" placeholder="Ej: lo recojo el sábado en la mañana"></textarea></label>
-              <!-- trampa para bots: los humanos no la ven -->
-              <div class="hp" aria-hidden="true"><label>Empresa<input name="empresa" tabindex="-1" autocomplete="off" /></label></div>
-              <p class="enviar__error" id="enviarError" role="alert"></p>
-              <button class="btn btn--wa btn--full" type="submit" id="btnEnviar">Enviar lista por WhatsApp</button>
-              <p class="enviar__nota">Se abre WhatsApp con el pedido ya escrito para el <span class="nw" data-wa-num></span>. Le respondemos con el total y un código para pagar por SINPE Móvil.</p>
-            </form>
+
+              <form id="formEnviar" class="enviar" novalidate>
+                <div class="enviar__fila">
+                  <label>Su nombre<input name="nombre" required minlength="2" maxlength="80" autocomplete="name" /></label>
+                  <label>Teléfono<input name="telefono" required inputmode="tel" maxlength="20" placeholder="8888-8888" autocomplete="tel" /></label>
+                </div>
+                <label>Nota (opcional)<textarea name="detalle" rows="2" maxlength="500" placeholder="Ej: lo recojo el sábado en la mañana"></textarea></label>
+
+                <details class="pago-ya" id="pagoYa">
+                  <summary>¿Ya pagó por SINPE Móvil? Adjunte el comprobante</summary>
+                  <p class="pago-ya__info" id="sinpeInfo"></p>
+                  <label>Foto del comprobante<input name="comprobante" type="file" accept="image/*,application/pdf" /></label>
+                  <div class="enviar__fila">
+                    <label>Monto pagado ₡<input name="monto" type="number" min="1" step="0.01" inputmode="decimal" /></label>
+                    <label>Nº de comprobante (opcional)<input name="referencia" maxlength="40" autocomplete="off" /></label>
+                  </div>
+                </details>
+
+                <!-- trampa para bots: los humanos no la ven -->
+                <div class="hp" aria-hidden="true"><label>Empresa<input name="empresa" tabindex="-1" autocomplete="off" /></label></div>
+                <p class="enviar__error" id="enviarError" role="alert"></p>
+                <button class="btn btn--amarillo btn--full" type="submit" id="btnEnviar">Enviar pedido</button>
+                <p class="enviar__nota">Recibirá un código para ver su pedido y enviar el comprobante después si todavía no ha pagado.</p>
+              </form>
+            </div>
+
+            <!-- Paso 2: confirmación -->
+            <div id="pasoListo" class="listo" hidden>
+              <p class="listo__titulo">Pedido recibido</p>
+              <p class="listo__lbl">Su código</p>
+              <p class="listo__codigo" id="listoCodigo"></p>
+              <button type="button" class="enlace-btn" id="btnCopiar">Copiar código</button>
+              <p class="listo__txt" id="listoTexto"></p>
+              <div class="listo__acc">
+                <button type="button" class="btn btn--amarillo btn--full" id="btnCompartir" hidden>Enviar comprobante por WhatsApp</button>
+                <button type="button" class="btn btn--negro btn--full" id="btnAvisarWa">Avisar al almacén por WhatsApp</button>
+                <a class="btn btn--linea btn--full" id="lnkMiPedido" href="pedido.html">Ver mi pedido</a>
+                <button type="button" class="enlace-btn" id="btnOtro">Hacer otro pedido</button>
+              </div>
+            </div>
           </div>
         </aside>
       </div>
@@ -152,6 +186,7 @@
   <footer class="pie">
     <div class="wrap pie__in">
       <p><b>Almacén La Campiña</b> — Construyendo sueños en Cariari de Pococí.</p>
+      <p><a href="pedido.html">Consultar mi pedido</a></p>
       <p class="muted-claro">© <span id="anio"></span></p>
     </div>
   </footer>
@@ -161,7 +196,7 @@
     <a href="#" data-tel class="barra__btn">Llamar</a>
     <a href="#" data-wa target="_blank" rel="noopener noreferrer" class="barra__btn">WhatsApp</a>
     <button type="button" class="barra__btn barra__lista" id="btnAbrirLista" aria-controls="proforma" aria-expanded="false">
-      Mi lista <span class="contador" id="contador">0</span>
+      Carrito <span class="contador" id="contador">0</span>
     </button>
   </nav>
   <div class="velo" id="velo" hidden></div>

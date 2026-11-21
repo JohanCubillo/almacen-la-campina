@@ -3,10 +3,12 @@
 ## Lo que ya viene hecho en el código
 
 **Base de datos (Supabase / Postgres)**
-- **RLS en todas las tablas.** Los visitantes solo leen el catálogo y envían cotizaciones; no pueden leer cotizaciones, ventas, pagos ni administradores.
+- **RLS en todas las tablas.** Los visitantes solo leen el catálogo; no pueden leer pedidos, pagos, comprobantes ni administradores.
+- **Pedidos de clientes por funciones, no por tablas.** El navegador del cliente solo llama `crear_pedido_web`, `consultar_pedido`, `solicitar_subida` y `reportar_comprobante`, que validan todo, ponen los precios del catálogo y limitan abusos. El cliente se identifica con **código (8 caracteres) + teléfono**; 5 intentos fallidos bloquean ese código 15 minutos.
+- **Subida de comprobantes de clientes:** solo a la ruta exacta que autoriza el sistema (vence en 15 min, un solo uso, máx. 5 por pedido al día, 5 MB, imagen o PDF). El cliente no puede ver, listar ni borrar archivos.
 - **Admin = lista + MFA.** No basta con tener usuario: debe estar en la tabla `admins` **y** haber entrado con el código del celular (`aal2`). Un admin con solo contraseña no puede modificar nada.
-- **Privilegios por columna.** Los visitantes solo pueden enviar `nombre, telefono, detalle, items`; el admin no puede escribir totales, saldos, estados de pago ni códigos (los calcula la BD).
-- **Anti-spam** en el formulario: máx. 3 cotizaciones por teléfono cada 15 min y 15 por minuto en total, más un campo trampa para bots.
+- **Privilegios por columna.** El admin no puede escribir totales, saldos, estados de pago ni códigos (los calcula la BD).
+- **Anti-spam:** máx. 3 pedidos por teléfono cada 15 min y 15 por minuto en total, más un campo trampa para bots.
 - **Validaciones en la BD**: largos, teléfonos, URLs solo `https://` (bloquea `javascript:`), claves de ajustes permitidas, montos positivos, fechas no futuras.
 - **Fotos**: bucket `productos` público solo para lectura, máx. 2 MB, solo imágenes, sin listado de archivos. Las fotos se reescalan y re-codifican en el navegador (se eliminan datos EXIF/GPS).
 - **Comprobantes SINPE**: bucket `comprobantes` **privado**, solo admin, enlaces temporales de 2 min, no se pueden borrar ni reemplazar.
@@ -45,4 +47,4 @@
 - **Si alguien deja de trabajar en el almacén:** borrarlo de `public.admins` y de Authentication.
 
 ## Privacidad
-Las cotizaciones y ventas guardan nombre y teléfono de clientes. Usarlos solo para atender el pedido, no compartirlos, y borrar cotizaciones viejas que no se convirtieron en venta (Cotizaciones → Borrar).
+Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usarlos solo para atender el pedido y no compartirlos. Los pedidos sin pagos se pueden borrar desde el panel; los comprobantes quedan como respaldo contable.
