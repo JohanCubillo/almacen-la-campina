@@ -113,6 +113,7 @@
 
   document.addEventListener("DOMContentLoaded", async () => {
     const f = $("#formBuscar");
+    const anio = $("#anio"); if (anio) anio.textContent = new Date().getFullYear();
     const params = new URLSearchParams(location.search);
     const cod = U.normalizarCodigo(params.get("c"));
     const locales = U.pedidosLocales();

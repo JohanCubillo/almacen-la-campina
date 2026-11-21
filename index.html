@@ -8,195 +8,294 @@
   <!-- Demo: quitar "noindex" cuando el dueño apruebe el sitio -->
   <meta name="robots" content="noindex, nofollow" />
   <title>Almacén La Campiña — Materiales y ferretería en Cariari, Pococí</title>
-  <meta name="description" content="Materiales de construcción, ferretería, mascotas y pesca en Barrio San Marcos, Cariari. Haga su pedido en línea y pague por SINPE Móvil." />
+  <meta name="description" content="Materiales de construcción, herramientas, ferretería y agro en Barrio San Marcos, Cariari. Arme su pedido en línea y pague por SINPE Móvil." />
   <meta name="theme-color" content="#ffffff" />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Almacén La Campiña — Construyendo sueños" />
   <meta property="og:description" content="Arme su pedido en línea y páguelo por SINPE Móvil. Barrio San Marcos, Cariari de Pococí." />
   <meta property="og:image" content="assets/img/logo.png" />
   <link rel="icon" href="assets/img/emblema.png" />
-  <link rel="preload" href="assets/fonts/barlow-condensed-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="assets/fonts/barlow-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="assets/css/styles.css" />
 </head>
 <body>
+  <!-- Íconos (se usan con <use href="#i-…">) -->
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-buscar" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
+    <symbol id="i-carrito" viewBox="0 0 24 24"><path d="M2.5 4h2.2l2.3 10.6a1.2 1.2 0 0 0 1.2.9h9.1a1.2 1.2 0 0 0 1.2-.9L20.5 8H6"/><circle cx="9.5" cy="19.5" r="1.4"/><circle cx="17" cy="19.5" r="1.4"/></symbol>
+    <symbol id="i-recibo" viewBox="0 0 24 24"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></symbol>
+    <symbol id="i-tel" viewBox="0 0 24 24"><path d="M5.5 3.5h3l1.8 4.6-2.2 1.5a11 11 0 0 0 6.3 6.3l1.5-2.2 4.6 1.8v3a2 2 0 0 1-2.1 2A16.5 16.5 0 0 1 3.5 5.6a2 2 0 0 1 2-2.1z"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 20l1.3-3.8A8.3 8.3 0 1 1 8 18.8z"/><path d="M9 9.5c.3 2.4 2.1 4.3 4.5 5l1.3-1.2 1.7.8"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6.5-5.6-6.5-11.2a6.5 6.5 0 0 1 13 0C18.5 15.4 12 21 12 21z"/><circle cx="12" cy="9.8" r="2.3"/></symbol>
+    <symbol id="i-reloj" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-tienda" viewBox="0 0 24 24"><path d="M4 9.5L5.6 4h12.8L20 9.5"/><path d="M4 9.5h16a2.7 2.7 0 0 1-5.3 0 2.7 2.7 0 0 1-5.4 0A2.7 2.7 0 0 1 4 9.5z"/><path d="M5.5 12.5V20h13v-7.5M10 20v-4.5h4V20"/></symbol>
+    <symbol id="i-fb" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M13.2 21v-7.3h2.3l.4-2.7h-2.7V9.4c0-.8.3-1.3 1.4-1.3h1.4V5.7a17 17 0 0 0-2-.1c-2 0-3.4 1.2-3.4 3.5V11H8.4v2.7h2.2V21"/></symbol>
+    <symbol id="i-sinpe" viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2"/><path d="M10 18.5h4M9 8.5h6M9 11.5h4"/></symbol>
+    <symbol id="i-filtro" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></symbol>
+    <symbol id="i-cuadros" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1"/></symbol>
+    <symbol id="i-lista" viewBox="0 0 24 24"><rect x="4" y="5" width="4" height="4" rx="1"/><rect x="4" y="15" width="4" height="4" rx="1"/><path d="M11 7h9M11 17h9"/></symbol>
+    <symbol id="i-flecha" viewBox="0 0 24 24"><path d="M10 7l5 5-5 5"/></symbol>
+    <symbol id="i-cerrar" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+    <symbol id="i-mas" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-menos" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  </svg>
+
   <a class="skip" href="#catalogo">Saltar al catálogo</a>
   <p id="aviso" class="aviso" hidden></p>
+
+  <!-- Franja de servicio -->
+  <div class="util">
+    <div class="wrap util__in">
+      <p class="estado" id="estado" aria-live="polite"></p>
+      <p class="util__der">
+        <a href="#" data-tel><svg class="ico" aria-hidden="true"><use href="#i-tel"/></svg><span data-tel-num></span></a>
+        <a href="#" data-wa target="_blank" rel="noopener noreferrer"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg>WhatsApp <span data-wa-num></span></a>
+      </p>
+    </div>
+  </div>
 
   <header class="top">
     <div class="wrap top__in">
       <a href="./" class="marca" aria-label="Almacén La Campiña, inicio">
-        <img src="assets/img/emblema.png" alt="" width="44" height="44" />
+        <img src="assets/img/emblema.png" alt="" width="46" height="46" />
         <span class="marca__txt">Almacén<br /><b>La Campiña</b></span>
       </a>
-      <nav class="top__nav" aria-label="Secciones">
-        <a href="#catalogo">Catálogo</a>
-        <a class="top__mp" href="pedido.html">Mi pedido</a>
-        <a href="#visitenos">Cómo llegar</a>
-        <a class="top__tel" href="#" data-tel>Llamar</a>
+      <form class="buscador" role="search" id="buscador" action="./" method="get">
+        <label class="sr" for="q">Buscar en el catálogo</label>
+        <input id="q" name="q" type="search" placeholder="¿Qué está buscando?" autocomplete="off" maxlength="60" />
+        <button class="buscador__btn" type="submit" aria-label="Buscar"><svg class="ico" aria-hidden="true"><use href="#i-buscar"/></svg></button>
+      </form>
+      <nav class="top__acc" aria-label="Su pedido">
+        <a class="top__link" href="pedido.html"><svg class="ico" aria-hidden="true"><use href="#i-recibo"/></svg><span>Mi pedido</span></a>
+        <button type="button" class="top__carrito" id="btnCarrito" aria-controls="proforma" aria-expanded="false">
+          <svg class="ico" aria-hidden="true"><use href="#i-carrito"/></svg><span>Carrito</span>
+          <span class="contador" data-contador>0</span>
+        </button>
       </nav>
     </div>
   </header>
+  <div class="cinta" aria-hidden="true"></div>
 
   <main>
-    <!-- HERO -->
-    <section class="hero">
-      <div class="wrap hero__in">
-        <div class="hero__txt">
-          <h1>Todo para construir y reparar, a la vuelta en Cariari.</h1>
-          <p class="hero__lead">Materiales, ferretería, mascotas y pesca. Arme su pedido aquí, páguelo por SINPE Móvil y pase a recogerlo.</p>
-          <form class="buscador" role="search" id="buscadorHero">
-            <label class="sr" for="qHero">Buscar en el catálogo</label>
-            <input id="qHero" type="search" placeholder="¿Qué anda buscando? Cemento, varilla, alimento…" autocomplete="off" maxlength="60" />
-            <button class="btn btn--amarillo" type="submit">Buscar</button>
-          </form>
-          <p class="estado" id="estado" aria-live="polite"></p>
-        </div>
-        <figure class="hero__sello">
-          <img src="assets/img/logo.png" alt="Logo de Almacén La Campiña: Construyendo sueños" width="405" height="350" />
-        </figure>
-      </div>
-      <div class="cinta" aria-hidden="true"></div>
-    </section>
+    <!-- Promociones (se arman con los productos del catálogo) -->
+    <section class="promos wrap" id="promos" aria-label="Destacados" hidden></section>
 
-    <!-- CATÁLOGO + CARRITO -->
-    <section id="catalogo" class="catalogo">
-      <div class="wrap catalogo__grid">
-        <div class="catalogo__main">
-          <div class="catalogo__head">
-            <h2>Catálogo</h2>
-            <p class="muted">Precios aproximados: pueden variar y se confirman al revisar su pedido. Si no ve lo que necesita, escríbalo en el carrito y se lo cotizamos.</p>
-          </div>
-
-          <div class="filtros" role="toolbar" aria-label="Categorías">
-            <div id="chips" class="chips"></div>
-          </div>
-          <label class="sr" for="q">Buscar producto</label>
-          <input id="q" class="campo-buscar" type="search" placeholder="Filtrar por nombre…" autocomplete="off" maxlength="60" />
-
-          <ul id="lista" class="productos" aria-live="polite" aria-busy="true">
-            <li class="tarjeta-prod tarjeta-prod--skel"></li><li class="tarjeta-prod tarjeta-prod--skel"></li><li class="tarjeta-prod tarjeta-prod--skel"></li>
-          </ul>
-          <div id="vacio" class="vacio" hidden>
-            <p><strong>No aparece en el catálogo.</strong> Agréguelo al carrito como “otro producto” y se lo cotizamos igual.</p>
-            <button class="btn btn--linea" id="btnAgregarLibre" type="button">Agregarlo al carrito</button>
-          </div>
-        </div>
-
-        <!-- CARRITO (proforma) -->
-        <aside class="proforma-wrap" id="proformaWrap" aria-labelledby="proformaTitulo">
-          <div class="proforma" id="proforma" role="dialog" aria-modal="false">
-            <div class="proforma__perfo" aria-hidden="true"></div>
-            <header class="proforma__head">
-              <div>
-                <h2 id="proformaTitulo" tabindex="-1">Carrito</h2>
-                <p class="proforma__sub">Almacén La Campiña</p>
-              </div>
-              <button class="proforma__cerrar" id="btnCerrarLista" type="button" aria-label="Cerrar carrito">✕</button>
-            </header>
-
-            <!-- Paso 1: armar el pedido -->
-            <div id="pasoCarrito">
-              <ol class="renglones" id="renglones"></ol>
-              <p class="proforma__vacia" id="listaVacia">Toque <b>Agregar</b> en los productos que necesite. Lo que no esté en el catálogo lo puede escribir aquí abajo.</p>
-
-              <form id="formLibre" class="libre">
-                <label class="sr" for="libreTxt">Otro producto</label>
-                <input id="libreTxt" maxlength="80" placeholder="Otro producto (ej. 2 galones de pintura blanca)" autocomplete="off" />
-                <button class="btn btn--linea btn--sm" type="submit">Añadir</button>
-              </form>
-
-              <div class="totales" id="totales" hidden>
-                <div class="totales__fila"><span>Total estimado</span><b id="totalEstimado"></b></div>
-                <p class="totales__nota" id="totalNota"></p>
-              </div>
-
-              <form id="formEnviar" class="enviar" novalidate>
-                <div class="enviar__fila">
-                  <label>Su nombre<input name="nombre" required minlength="2" maxlength="80" autocomplete="name" /></label>
-                  <label>Teléfono<input name="telefono" required inputmode="tel" maxlength="20" placeholder="8888-8888" autocomplete="tel" /></label>
-                </div>
-                <label>Nota (opcional)<textarea name="detalle" rows="2" maxlength="500" placeholder="Ej: lo recojo el sábado en la mañana"></textarea></label>
-
-                <details class="pago-ya" id="pagoYa">
-                  <summary>¿Ya pagó por SINPE Móvil? Adjunte el comprobante</summary>
-                  <p class="pago-ya__info" id="sinpeInfo"></p>
-                  <label>Foto del comprobante<input name="comprobante" type="file" accept="image/*,application/pdf" /></label>
-                  <div class="enviar__fila">
-                    <label>Monto pagado ₡<input name="monto" type="number" min="1" step="0.01" inputmode="decimal" /></label>
-                    <label>Nº de comprobante (opcional)<input name="referencia" maxlength="40" autocomplete="off" /></label>
-                  </div>
-                </details>
-
-                <!-- trampa para bots: los humanos no la ven -->
-                <div class="hp" aria-hidden="true"><label>Empresa<input name="empresa" tabindex="-1" autocomplete="off" /></label></div>
-                <p class="enviar__error" id="enviarError" role="alert"></p>
-                <button class="btn btn--amarillo btn--full" type="submit" id="btnEnviar">Enviar pedido</button>
-                <p class="enviar__nota">Recibirá un código para ver su pedido y enviar el comprobante después si todavía no ha pagado.</p>
-              </form>
-            </div>
-
-            <!-- Paso 2: confirmación -->
-            <div id="pasoListo" class="listo" hidden>
-              <p class="listo__titulo">Pedido recibido</p>
-              <p class="listo__lbl">Su código</p>
-              <p class="listo__codigo" id="listoCodigo"></p>
-              <button type="button" class="enlace-btn" id="btnCopiar">Copiar código</button>
-              <p class="listo__txt" id="listoTexto"></p>
-              <div class="listo__acc">
-                <button type="button" class="btn btn--amarillo btn--full" id="btnCompartir" hidden>Enviar comprobante por WhatsApp</button>
-                <button type="button" class="btn btn--negro btn--full" id="btnAvisarWa">Avisar al almacén por WhatsApp</button>
-                <a class="btn btn--linea btn--full" id="lnkMiPedido" href="pedido.html">Ver mi pedido</a>
-                <button type="button" class="enlace-btn" id="btnOtro">Hacer otro pedido</button>
-              </div>
-            </div>
-          </div>
-        </aside>
+    <!-- Categorías -->
+    <section class="cats" aria-labelledby="catsTitulo">
+      <div class="wrap">
+        <h2 id="catsTitulo" class="titulo-centro">Explore nuestras categorías</h2>
+        <ul class="cats__fila" id="cats"></ul>
       </div>
     </section>
 
-    <!-- VISÍTENOS -->
-    <section id="visitenos" class="visita">
-      <div class="wrap visita__grid">
+    <!-- Catálogo -->
+    <section id="catalogo" class="catalogo" aria-labelledby="catTitulo">
+      <div class="wrap">
+        <div class="banda">
+          <h2 id="catTitulo" tabindex="-1">Catálogo</h2>
+          <p id="catSub">Precios aproximados: pueden variar y se confirman al revisar su pedido.</p>
+        </div>
+
+        <div class="catalogo__grid">
+          <aside class="filtros" id="filtros" aria-label="Filtros">
+            <div class="filtros__cab">
+              <p class="filtros__tit">Filtrar</p>
+              <button type="button" class="icono-btn filtros__cerrar" id="btnCerrarFiltros" aria-label="Cerrar filtros"><svg class="ico" aria-hidden="true"><use href="#i-cerrar"/></svg></button>
+            </div>
+            <details class="filtro" open>
+              <summary>Categoría <svg class="ico ico--mas" aria-hidden="true"><use href="#i-mas"/></svg><svg class="ico ico--menos" aria-hidden="true"><use href="#i-menos"/></svg></summary>
+              <div class="filtro__ops" id="filtroCat" role="radiogroup" aria-label="Categoría"></div>
+            </details>
+            <details class="filtro" open>
+              <summary>Precio <svg class="ico ico--mas" aria-hidden="true"><use href="#i-mas"/></svg><svg class="ico ico--menos" aria-hidden="true"><use href="#i-menos"/></svg></summary>
+              <div class="filtro__ops" id="filtroPrecio" role="radiogroup" aria-label="Precio">
+                <button type="button" role="radio" data-rango="" aria-checked="true">Todos</button>
+                <button type="button" role="radio" data-rango="a" aria-checked="false">Hasta ₡10 000</button>
+                <button type="button" role="radio" data-rango="b" aria-checked="false">₡10 000 a ₡50 000</button>
+                <button type="button" role="radio" data-rango="c" aria-checked="false">Más de ₡50 000</button>
+                <button type="button" role="radio" data-rango="x" aria-checked="false">Precio a consultar</button>
+              </div>
+            </details>
+            <button type="button" class="btn btn--negro btn--full filtros__ver" id="btnVerResultados">Ver productos</button>
+          </aside>
+
+          <div class="catalogo__main">
+            <div class="herr">
+              <button type="button" class="pildora" id="btnFiltros" aria-controls="filtros" aria-expanded="false"><svg class="ico" aria-hidden="true"><use href="#i-filtro"/></svg>Filtrar</button>
+              <p class="herr__n" id="conteo" aria-live="polite"></p>
+              <p class="herr__q" id="busqueda" hidden></p>
+              <label class="herr__orden"><span>Ordenar por</span>
+                <select id="orden">
+                  <option value="rel">Recomendados</option>
+                  <option value="pmen">Precio: menor a mayor</option>
+                  <option value="pmay">Precio: mayor a menor</option>
+                  <option value="nom">Nombre</option>
+                </select>
+              </label>
+              <div class="herr__vista" role="group" aria-label="Ver como">
+                <button type="button" class="icono-btn" data-vista="cuadros" aria-pressed="true" aria-label="Ver en cuadrícula"><svg class="ico" aria-hidden="true"><use href="#i-cuadros"/></svg></button>
+                <button type="button" class="icono-btn" data-vista="lista" aria-pressed="false" aria-label="Ver en lista"><svg class="ico" aria-hidden="true"><use href="#i-lista"/></svg></button>
+              </div>
+            </div>
+
+            <ul id="lista" class="productos" aria-busy="true">
+              <li class="tarjeta-prod tarjeta-prod--skel"></li><li class="tarjeta-prod tarjeta-prod--skel"></li><li class="tarjeta-prod tarjeta-prod--skel"></li><li class="tarjeta-prod tarjeta-prod--skel"></li>
+            </ul>
+            <div id="vacio" class="vacio" hidden>
+              <p><strong>No aparece en el catálogo.</strong> Agréguelo al carrito como “otro producto” y se lo cotizamos igual.</p>
+              <button class="btn btn--linea" id="btnAgregarLibre" type="button">Agregarlo al carrito</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Cómo pedir -->
+    <section class="como" aria-labelledby="comoTitulo">
+      <div class="wrap">
+        <h2 id="comoTitulo" class="titulo-centro">¿Cómo hacer su pedido?</h2>
+        <ol class="como__pasos">
+          <li><b>Arme el carrito</b>Agregue lo que necesita. Lo que no esté en el catálogo, escríbalo y se lo cotizamos.</li>
+          <li><b>Envíe el pedido</b>Recibe un código para consultarlo cuando quiera en “Mi pedido”.</li>
+          <li><b>Pague y recoja</b>Cuando le confirmemos el total, pague por SINPE Móvil y pase por el almacén.</li>
+        </ol>
+      </div>
+    </section>
+  </main>
+
+  <!-- Pie -->
+  <footer class="pie" id="visitenos">
+    <div class="wrap pie__in">
+      <div class="pie__marca">
+        <img src="assets/img/logo.png" alt="Almacén La Campiña: Construyendo sueños" width="180" height="156" loading="lazy" />
+        <p>Su aliado para construir, reparar y equipar la casa y la finca en Cariari.</p>
+      </div>
+
+      <ul class="contactos">
+        <li><a class="contacto" href="#" data-tel><svg class="ico" aria-hidden="true"><use href="#i-tel"/></svg><span><b data-tel-num></b><small>Llamar</small></span></a></li>
+        <li><a class="contacto" href="#" data-wa target="_blank" rel="noopener noreferrer"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg><span><b data-wa-num></b><small>WhatsApp</small></span></a></li>
+        <li id="liTel2"><a class="contacto" href="#" data-tel2-link><svg class="ico" aria-hidden="true"><use href="#i-tel"/></svg><span><b data-tel2></b><small>Otro número</small></span></a></li>
+        <li><a class="contacto" href="#" id="lnkFb" target="_blank" rel="noopener noreferrer"><svg class="ico" aria-hidden="true"><use href="#i-fb"/></svg><span><b>Almacén La Campiña</b><small>Facebook</small></span></a></li>
+      </ul>
+
+      <section class="visita" aria-labelledby="visitaTitulo">
         <div class="visita__txt">
-          <h2>Visítenos</h2>
+          <h2 id="visitaTitulo"><svg class="ico" aria-hidden="true"><use href="#i-pin"/></svg>Visítenos</h2>
           <p class="visita__dir" data-dir></p>
           <table class="horario" id="tablaHorario" hidden>
             <caption class="sr">Horario de atención</caption>
             <tbody></tbody>
           </table>
-          <p class="muted" id="horarioTexto"></p>
-          <div class="acciones">
-            <a class="btn btn--negro" id="btnLlegar" href="#" target="_blank" rel="noopener noreferrer">Abrir en Google Maps</a>
-            <a class="btn btn--linea" href="#" data-tel>Llamar al <span data-tel-num></span></a>
-          </div>
-          <ul class="contactos">
-            <li>WhatsApp <a href="#" data-wa target="_blank" rel="noopener noreferrer"><span data-wa-num></span></a></li>
-            <li id="liTel2">Otro número <span data-tel2></span></li>
-            <li id="liSinpe" hidden>SINPE Móvil <span data-sinpe></span></li>
-            <li>Facebook <a href="#" id="lnkFb" target="_blank" rel="noopener noreferrer">Almacén La Campiña</a></li>
-          </ul>
+          <p class="visita__horario" id="horarioTexto"></p>
+          <p class="visita__sinpe" id="liSinpe" hidden><svg class="ico" aria-hidden="true"><use href="#i-sinpe"/></svg><span>SINPE Móvil <b data-sinpe></b></span></p>
+          <a class="btn btn--amarillo btn--sm" id="btnLlegar" href="#" target="_blank" rel="noopener noreferrer">Cómo llegar</a>
         </div>
         <div class="visita__mapa">
           <iframe id="mapa" title="Mapa de Almacén La Campiña en Cariari" loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
         </div>
+      </section>
+    </div>
+    <div class="pie__base">
+      <div class="wrap pie__base-in">
+        <p>© <span id="anio"></span> Almacén La Campiña. Construyendo sueños.</p>
+        <p><a href="pedido.html">Consultar mi pedido</a></p>
       </div>
-    </section>
-  </main>
-
-  <footer class="pie">
-    <div class="wrap pie__in">
-      <p><b>Almacén La Campiña</b> — Construyendo sueños en Cariari de Pococí.</p>
-      <p><a href="pedido.html">Consultar mi pedido</a></p>
-      <p class="muted-claro">© <span id="anio"></span></p>
     </div>
   </footer>
 
-  <!-- Barra de acciones (móvil) -->
+  <!-- Carrito (panel lateral) -->
+  <aside class="proforma" id="proforma" role="dialog" aria-modal="false" aria-labelledby="proformaTitulo">
+    <header class="proforma__head">
+      <div>
+        <h2 id="proformaTitulo" tabindex="-1">Carrito</h2>
+        <p class="proforma__sub">Almacén La Campiña</p>
+      </div>
+      <button class="icono-btn" id="btnCerrarLista" type="button" aria-label="Cerrar carrito"><svg class="ico" aria-hidden="true"><use href="#i-cerrar"/></svg></button>
+    </header>
+
+    <!-- Paso 1: armar el pedido -->
+    <div id="pasoCarrito">
+      <ol class="renglones" id="renglones"></ol>
+      <p class="proforma__vacia" id="listaVacia">Toque <b>Agregar</b> en los productos que necesite. Lo que no esté en el catálogo lo puede escribir aquí abajo.</p>
+
+      <form id="formLibre" class="libre">
+        <label class="sr" for="libreTxt">Otro producto</label>
+        <input id="libreTxt" maxlength="80" placeholder="Otro producto (ej. 2 galones de pintura blanca)" autocomplete="off" />
+        <button class="btn btn--linea btn--sm" type="submit">Añadir</button>
+      </form>
+
+      <div class="totales" id="totales" hidden>
+        <div class="totales__fila"><span>Total estimado</span><b id="totalEstimado"></b></div>
+        <p class="totales__nota" id="totalNota"></p>
+      </div>
+
+      <form id="formEnviar" class="enviar" novalidate>
+        <div class="enviar__fila">
+          <label>Su nombre<input name="nombre" required minlength="2" maxlength="80" autocomplete="name" /></label>
+          <label>Teléfono<input name="telefono" required inputmode="tel" maxlength="20" placeholder="8888-8888" autocomplete="tel" /></label>
+        </div>
+        <label>Nota (opcional)<textarea name="detalle" rows="2" maxlength="500" placeholder="Ej: lo recojo el sábado en la mañana"></textarea></label>
+
+        <details class="pago-ya" id="pagoYa">
+          <summary>¿Ya pagó por SINPE Móvil? Adjunte el comprobante</summary>
+          <p class="pago-ya__info" id="sinpeInfo"></p>
+          <label>Foto del comprobante<input name="comprobante" type="file" accept="image/*,application/pdf" /></label>
+          <div class="enviar__fila">
+            <label>Monto pagado ₡<input name="monto" type="number" min="1" step="0.01" inputmode="decimal" /></label>
+            <label>Nº de comprobante (opcional)<input name="referencia" maxlength="40" autocomplete="off" /></label>
+          </div>
+        </details>
+
+        <!-- trampa para bots: los humanos no la ven -->
+        <div class="hp" aria-hidden="true"><label>Empresa<input name="empresa" tabindex="-1" autocomplete="off" /></label></div>
+        <p class="enviar__error" id="enviarError" role="alert"></p>
+        <button class="btn btn--amarillo btn--full" type="submit" id="btnEnviar">Enviar pedido</button>
+        <p class="enviar__nota">Recibirá un código para ver su pedido y enviar el comprobante después si todavía no ha pagado.</p>
+      </form>
+    </div>
+
+    <!-- Paso 2: confirmación -->
+    <div id="pasoListo" class="listo" hidden>
+      <p class="listo__titulo">Pedido recibido</p>
+      <p class="listo__lbl">Su código</p>
+      <p class="listo__codigo" id="listoCodigo"></p>
+      <button type="button" class="enlace-btn" id="btnCopiar">Copiar código</button>
+      <p class="listo__txt" id="listoTexto"></p>
+      <div class="listo__acc">
+        <button type="button" class="btn btn--amarillo btn--full" id="btnCompartir" hidden>Enviar comprobante por WhatsApp</button>
+        <button type="button" class="btn btn--negro btn--full" id="btnAvisarWa">Avisar al almacén por WhatsApp</button>
+        <a class="btn btn--linea btn--full" id="lnkMiPedido" href="pedido.html">Ver mi pedido</a>
+        <button type="button" class="enlace-btn" id="btnOtro">Hacer otro pedido</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Ficha de producto -->
+  <dialog class="ficha" id="ficha" aria-labelledby="fichaNombre">
+    <button type="button" class="icono-btn ficha__cerrar" id="btnCerrarFicha" aria-label="Cerrar"><svg class="ico" aria-hidden="true"><use href="#i-cerrar"/></svg></button>
+    <div class="ficha__foto" id="fichaFoto"></div>
+    <div class="ficha__info">
+      <p class="ficha__cat" id="fichaCat"></p>
+      <h2 id="fichaNombre"></h2>
+      <p class="ficha__meta" id="fichaMeta"></p>
+      <p class="ficha__precio" id="fichaPrecio"></p>
+      <p class="ficha__nota" id="fichaNota"></p>
+      <p class="ficha__desc" id="fichaDesc"></p>
+      <div class="ficha__retiro">
+        <svg class="ico" aria-hidden="true"><use href="#i-tienda"/></svg>
+        <p><b>Retiro en el almacén</b><span data-dir></span></p>
+      </div>
+      <div class="ficha__acc" id="fichaAcc"></div>
+      <a class="enlace-btn ficha__wa" id="fichaWa" href="#" target="_blank" rel="noopener noreferrer">Preguntar por este producto en WhatsApp</a>
+    </div>
+  </dialog>
+
+  <!-- Barra de acciones (celular) -->
   <nav class="barra" aria-label="Acciones rápidas">
-    <a href="#" data-tel class="barra__btn">Llamar</a>
-    <a href="#" data-wa target="_blank" rel="noopener noreferrer" class="barra__btn">WhatsApp</a>
+    <a href="#" data-tel class="barra__btn"><svg class="ico" aria-hidden="true"><use href="#i-tel"/></svg>Llamar</a>
+    <a href="#" data-wa target="_blank" rel="noopener noreferrer" class="barra__btn"><svg class="ico" aria-hidden="true"><use href="#i-chat"/></svg>WhatsApp</a>
     <button type="button" class="barra__btn barra__lista" id="btnAbrirLista" aria-controls="proforma" aria-expanded="false">
-      Carrito <span class="contador" id="contador">0</span>
+      Carrito <span class="contador" data-contador>0</span>
     </button>
   </nav>
   <div class="velo" id="velo" hidden></div>

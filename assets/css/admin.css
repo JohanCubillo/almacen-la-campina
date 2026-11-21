@@ -234,3 +234,60 @@ html:not(.panel-ok) body { visibility: hidden; }
 .etq--web { background: #fff; color: var(--negro); border-color: var(--negro); }
 .aviso-comp { margin: 0; background: #FFF3C4; border-left: 4px solid var(--cinta); padding: .5em .7em; font-weight: 600; }
 .fila__img { color: var(--gris-claro); }
+
+/* ============================================================
+   Estilo tienda (encabezado, pestañas en píldoras, tarjetas suaves)
+   ============================================================ */
+.adm .marca { grid-area: auto; }
+.adm .top__in { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: none; padding: 0; min-height: var(--top-h); }
+.adm .usuario { justify-self: end; gap: .6rem; }
+.adm .usuario .top__link { border-color: var(--borde); }
+.acceso { background: var(--fondo-2); }
+.acceso__caja { border-radius: 20px; box-shadow: none; padding: 2rem 1.75rem; }
+.acceso__caja h1 { font-size: 1.7rem; font-weight: 600; text-align: center; }
+.acceso__caja > p { text-align: center; }
+.adm input, .adm select, .adm textarea { border-radius: 10px; }
+.adm .top input, .barra-herr__der input[type=search] { border-radius: 99px; background: var(--fondo-2); padding-inline: 1.1em; }
+.barra-herr__der input[type=search]:focus { background: #fff; }
+
+.pestanas { margin-top: 1.25rem; padding: .4rem; gap: .3rem; background: var(--fondo-2); border: 0; border-radius: 99px; }
+.pestana { display: inline-flex; align-items: center; gap: .45em; margin: 0; padding: .55em 1.15em; border: 0; border-radius: 99px; font-family: var(--base); font-weight: 600; font-size: 1rem; color: var(--gris); }
+.pestana:hover { color: var(--negro); background: rgba(255, 255, 255, .7); }
+.pestana[aria-selected="true"] { background: var(--negro); color: #fff; box-shadow: none; }
+.pestana[aria-selected="true"] .badge { background: var(--cinta); color: var(--negro); }
+
+.panel { padding-top: 1.75rem; }
+.barra-herr h2 { font-size: 1.6rem; font-weight: 600; }
+.subt { font-family: var(--base); font-weight: 600; font-size: 1.2rem; }
+.tarjeta, .filas { border-radius: 18px; }
+.fila { padding: .9rem 1.1rem; }
+.fila__img, .fila__ico { border-radius: 12px; }
+.fila__monto b { font-family: var(--base); font-size: 1.15rem; }
+.etq { border-radius: 99px; padding: .15em .7em; }
+.cifras > div { background: var(--fondo-2); border: 0; border-radius: 16px; padding: .9rem 1.1rem; }
+.cifras dd { font-family: var(--base); font-size: 1.45rem; }
+.segmentos button { border-radius: 99px; border-width: 1.5px; }
+.dlg { border-radius: 20px; }
+.dlg__form h2, .venta__head h2 { font-size: 1.6rem; font-weight: 600; }
+.venta__codigo { border-radius: 10px; font-size: 1.6rem; }
+.items tfoot th { font-family: var(--base); font-size: 1.05rem; }
+.items tfoot td { font-family: var(--base); font-weight: 700; font-size: 1.35rem; }
+.pago { border-radius: 14px; }
+.pago__monto { font-family: var(--base); font-size: 1.15rem; }
+.registrar { border: 0; }
+.registrar summary { font-family: var(--base); font-weight: 600; font-size: 1.1rem; }
+.pegar { border-radius: 12px; }
+.check--fuerte { border-radius: 12px; }
+.ajustes legend { font-family: var(--base); font-weight: 600; font-size: 1.15rem; }
+.cerrar-x { border-radius: 50%; }
+.qr { border-radius: 14px; }
+
+@media (max-width: 900px) {
+  .adm .top__in { grid-template-columns: minmax(0, 1fr) auto; padding: .5rem 0; min-height: 64px; }
+  .adm .usuario .top__link { display: none; }
+  .pestanas { border-radius: 16px; }
+}
+@media (max-width: 600px) {
+  .adm .marca__txt { font-size: .85rem; }
+}
+.segmentos button[aria-checked="true"] .badge { background: var(--cinta); color: var(--negro); }
