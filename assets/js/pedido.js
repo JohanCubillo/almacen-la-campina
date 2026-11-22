@@ -10,9 +10,14 @@
   const fecha = (iso) => new Date(iso).toLocaleString("es-CR", { timeZone: C.ZONA_HORARIA, dateStyle: "medium", timeStyle: "short" });
 
   function textoEstado(d) {
+    const envio = d.entrega === "envio", listo = !!d.listo_at;
     if (d.estado === "anulada") return ["Pedido anulado", "gris"];
     if (d.estado === "entregada") return ["Entregado. ¡Gracias por su compra!", "ok"];
-    if (d.estado_pago === "pagado" || d.estado_pago === "sobrepago") return ["Pagado. Puede pasar a recogerlo.", "ok"];
+    if (d.estado_pago === "pagado" || d.estado_pago === "sobrepago") {
+      if (!envio) return ["Pagado. Puede pasar a recogerlo.", "ok"];
+      return [listo ? "Pagado y listo: coordinamos la entrega por WhatsApp." : "Pagado. Coordinamos el envío por WhatsApp.", "ok"];
+    }
+    if (listo) return [envio ? "Su pedido está listo para el envío. Falta el pago." : "Su pedido está listo para recoger. Falta el pago.", "amarillo"];
     const nuevos = (d.comprobantes || []).some((c) => c.estado === "nuevo");
     if (nuevos || d.estado_pago === "por_verificar") return ["Recibimos su pago: lo estamos verificando en el banco.", "amarillo"];
     if (d.precios_pendientes) return ["Estamos preparando su cotización. Le confirmamos el total por WhatsApp.", "amarillo"];
@@ -27,6 +32,10 @@
     $("#rCodigo").textContent = d.codigo;
     const [txt, tono] = textoEstado(d);
     const est = $("#rEstado"); est.textContent = txt; est.dataset.tono = tono;
+    $("#rEntrega").textContent = d.entrega === "envio" ? `Envío a domicilio${d.zona ? ": " + d.zona : ""}` : "Retiro en el almacén";
+    const fac = d.factura, etqF = { pendiente: "en trámite", enviada: "enviada a Hacienda", aceptada: "emitida y enviada a su correo", rechazada: "con un problema; le escribimos", error: "con un problema; le escribimos", anulada: "anulada" };
+    $("#rFactura").hidden = !fac;
+    if (fac) $("#rFactura").textContent = `Factura electrónica: ${etqF[fac.estado] || fac.estado}`;
 
     $("#rItems").innerHTML = d.items.map((i) => `<tr>
       <td>${U.esc(Number(i.c))}</td>

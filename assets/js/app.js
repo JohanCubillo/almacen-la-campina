@@ -27,8 +27,10 @@
   const S = {
     ajustes: {
       telefono: C.TELEFONO, whatsapp: C.WHATSAPP, telefono2: C.TELEFONO2, direccion: C.DIRECCION,
-      horario: C.HORARIO, horario_semana: "", facebook: C.FACEBOOK, aviso: "", sinpe_numero: "", sinpe_titular: ""
+      horario: C.HORARIO, horario_semana: "", facebook: C.FACEBOOK, aviso: "", sinpe_numero: "", sinpe_titular: "",
+      envio_activo: "no", envio_zonas: "", envio_nota: ""
     },
+    v4: false,          // la base ya tiene las mejoras v4 (agotado, ofertas, envío, factura)
     categorias: [], productos: [],
     cat: "", q: "", rango: "", orden: "rel", vista: "cuadros",
     lista: [],          // [{k, id, nombre, unidad, precio, cant}]
@@ -40,6 +42,16 @@
   const norm = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const waNum = () => U.soloDigitos(S.ajustes.whatsapp) || C.WHATSAPP;
   const sinpeNum = () => { const d = U.soloDigitos(S.ajustes.sinpe_numero); return d.length === 8 ? d : ""; };
+
+  // Fecha de hoy en Costa Rica (AAAA-MM-DD) para saber si una oferta sigue vigente
+  const hoyCR = () => new Intl.DateTimeFormat("en-CA", { timeZone: C.ZONA_HORARIA || "America/Costa_Rica" }).format(new Date());
+  const ofertaVigente = (p) => p.precio_oferta != null && p.precio_oferta > 0 && !!p.oferta_hasta && String(p.oferta_hasta) >= hoyCR();
+  const precioDe = (p) => (ofertaVigente(p) ? Number(p.precio_oferta) : p.precio != null ? Number(p.precio) : null);
+  const fechaCorta = (iso) => { const [y, m, d] = String(iso).split("-").map(Number); return new Date(y, m - 1, d).toLocaleDateString("es-CR", { day: "numeric", month: "short" }); };
+  const zonasEnvio = () => String(S.ajustes.envio_zonas || "").split("\n")
+    .map((l) => /^\s*([^=|:]{2,60}?)\s*[=|:]\s*₡?\s*([0-9][0-9 .,]{0,9})\s*$/.exec(l)).filter(Boolean)
+    .map((m) => ({ nombre: m[1].trim(), precio: Number(m[2].replace(/[^0-9]/g, "")) || 0 }));
+  const envioActivo = () => S.v4 && S.ajustes.envio_activo === "si" && zonasEnvio().length > 0;
 
   function toast(txt) {
     const t = $("#toast");
@@ -71,9 +83,22 @@
   function agregar(p) {
     const it = enLista(p.id);
     if (it) it.cant = Math.min(999, it.cant + 1);
-    else S.lista.push({ k: "p" + p.id, id: p.id, nombre: p.nombre, unidad: p.unidad || "", precio: p.precio ?? null, cant: 1 });
+    else S.lista.push({ k: "p" + p.id, id: p.id, nombre: p.nombre, unidad: p.unidad || "", precio: precioDe(p), cant: 1 });
     cambioCarrito();
     toast(`Agregado al carrito: ${p.nombre}`);
+  }
+  // Pone una cantidad exacta (la usa la calculadora)
+  function ponerEnCarrito(p, n) {
+    const it = enLista(p.id), cant = Math.min(999, Math.max(1, n));
+    if (it) it.cant = cant;
+    else S.lista.push({ k: "p" + p.id, id: p.id, nombre: p.nombre, unidad: p.unidad || "", precio: precioDe(p), cant });
+  }
+  function libreEnCarrito(txt, n) {
+    const nombre = txt.trim().replace(/\s+/g, " ").slice(0, 80);
+    if (nombre.length < 2) return;
+    const it = S.lista.find((i) => !i.id && i.nombre.toLowerCase() === nombre.toLowerCase());
+    if (it) { it.cant = Math.min(999, Math.max(1, n)); return; }
+    if (S.lista.length < 60) S.lista.push({ k: "l" + Date.now().toString(36) + S.lista.length, id: null, nombre, unidad: "", precio: null, cant: Math.min(999, Math.max(1, n)) });
   }
   function agregarLibre(txt) {
     const nombre = txt.trim().replace(/\s+/g, " ").slice(0, 80);
@@ -92,7 +117,7 @@
   }
   function cambioCarrito() {
     // refresca precios con el catálogo actual
-    S.lista.forEach((i) => { if (i.id) { const p = S.productos.find((x) => x.id === i.id); if (p) i.precio = p.precio ?? null; } });
+    S.lista.forEach((i) => { if (i.id) { const p = S.productos.find((x) => x.id === i.id); if (p) { i.precio = precioDe(p); i.agotado = !!p.agotado; } } });
     guardarCarrito();
     pintarCarrito();
     pintarControles();
@@ -106,12 +131,16 @@
   async function cargarDatos() {
     if (!db) { S.categorias = DEMO.categorias; S.productos = DEMO.productos; return "demo"; }
     try {
-      const [a, c, p] = await Promise.all([
+      const BASE = "id,nombre,descripcion,precio,unidad,categoria_id,imagen_url,destacado";
+      const prods = (cols) => db.from("productos").select(cols).eq("activo", true)
+        .order("destacado", { ascending: false }).order("nombre");
+      let [a, c, p] = await Promise.all([
         db.from("ajustes").select("clave,valor"),
         db.from("categorias").select("id,nombre,orden").order("orden"),
-        db.from("productos").select("id,nombre,descripcion,precio,unidad,categoria_id,imagen_url,destacado").eq("activo", true)
-          .order("destacado", { ascending: false }).order("nombre")
+        prods(BASE + ",agotado,precio_oferta,oferta_hasta")
       ]);
+      S.v4 = !p.error;
+      if (p.error) p = await prods(BASE);     // base sin la migración v4
       if (a.error || c.error || p.error) throw a.error || c.error || p.error;
       a.data.forEach((r) => { if (r.clave in S.ajustes) S.ajustes[r.clave] = r.valor ?? ""; });
       S.categorias = c.data;
@@ -213,6 +242,7 @@
       `<li><button type="button" class="cat-btn" data-cat="${U.esc(c.id)}" aria-pressed="${String(S.cat) === String(c.id)}">
         ${iconoCat(c.nombre)}<span class="cat-btn__pie"><span>${U.esc(c.nombre)}</span>${FLECHA}</span></button></li>`).join("");
     const ops = [{ id: "", nombre: "Todas", n: S.productos.length }].concat(catsConProductos().map((c) => ({ ...c, n: cuenta(c.id) })));
+    $("#filtroOfertas").hidden = !S.productos.some(ofertaVigente);
     $("#filtroCat").innerHTML = ops.map((c) =>
       `<button type="button" role="radio" data-cat="${U.esc(c.id)}" aria-checked="${String(S.cat) === String(c.id)}">${U.esc(c.nombre)}<span class="n">${c.n}</span></button>`).join("");
   }
@@ -222,20 +252,37 @@
     const cats = catsConProductos();
     const elegir = (re, usadas) => cats.find((c) => !usadas.includes(c.id) && re.test(norm(c.nombre))) || cats.find((c) => !usadas.includes(c.id));
     const usadas = [];
-    const html = [/construc/, /herramienta|electric/].map((re, i) => {
+    const ofertas = S.productos.filter(ofertaVigente).sort((a, b) => (b.precio - b.precio_oferta) / (b.precio || 1) - (a.precio - a.precio_oferta) / (a.precio || 1));
+    let tarjetaOferta = "";
+    if (ofertas.length) {
+      const o = ofertas[0], conFoto = ofertas.find((x) => x.imagen_url);
+      const fin = ofertas.map((x) => String(x.oferta_hasta)).sort()[0];
+      tarjetaOferta = `<article class="promo promo--oscura">
+        <div class="promo__txt">
+          <h3>${ofertas.length === 1 ? "Oferta" : "Ofertas"} de la semana</h3>
+          <p class="promo__sub">${U.esc(o.nombre.split(/[(,]/)[0].trim())}${ofertas.length > 1 ? ` y ${ofertas.length - 1} más` : ""}. Hasta el ${U.esc(fechaCorta(fin))}.</p>
+          <p class="promo__precio">${o.precio ? `Antes ${U.esc(U.colones(o.precio))}, ahora ` : "Ahora "}<b>${U.esc(U.colones(o.precio_oferta))}</b></p>
+          <button type="button" class="btn btn--sm" data-rango-promo="o">Ver ${ofertas.length === 1 ? "la oferta" : "las " + ofertas.length + " ofertas"}</button>
+        </div>
+        <div class="promo__foto">${conFoto ? `<img src="${U.esc(fotoDe(conFoto))}" alt="" />` : ""}</div>
+      </article>`;
+    }
+    const regexs = ofertas.length ? [/construc/] : [/construc/, /herramienta|electric/];
+    const html = tarjetaOferta + regexs.map((re, j) => {
+      const i = ofertas.length ? 1 : j;
       const c = elegir(re, usadas);
       if (!c) return "";
       usadas.push(c.id);
       const prods = S.productos.filter((p) => p.categoria_id === c.id);
       const conFoto = prods.filter((p) => p.imagen_url).sort((a, b) => (b.destacado === true) - (a.destacado === true));
-      const conPrecio = prods.filter((p) => p.precio != null && p.precio > 0).sort((a, b) => a.precio - b.precio);
+      const conPrecio = prods.filter((p) => precioDe(p) > 0).sort((a, b) => precioDe(a) - precioDe(b));
       const min = conPrecio[0];
       const nombres = prods.slice(0, 3).map((p) => p.nombre.split(/[(,]/)[0].trim());
       return `<article class="promo${i === 0 ? " promo--oscura" : ""}">
         <div class="promo__txt">
           <h3>${U.esc(c.nombre)}</h3>
           <p class="promo__sub">${U.esc(nombres.join(", "))}${prods.length > 3 ? " y más." : "."}</p>
-          ${min ? `<p class="promo__precio">Desde <b>${U.esc(U.colones(min.precio))}</b>${min.unidad ? ` por ${U.esc(min.unidad)}` : ""}</p>` : ""}
+          ${min ? `<p class="promo__precio">Desde <b>${U.esc(U.colones(precioDe(min)))}</b>${min.unidad ? ` por ${U.esc(min.unidad)}` : ""}</p>` : ""}
           <button type="button" class="btn btn--sm${i === 0 ? "" : " btn--negro"}" data-cat="${U.esc(c.id)}">Ver ${prods.length} ${prods.length === 1 ? "producto" : "productos"}</button>
         </div>
         <div class="promo__foto">${conFoto[0] ? `<img src="${U.esc(fotoDe(conFoto[0]))}" alt="" />` : ""}</div>
@@ -246,10 +293,11 @@
   }
 
   const RANGOS = {
-    a: (p) => p.precio != null && p.precio > 0 && p.precio <= 10000,
-    b: (p) => p.precio > 10000 && p.precio <= 50000,
-    c: (p) => p.precio > 50000,
-    x: (p) => p.precio == null || !(p.precio > 0)
+    o: (p) => ofertaVigente(p),
+    a: (p) => precioDe(p) > 0 && precioDe(p) <= 10000,
+    b: (p) => precioDe(p) > 10000 && precioDe(p) <= 50000,
+    c: (p) => precioDe(p) > 50000,
+    x: (p) => !(precioDe(p) > 0)
   };
   const filtrados = () => {
     const q = norm(S.q);
@@ -257,14 +305,16 @@
       (!S.cat || String(p.categoria_id) === String(S.cat)) &&
       (!S.rango || RANGOS[S.rango](p)) &&
       (!q || norm(p.nombre + " " + (p.descripcion || "") + " " + (catDe(p.categoria_id).nombre || "")).includes(q)));
-    const pr = (p, alto) => (p.precio != null && p.precio > 0 ? p.precio : alto);
+    const pr = (p, alto) => (precioDe(p) > 0 ? precioDe(p) : alto);
     if (S.orden === "pmen") l.sort((a, b) => pr(a, Infinity) - pr(b, Infinity));
     else if (S.orden === "pmay") l.sort((a, b) => pr(b, -1) - pr(a, -1));
     else if (S.orden === "nom") l.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
-    return l;
+    // lo agotado siempre al final
+    return l.sort((a, b) => (a.agotado === true) - (b.agotado === true));
   };
 
   function controlHTML(p) {
+    if (p.agotado) return `<button type="button" class="btn-agregar" disabled>Agotado por ahora</button>`;
     const it = enLista(p.id);
     if (!it) return `<button type="button" class="btn-agregar" data-add="${p.id}" aria-label="Agregar ${U.esc(p.nombre)} al carrito">Agregar al carrito</button>`;
     return `<span class="stepper" role="group" aria-label="Cantidad de ${U.esc(p.nombre)} en el carrito">
@@ -273,10 +323,10 @@
       <button type="button" data-mas="${U.esc(it.k)}" aria-label="Agregar uno">+</button></span>`;
   }
   const precioHTML = (p) => {
-    const precio = U.colones(p.precio);
-    return precio
-      ? `<p class="precio">${precio} <small>aprox.${p.unidad ? ` por ${U.esc(p.unidad)}` : ""}</small></p>`
-      : `<p class="precio precio--consultar">Precio a consultar</p>`;
+    const precio = U.colones(precioDe(p));
+    if (!precio) return `<p class="precio precio--consultar">Precio a consultar</p>`;
+    const oferta = ofertaVigente(p);
+    return `<p class="precio">${precio}${oferta && p.precio ? ` <s>${U.esc(U.colones(p.precio))}</s>` : ""} <small>aprox.${p.unidad ? ` por ${U.esc(p.unidad)}` : ""}</small>${oferta ? `<span class="precio__hasta">Oferta hasta el ${U.esc(fechaCorta(p.oferta_hasta))}</span>` : ""}</p>`;
   };
 
   function pintarProductos() {
@@ -285,10 +335,12 @@
     ul.classList.toggle("es-lista", S.vista === "lista");
     ul.innerHTML = lista.map((p) => {
       const url = fotoDe(p);
-      return `<li class="tarjeta-prod" data-id="${p.id}">
+      const etiqueta = ofertaVigente(p) ? '<span class="tarjeta-prod__rec tarjeta-prod__rec--oferta">Oferta</span>'
+        : p.destacado ? '<span class="tarjeta-prod__rec">Recomendado</span>' : "";
+      return `<li class="tarjeta-prod${p.agotado ? " es-agotado" : ""}" data-id="${p.id}">
         <div class="tarjeta-prod__foto">
           <button type="button" data-ficha="${p.id}" tabindex="-1" aria-hidden="true">${url ? `<img src="${U.esc(url)}" alt="" loading="lazy" />` : SIN_FOTO}</button>
-          ${p.destacado ? '<span class="tarjeta-prod__rec">Recomendado</span>' : ""}
+          ${etiqueta}${p.agotado ? '<span class="tarjeta-prod__agotado">Agotado</span>' : ""}
         </div>
         <div class="tarjeta-prod__cuerpo">
           <p class="tarjeta-prod__cat">${U.esc(catDe(p.categoria_id).nombre || "")}</p>
@@ -353,11 +405,15 @@
     $("#fichaCat").textContent = catDe(p.categoria_id).nombre || "";
     $("#fichaNombre").textContent = p.nombre;
     $("#fichaMeta").innerHTML = p.unidad ? `Se vende por: <b>${U.esc(p.unidad)}</b>` : "";
-    const precio = U.colones(p.precio);
-    $("#fichaPrecio").innerHTML = precio ? `${precio} <small>aprox.</small>` : "Precio a consultar";
-    $("#fichaNota").textContent = precio
-      ? "Precio aproximado: se lo confirmamos al revisar su pedido."
-      : "Agréguelo al carrito y le enviamos el precio con el total de su pedido.";
+    const precio = U.colones(precioDe(p)), oferta = ofertaVigente(p);
+    $("#fichaPrecio").innerHTML = precio
+      ? `${precio}${oferta && p.precio ? ` <s>${U.esc(U.colones(p.precio))}</s>` : ""} <small>aprox.</small>`
+      : "Precio a consultar";
+    $("#fichaNota").textContent = p.agotado
+      ? "Agotado por ahora. Pregúntenos por WhatsApp cuándo vuelve a llegar."
+      : (oferta ? `Precio de oferta hasta el ${fechaCorta(p.oferta_hasta)}. ` : "") + (precio
+        ? "Precio aproximado: se lo confirmamos al revisar su pedido."
+        : "Agréguelo al carrito y le enviamos el precio con el total de su pedido.");
     $("#fichaDesc").textContent = p.descripcion || "";
     $("#fichaDesc").hidden = !p.descripcion;
     $("#fichaAcc").innerHTML = controlHTML(p);
@@ -371,6 +427,132 @@
     try { if (/^#p\d+$/.test(location.hash)) history.replaceState(null, "", location.pathname + location.search); } catch { /* */ }
   }
 
+  // ---------- calculadora de materiales ----------
+  const esTecho = (p) => /l[aá]mina/i.test(p.nombre) && !/pvc/i.test(p.nombre) && /(techo|ondulad|zinc|aluminizad|teja|rectangular)/i.test(p.nombre);
+  const esPvc = (p) => /pvc/i.test(p.nombre);
+  const num = (v) => { const n = parseFloat(String(v ?? "").replace(",", ".")); return Number.isFinite(n) ? n : NaN; };
+  const dec = (n) => n.toLocaleString("es-CR", { maximumFractionDigits: 2 });
+  const calcRes = { techo: null, pvc: null };
+
+  function opcionesCalc(sel, filtro, otra) {
+    const antes = sel.dataset.listo ? sel.value : null;     // respetar lo que el cliente ya escogió
+    sel.dataset.listo = "1";
+    sel.innerHTML = S.productos.filter(filtro).map((p) => {
+      const pr = precioDe(p);
+      return `<option value="${p.id}"${p.agotado ? " disabled" : ""}>${U.esc(p.nombre)}${p.agotado ? " (agotado)" : pr ? " · " + U.esc(U.colones(pr)) : ""}</option>`;
+    }).join("") + `<option value="">${U.esc(otra)}</option>`;
+    const ops = [...sel.options].filter((o) => !o.disabled);
+    sel.value = ops.some((o) => o.value === antes) ? antes : (ops[0]?.value ?? "");
+  }
+  function abrirCalc(tab) {
+    opcionesCalc($("#panTecho").producto, esTecho, "Otra lámina (se la cotizamos)");
+    opcionesCalc($("#panPvc").producto, esPvc, "Otro diseño (se lo cotizamos)");
+    tabCalc(tab);
+    calcTecho(); calcPvc();
+    const d = $("#calc");
+    if (!d.open) d.showModal();
+    (tab === "pvc" ? $("#panPvc").ancho : $("#tLargo")).focus();
+  }
+  function tabCalc(tab) {
+    $$("#calc [role=tab]").forEach((b) => { const on = b.dataset.tab === tab; b.setAttribute("aria-selected", String(on)); b.tabIndex = on ? 0 : -1; });
+    $("#panTecho").hidden = tab !== "techo";
+    $("#panPvc").hidden = tab !== "pvc";
+  }
+  function listoCalc(btn, res, html, datos, clave, etiqueta) {
+    res.innerHTML = html;
+    calcRes[clave] = datos;
+    btn.disabled = !datos;
+    btn.textContent = datos ? etiqueta : "Agregar al carrito";
+  }
+
+  function calcTecho() {
+    const f = $("#panTecho"), res = $("#resTecho"), btn = f.querySelector("[type=submit]");
+    const aguas = Number(f.aguas.value) === 1 ? 1 : 2;
+    const largo = num(f.largo.value), caida = num(f.caida.value), L = num(f.largoLam.value);
+    const ancho = num(f.ancho.value), tras = num(f.traslape.value), desp = Math.max(0, Math.min(30, num(f.desp.value) || 0));
+    if (!(largo > 0 && caida > 0)) return listoCalc(btn, res, '<p class="calc__det">Escriba el largo y la caída del techo en metros.</p>', null, "techo");
+    if (largo > 200 || caida > 30) return listoCalc(btn, res, '<p class="calc__det">Revise las medidas: parecen muy grandes. Para obras grandes, escríbanos por WhatsApp.</p>', null, "techo");
+    if (!(ancho >= 0.3 && ancho <= 1.5 && tras >= 0 && L - tras >= 0.3)) return listoCalc(btn, res, '<p class="calc__det">Revise el ancho útil y el traslape.</p>', null, "techo");
+    const cols = Math.ceil(largo / ancho - 1e-9);
+    const filas = caida <= L ? 1 : 1 + Math.ceil((caida - L) / (L - tras) - 1e-9);
+    const base = cols * filas * aguas;
+    const total = Math.min(999, Math.ceil(base * (1 + desp / 100) - 1e-9));
+    const p = S.productos.find((x) => x.id === Number(f.producto.value));
+    const pr = p ? precioDe(p) : null;
+    let aviso = "";
+    if (filas > 1) {
+      const entera = [...f.largoLam.options].map((o) => num(o.value)).find((v) => v >= caida);
+      aviso = `Cada caída lleva ${filas} láminas traslapadas.` + (entera ? ` Con láminas de ${dec(entera)} m irían enteras.` : "");
+    }
+    const html = `<p class="calc__total">Necesita unas <b>${total}</b> láminas de ${dec(L)} m</p>
+      <p class="calc__det">${cols} a lo largo × ${filas} por caída × ${aguas} ${aguas === 1 ? "caída" : "caídas"} = ${base}${desp ? `, más ${dec(desp)} % de desperdicio` : ""}. Techo de unos ${dec(largo * caida * aguas)} m².</p>
+      ${pr ? `<p class="calc__det">Costo aproximado de las láminas: <b>${U.esc(U.colones(pr * total))}</b></p>` : ""}
+      ${aviso ? `<p class="calc__aviso">${U.esc(aviso)}</p>` : ""}`;
+    listoCalc(btn, res, html, { total, p, L, largo, aguas }, "techo", `Agregar ${total} láminas al carrito`);
+  }
+
+  function calcPvc() {
+    const f = $("#panPvc"), res = $("#resPvc"), btn = f.querySelector("[type=submit]");
+    const cielo = f.tipo.value === "cielo";
+    $("#lblAlto").textContent = cielo ? "Largo (m)" : "Alto (m)";
+    $("#lblCant").textContent = cielo ? "Cuartos iguales" : "Paredes iguales";
+    const a = num(f.ancho.value), h = num(f.alto.value);
+    const cant = Math.max(1, Math.min(20, Math.round(num(f.cant.value)) || 1));
+    const restar = Math.max(0, num(f.restar.value) || 0);
+    const la = num(f.lamA.value), ll = num(f.lamL.value), desp = Math.max(0, Math.min(30, num(f.desp.value) || 0));
+    if (!(a > 0 && h > 0)) return listoCalc(btn, res, `<p class="calc__det">Escriba el ancho y el ${cielo ? "largo" : "alto"} en metros.</p>`, null, "pvc");
+    if (a > 100 || h > 100) return listoCalc(btn, res, '<p class="calc__det">Revise las medidas: parecen muy grandes.</p>', null, "pvc");
+    if (!(la >= 0.3 && ll >= 0.3)) return listoCalc(btn, res, '<p class="calc__det">Revise la medida de la lámina.</p>', null, "pvc");
+    const area = Math.max(0, a * h * cant - restar);
+    if (area <= 0) return listoCalc(btn, res, '<p class="calc__det">Lo que resta de puertas y ventanas es más que el área.</p>', null, "pvc");
+    const total = Math.min(999, Math.ceil(area * (1 + desp / 100) / (la * ll) - 1e-9));
+    const p = S.productos.find((x) => x.id === Number(f.producto.value));
+    const pr = p ? precioDe(p) : null;
+    const html = `<p class="calc__total">Necesita unas <b>${total}</b> láminas de ${dec(la)} × ${dec(ll)} m</p>
+      <p class="calc__det">${dec(area)} m² ${cielo ? "de cielo" : "de pared"}${restar ? " (ya sin puertas ni ventanas)" : ""}${desp ? `, más ${dec(desp)} % de desperdicio por cortes` : ""}. Cada lámina cubre ${dec(la * ll)} m².</p>
+      ${pr ? `<p class="calc__det">Costo aproximado de las láminas: <b>${U.esc(U.colones(pr * total))}</b></p>` : ""}`;
+    listoCalc(btn, res, html, { total, p, area, la, ll }, "pvc", `Agregar ${total} láminas al carrito`);
+  }
+
+  function calcAlCarrito(clave) {
+    const r = calcRes[clave];
+    if (!r) return;
+    const extras = (clave === "techo" ? $("#panTecho") : $("#panPvc")).extras.checked;
+    if (clave === "techo") {
+      if (r.p) ponerEnCarrito(r.p, r.total);
+      else libreEnCarrito(`Lámina ondulada de ${dec(r.L)} m (a cotizar)`, r.total);
+      if (extras) {
+        if (r.aguas === 2) libreEnCarrito(`Cumbrera para techo de ${dec(r.largo)} m de largo`, 1);
+        libreEnCarrito(`Tornillos para techo (para ${r.total} láminas)`, 1);
+      }
+    } else {
+      if (r.p) ponerEnCarrito(r.p, r.total);
+      else libreEnCarrito(`Lámina PVC de ${dec(r.la)} × ${dec(r.ll)} m (a cotizar)`, r.total);
+      if (extras) {
+        libreEnCarrito(`Molduras para PVC (para ${dec(r.area)} m²)`, 1);
+        libreEnCarrito(`Pegamento para lámina PVC (para ${r.total} láminas)`, 1);
+      }
+    }
+    cambioCarrito();
+    $("#calc").close();
+    toast(`Agregado al carrito: ${r.total} láminas${extras ? " y accesorios" : ""}`);
+    abrirCarrito(true);
+  }
+
+  // ---------- entrega ----------
+  function pintarEntrega() {
+    const ok = envioActivo(), f = $("#formEnviar");
+    $("#entrega").hidden = !ok;
+    $("#facturaBox").hidden = !S.v4;
+    if (!ok) return;
+    const antes = f.zona.value;
+    f.zona.innerHTML = `<option value="">Escoja su zona…</option>` + zonasEnvio().map((z) =>
+      `<option value="${U.esc(z.nombre)}">${U.esc(z.nombre)} · ${z.precio ? U.esc(U.colones(z.precio)) : "gratis"}</option>`).join("");
+    if (zonasEnvio().some((z) => z.nombre === antes)) f.zona.value = antes;
+    $("#envioNota").textContent = S.ajustes.envio_nota || "";
+    $("#envioDatos").hidden = f.entrega.value !== "envio";
+  }
+
   // ---------- filtros en celular ----------
   function abrirFiltros(abrir) {
     $("#filtros").classList.toggle("abierta", abrir);
@@ -381,10 +563,18 @@
   }
 
   // ---------- carrito (proforma) ----------
+  function envioElegido() {
+    if (!envioActivo() || $("#entrega").hidden) return null;
+    const f = $("#formEnviar");
+    if (f.entrega.value !== "envio") return null;
+    return zonasEnvio().find((z) => z.nombre === f.zona.value) || null;
+  }
   function totalEstimado() {
     let t = 0, sinPrecio = 0;
     S.lista.forEach((i) => { if (i.precio != null && i.precio > 0) t += i.precio * i.cant; else sinPrecio++; });
-    return { t, sinPrecio };
+    const z = envioElegido();
+    if (z) t += z.precio;
+    return { t, sinPrecio, envio: z };
   }
 
   function pintarCarrito() {
@@ -397,11 +587,13 @@
           <output>${i.cant}</output>
           <button type="button" data-rmas="${U.esc(i.k)}" aria-label="Agregar uno de ${U.esc(i.nombre)}">+</button>
         </span>
-        <span class="renglon__desc">${U.esc(i.nombre)}<small>${i.id ? (sub ? U.esc(sub) : "precio a confirmar") : "fuera del catálogo"}</small></span>
+        <span class="renglon__desc">${U.esc(i.nombre)}<small>${i.agotado ? "agotado: quítelo del carrito" : i.id ? (sub ? U.esc(sub) : "precio a confirmar") : "fuera del catálogo"}</small></span>
         <button type="button" class="renglon__quitar" data-quitar="${U.esc(i.k)}" aria-label="Quitar ${U.esc(i.nombre)} del carrito">✕</button>
       </li>`;
     }).join("");
-    const { t, sinPrecio } = totalEstimado();
+    const { t, sinPrecio, envio } = totalEstimado();
+    $("#filaEnvio").hidden = !envio;
+    if (envio) { $("#lblEnvio").textContent = `Envío a ${envio.nombre}`; $("#totalEnvio").textContent = envio.precio ? U.colones(envio.precio) : "Gratis"; }
     $("#totales").hidden = !S.lista.length;
     $("#totalEstimado").textContent = t > 0 ? U.colones(t) : "A confirmar";
     $("#totalNota").textContent = sinPrecio
@@ -428,6 +620,8 @@
       `¡Hola, ${C.NEGOCIO}! Hice un pedido${codigo ? " en la página, código " + codigo : ""}:`,
       ...lineas,
       d.detalle ? `Nota: ${d.detalle}` : null,
+      d.envio ? `Envío a ${d.envio.zona}: ${d.envio.direccion}` : "Lo recojo en el almacén.",
+      d.factura ? "Necesito factura electrónica." : null,
       `A nombre de ${d.nombre}, tel. ${d.telefono}`,
       conComprobante ? "Ya subí el comprobante del SINPE." : null
     ].filter((l) => l !== null).join("\n");
@@ -448,6 +642,23 @@
     if (d.nombre.length < 2) { err.textContent = "Escriba su nombre para saber a quién preparar el pedido."; f.nombre.focus(); return; }
     if (!/^[0-9 +()-]{8,20}$/.test(d.telefono) || U.soloDigitos(d.telefono).length < 8) { err.textContent = "Revise el teléfono: necesitamos 8 dígitos, por ejemplo 8888-8888."; f.telefono.focus(); return; }
     if (archivo && !/^image\/|^application\/pdf$/.test(archivo.type)) { err.textContent = "El comprobante debe ser una foto o un PDF."; return; }
+    const agotado = S.lista.find((i) => i.agotado);
+    if (agotado) { err.textContent = `"${agotado.nombre}" está agotado. Quítelo del carrito para enviar el pedido.`; return; }
+    if (envioActivo() && f.entrega.value === "envio") {
+      const z = zonasEnvio().find((x) => x.nombre === f.zona.value);
+      const dir = f.direccion.value.trim().replace(/\s+/g, " ").slice(0, 300);
+      if (!z) { err.textContent = "Escoja la zona de envío."; f.zona.focus(); return; }
+      if (dir.length < 10) { err.textContent = "Escriba la dirección con señas para el envío."; f.direccion.focus(); return; }
+      d.envio = { zona: z.nombre, direccion: dir };
+    }
+    if (S.v4 && $("#facturaBox").open && (f.f_id.value.trim() || f.f_nombre.value.trim() || f.f_correo.value.trim())) {
+      const fid = U.soloDigitos(f.f_id.value), tipo = f.f_tipo.value;
+      const RE = { fisica: /^[1-9][0-9]{8}$/, juridica: /^[0-9]{10}$/, dimex: /^[0-9]{11,12}$/, nite: /^[0-9]{10}$/ };
+      if (!RE[tipo] || !RE[tipo].test(fid)) { err.textContent = "Factura: revise el número (cédula física 9 dígitos, jurídica 10, DIMEX 11 o 12)."; f.f_id.focus(); return; }
+      if (f.f_nombre.value.trim().length < 2) { err.textContent = "Factura: escriba el nombre o la razón social."; f.f_nombre.focus(); return; }
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(f.f_correo.value.trim())) { err.textContent = "Factura: revise el correo electrónico."; f.f_correo.focus(); return; }
+      d.factura = { t: tipo, id: fid, n: f.f_nombre.value.trim().slice(0, 100), e: f.f_correo.value.trim().slice(0, 120) };
+    }
     err.textContent = "";
     if (f.empresa.value) { toast("Pedido enviado."); return; }    // bot
 
@@ -460,7 +671,12 @@
     btn.textContent = "Enviando pedido…";
     try {
       const items = S.lista.map((i) => (i.id ? { id: i.id, c: i.cant } : { n: i.nombre, c: i.cant }));
-      const r = await db.rpc("crear_pedido_web", { p_nombre: d.nombre, p_telefono: d.telefono, p_nota: d.detalle || null, p_items: items });
+      const base = { p_nombre: d.nombre, p_telefono: d.telefono, p_nota: d.detalle || null, p_items: items };
+      let r = await db.rpc("crear_pedido_web", S.v4
+        ? { ...base, p_entrega: d.envio ? { tipo: "envio", ...d.envio } : { tipo: "retiro" }, p_factura: d.factura || null }
+        : base);
+      // si la base todavía no tiene la versión nueva de la función, se envía sin entrega ni factura
+      if (r.error && r.error.code === "PGRST202" && !d.envio && !d.factura) r = await db.rpc("crear_pedido_web", base);
       if (r.error) throw new Error(r.error.message && /[áéíóúñ]|\./.test(r.error.message) ? r.error.message : "No se pudo enviar el pedido. Revise su conexión e intente de nuevo.");
       const ped = r.data;
       U.guardarPedidoLocal(ped.codigo, d.telefono);
@@ -478,7 +694,8 @@
       mostrarListo();
       S.lista = [];
       f.detalle.value = ""; f.comprobante.value = ""; f.referencia.value = ""; f.monto.value = "";
-      $("#pagoYa").open = false;
+      f.f_id.value = ""; f.f_nombre.value = ""; f.f_correo.value = ""; f.direccion.value = "";
+      $("#pagoYa").open = false; $("#facturaBox").open = false;
       cambioCarrito();
     } catch (e3) {
       err.textContent = e3.message;
@@ -497,6 +714,7 @@
     let txt;
     if (u.archivo) txt = "Recibimos su comprobante. Lo revisamos en el banco y le confirmamos por WhatsApp.";
     else if (u.errorComp) txt = `El pedido quedó guardado, pero el comprobante no se pudo subir (${u.errorComp}). Súbalo de nuevo en “Ver mi pedido”.`;
+    else if (u.envio) txt = `Le confirmamos el total y coordinamos el envío a ${u.envio.zona} por WhatsApp. Cuando pague por SINPE, suba el comprobante en “Ver mi pedido”.`;
     else if (!u.pendientes && u.total > 0 && sn) txt = `Total aproximado: ${U.colones(u.total)}. Le confirmamos el total por WhatsApp; después pague por SINPE Móvil al ${U.fmtTel(sn)}${S.ajustes.sinpe_titular ? " a nombre de " + S.ajustes.sinpe_titular : ""}, escriba ${u.codigo} en el detalle y suba el comprobante en “Ver mi pedido”.`;
     else txt = "Le confirmamos el total por WhatsApp. Cuando pague por SINPE, suba el comprobante en “Ver mi pedido” con este código.";
     $("#listoTexto").textContent = txt + " Guarde el código: con él y su teléfono puede ver su pedido.";
@@ -533,7 +751,35 @@
 
     // categorías y promos
     $("#cats").addEventListener("click", (e) => { const b = e.target.closest("[data-cat]"); if (b) ponerCategoria(String(S.cat) === b.dataset.cat ? "" : b.dataset.cat, true); });
-    $("#promos").addEventListener("click", (e) => { const b = e.target.closest("[data-cat]"); if (b) ponerCategoria(b.dataset.cat, true); });
+    $("#promos").addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      if (b.dataset.rangoPromo) { S.rango = b.dataset.rangoPromo; S.cat = ""; S.q = ""; $("#q").value = ""; pintarProductos(); irAlCatalogo(); }
+      else if (b.dataset.cat) ponerCategoria(b.dataset.cat, true);
+    });
+
+    // calculadora
+    $$("[data-calc]").forEach((b) => b.addEventListener("click", () => abrirCalc(b.dataset.calc)));
+    const calc = $("#calc");
+    $("#btnCerrarCalc").addEventListener("click", () => calc.close());
+    calc.addEventListener("click", (e) => { if (e.target === calc) calc.close(); });
+    $$("#calc [role=tab]").forEach((b) => {
+      b.addEventListener("click", () => tabCalc(b.dataset.tab));
+      b.addEventListener("keydown", (e) => {
+        if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+        const otro = b.dataset.tab === "techo" ? "pvc" : "techo";
+        tabCalc(otro); $(`#calc [data-tab=${otro}]`).focus();
+      });
+    });
+    ["input", "change"].forEach((ev) => {
+      $("#panTecho").addEventListener(ev, calcTecho);
+      $("#panPvc").addEventListener(ev, calcPvc);
+    });
+    $("#panTecho").addEventListener("submit", (e) => { e.preventDefault(); calcAlCarrito("techo"); });
+    $("#panPvc").addEventListener("submit", (e) => { e.preventDefault(); calcAlCarrito("pvc"); });
+
+    // entrega
+    $("#entrega").addEventListener("change", () => { $("#envioDatos").hidden = $("#formEnviar").entrega.value !== "envio"; pintarCarrito(); });
     $("#filtroCat").addEventListener("click", (e) => { const b = e.target.closest("[data-cat]"); if (b) ponerCategoria(b.dataset.cat, false); });
     $("#filtroPrecio").addEventListener("click", (e) => { const b = e.target.closest("[data-rango]"); if (b) { S.rango = b.dataset.rango; pintarProductos(); } });
     $("#orden").addEventListener("change", (e) => { S.orden = e.target.value; pintarProductos(); });
@@ -638,6 +884,7 @@
       pintarPromos();
       pintarProductos();
     }
+    pintarEntrega();
     cambioCarrito();
     $$("[data-contador]").forEach((c) => c.classList.remove("salta"));
     const m = /^#p(\d+)$/.exec(location.hash);

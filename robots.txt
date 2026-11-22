@@ -1,2 +1,6 @@
 User-agent: *
+Disallow: /admin.html
+Disallow: /pedido.html
 Allow: /
+
+Sitemap: https://johancubillo.github.io/almacen-la-campina/sitemap.xml

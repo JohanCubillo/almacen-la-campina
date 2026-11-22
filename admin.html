@@ -7,7 +7,11 @@
   <meta name="referrer" content="no-referrer" />
   <meta name="robots" content="noindex, nofollow, noarchive" />
   <title>Panel · Almacén La Campiña</title>
-  <link rel="icon" href="assets/img/emblema.png" />
+  <link rel="icon" href="assets/img/icono-192.png" />
+  <link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png" />
+  <link rel="manifest" href="panel.webmanifest" />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="apple-mobile-web-app-title" content="Panel La Campiña" />
   <link rel="stylesheet" href="assets/css/styles.css" />
   <link rel="stylesheet" href="assets/css/admin.css" />
 </head>
@@ -79,7 +83,7 @@
     <header class="top">
       <div class="wrap top__in">
         <a href="./" class="marca" target="_blank" rel="noopener">
-          <img src="assets/img/emblema.png" alt="" width="46" height="46" />
+          <img src="assets/img/emblema-redondo.png" alt="" width="46" height="46" />
           <span class="marca__txt">Panel del almacén<br /><b>La Campiña</b></span>
         </a>
         <div class="usuario">
@@ -94,12 +98,14 @@
     <nav class="pestanas wrap" role="tablist" aria-label="Secciones del panel">
       <button role="tab" class="pestana" aria-selected="true" aria-controls="tVen" id="tabVen">Pedidos y ventas <span class="badge" id="badgeVen" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCaja" id="tabCaja">Caja SINPE <span class="badge badge--amarillo" id="badgeCaja" hidden></span></button>
+      <button role="tab" class="pestana" aria-selected="false" aria-controls="tRep" id="tabRep">Reportes</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tProd" id="tabProd">Productos</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCat" id="tabCat">Categorías</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tAj" id="tabAj">Datos del negocio</button>
     </nav>
 
     <main class="wrap panel">
+      <p class="aviso-v4" id="avisoV4" hidden>Falta activar las mejoras nuevas (agotado, ofertas, envío, factura, avisos, Excel y reportes). En Supabase abra <b>SQL Editor</b> y corra el archivo <b>supabase/v4_mejoras.sql</b>.</p>
       <!-- VENTAS -->
       <section id="tVen" role="tabpanel" aria-labelledby="tabVen">
         <div class="barra-herr">
@@ -137,14 +143,61 @@
         <ul id="listaPagosDia" class="filas"></ul>
       </section>
 
+      <!-- REPORTES -->
+      <section id="tRep" role="tabpanel" aria-labelledby="tabRep" hidden>
+        <div class="barra-herr">
+          <h2>Reportes</h2>
+          <div class="barra-herr__der">
+            <div class="segmentos segmentos--sm" role="radiogroup" aria-label="Periodo" id="repPeriodo">
+              <button type="button" role="radio" aria-checked="true" data-p="mes">Este mes</button>
+              <button type="button" role="radio" aria-checked="false" data-p="pasado">Mes pasado</button>
+              <button type="button" role="radio" aria-checked="false" data-p="3m">Últimos 3 meses</button>
+              <button type="button" role="radio" aria-checked="false" data-p="anio">Este año</button>
+            </div>
+          </div>
+        </div>
+        <p class="rep__rango" id="repRango"></p>
+        <dl class="cifras" id="repCifras"></dl>
+        <div class="rep__grid">
+          <section class="tarjeta rep__caja">
+            <h3 class="subt">Ventas por mes</h3>
+            <p class="ayuda">Últimos 12 meses, sin ventas anuladas. El mes en curso va en gris.</p>
+            <div class="grafico" id="grafMeses"></div>
+            <details class="rep__tabla"><summary>Ver como tabla</summary><div id="tablaMeses"></div></details>
+          </section>
+          <section class="tarjeta rep__caja">
+            <h3 class="subt">Lo que más se vende</h3>
+            <div class="segmentos segmentos--sm" role="radiogroup" aria-label="Ordenar por" id="repTopModo">
+              <button type="button" role="radio" aria-checked="true" data-m="monto">Por plata</button>
+              <button type="button" role="radio" aria-checked="false" data-m="cantidad">Por cantidad</button>
+            </div>
+            <div class="grafico" id="grafTop"></div>
+          </section>
+          <section class="tarjeta rep__caja">
+            <h3 class="subt">Cómo pagan</h3>
+            <div id="repMetodos"></div>
+          </section>
+        </div>
+        <div class="tip" id="tipGraf" role="status" hidden></div>
+      </section>
+
       <!-- PRODUCTOS -->
       <section id="tProd" role="tabpanel" aria-labelledby="tabProd" hidden>
         <div class="barra-herr">
           <h2>Productos</h2>
           <div class="barra-herr__der">
             <input id="aBuscar" type="search" placeholder="Buscar…" maxlength="60" aria-label="Buscar producto" />
+            <button type="button" class="btn btn--linea btn--sm v4" id="btnImportar">Importar de Excel</button>
+            <button type="button" class="btn btn--linea btn--sm" id="btnExportar">Descargar en Excel</button>
             <button type="button" class="btn btn--negro btn--sm" id="btnNuevoProd">Nuevo producto</button>
           </div>
+        </div>
+        <div class="segmentos segmentos--sm" role="radiogroup" aria-label="Filtrar productos" id="filtroProd">
+          <button type="button" role="radio" aria-checked="true" data-fp="todos">Todos</button>
+          <button type="button" role="radio" aria-checked="false" data-fp="agotados" class="v4">Agotados</button>
+          <button type="button" role="radio" aria-checked="false" data-fp="ofertas" class="v4">En oferta</button>
+          <button type="button" role="radio" aria-checked="false" data-fp="sinprecio">Sin precio</button>
+          <button type="button" role="radio" aria-checked="false" data-fp="ocultos">Ocultos</button>
         </div>
         <ul id="listaProd" class="filas"></ul>
       </section>
@@ -192,12 +245,42 @@
             <div id="horarioDias" class="dias"></div>
             <label>Texto extra de horario (opcional)<input name="horario" maxlength="120" placeholder="Ej: Feriados cerrado" /></label>
           </fieldset>
+          <fieldset class="v4">
+            <legend>Envío a domicilio</legend>
+            <label class="check"><input type="checkbox" name="envio_activo" /> Ofrecer envío a domicilio en el carrito</label>
+            <label>Zonas y precio del envío
+              <textarea name="envio_zonas" rows="5" maxlength="1000" placeholder="Cariari centro = 2000&#10;Campo Kennedy = 3500&#10;Palermo = 0"></textarea></label>
+            <p class="ayuda">Una zona por línea: nombre, signo igual y precio en colones. Con 0 el envío sale gratis. El precio se suma al pedido como un renglón que puede cambiar en la venta.</p>
+            <label>Nota para el cliente (opcional)<input name="envio_nota" maxlength="200" placeholder="Ej: Envíos martes y viernes" /></label>
+          </fieldset>
           <fieldset>
             <legend>Aviso en la parte de arriba del sitio</legend>
             <label>Texto del aviso (vacío = no se muestra)<input name="aviso" maxlength="160" placeholder="Ej: Esta semana cemento en promoción" /></label>
           </fieldset>
           <button class="btn btn--negro" type="submit">Guardar datos</button>
           <p class="msg" id="ajMsg" role="status"></p>
+        </form>
+
+        <form id="formAvisos" class="tarjeta ajustes v4" novalidate>
+          <fieldset>
+            <legend>Avisos por Telegram</legend>
+            <p class="ayuda">Le llega un mensaje al celular cada vez que entra un pedido de la página o un cliente sube un comprobante.</p>
+            <ol class="pasos-ayuda">
+              <li>En Telegram busque <b>@BotFather</b>, escriba <b>/newbot</b> y siga los pasos. Al final le da un <b>token</b>.</li>
+              <li>Abra el bot nuevo y toque <b>Iniciar</b> (si no, el bot no le puede escribir).</li>
+              <li>Busque <b>@userinfobot</b> y tóquelo: le dice su número de <b>Id</b>. Ese es el chat.</li>
+              <li>Pegue los dos datos aquí, guarde y toque <b>Enviar prueba</b>.</li>
+            </ol>
+            <label>Token del bot<input name="telegram_token" maxlength="70" autocomplete="off" spellcheck="false" placeholder="123456789:AA…" /></label>
+            <label>Chat (Id)<input name="telegram_chat" inputmode="numeric" maxlength="20" autocomplete="off" placeholder="987654321" /></label>
+            <label class="check"><input type="checkbox" name="activo" /> Avisos encendidos</label>
+            <p class="ayuda">En Supabase la extensión <b>pg_net</b> debe estar activa (Database → Extensions). El archivo v4 intenta activarla solo.</p>
+          </fieldset>
+          <div class="form-linea__btns">
+            <button class="btn btn--negro" type="submit">Guardar avisos</button>
+            <button class="btn btn--linea" type="button" id="btnProbarAviso">Enviar prueba</button>
+          </div>
+          <p class="msg" id="avisoMsg" role="status"></p>
         </form>
 
         <details class="tarjeta actividad">
@@ -220,6 +303,14 @@
         <label>Se vende por<input name="unidad" maxlength="30" placeholder="saco, unidad, metro…" /></label>
       </div>
       <label>Categoría<select name="categoria_id"></select></label>
+      <fieldset class="oferta v4">
+        <legend>Oferta (opcional)</legend>
+        <div class="dos">
+          <label>Precio de oferta ₡<input name="precio_oferta" type="number" min="1" step="0.01" placeholder="Menor al precio normal" /></label>
+          <label>Válida hasta (inclusive)<input name="oferta_hasta" type="date" /></label>
+        </div>
+        <p class="ayuda">Cuando pasa la fecha, la página vuelve sola al precio normal.</p>
+      </fieldset>
       <div class="foto-campo">
         <img id="prevFoto" alt="" hidden />
         <label>Foto (se ajusta sola, máx. 2 MB)<input name="foto" type="file" accept="image/jpeg,image/png,image/webp" /></label>
@@ -227,6 +318,7 @@
       <div class="checks">
         <label class="check"><input type="checkbox" name="destacado" /> Marcar como recomendado</label>
         <label class="check"><input type="checkbox" name="activo" checked /> Mostrar en el sitio</label>
+        <label class="check v4"><input type="checkbox" name="agotado" /> Agotado por ahora</label>
       </div>
       <p class="msg msg--error" id="prodMsg" role="alert"></p>
       <div class="dlg__btns">
@@ -234,6 +326,31 @@
         <button type="submit" class="btn btn--negro" id="btnGuardarProd">Guardar producto</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Importar productos -->
+  <dialog id="dlgImport" class="dlg dlg--ancho" aria-labelledby="impTitulo">
+    <div class="dlg__form">
+      <h2 id="impTitulo">Importar productos desde Excel</h2>
+      <ol class="pasos-ayuda">
+        <li><button type="button" class="enlace" id="btnPlantilla">Descargue la plantilla</button> (o use <b>Descargar en Excel</b> para editar los que ya tiene).</li>
+        <li>Una fila por producto. Columnas: <b>Nombre</b>, Categoría, Precio, Se vende por, Descripción, Mostrar, Recomendado, Agotado, Foto (enlace https).</li>
+        <li>Si el nombre ya existe, se actualiza; si no, se crea. Las categorías nuevas se crean solas.</li>
+      </ol>
+      <p class="ayuda">Las columnas que trae el archivo reemplazan lo que hay. Si no quiere cambiar una columna, bórrela del archivo. Precio vacío = “a consultar”.</p>
+      <label>Archivo (.xlsx o .csv)<input type="file" id="impArchivo" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" /></label>
+      <p class="msg" id="impMsg" role="status"></p>
+      <div class="items-wrap" id="impVista" hidden>
+        <table class="items imp">
+          <thead><tr><th>Fila</th><th>Nombre</th><th>Categoría</th><th class="num">Precio</th><th>Qué pasa</th></tr></thead>
+          <tbody id="impFilas"></tbody>
+        </table>
+      </div>
+      <div class="dlg__btns">
+        <button type="button" class="btn btn--linea" id="btnCerrarImport">Cerrar</button>
+        <button type="button" class="btn btn--negro" id="btnHacerImport" disabled>Importar</button>
+      </div>
+    </div>
   </dialog>
 
   <!-- Detalle de venta -->
@@ -247,6 +364,8 @@
         <span class="venta__codigo" id="ventaCodigo"></span>
         <button type="button" class="cerrar-x" id="btnCerrarVenta" aria-label="Cerrar">✕</button>
       </header>
+
+      <p class="venta__entrega" id="ventaEntrega" hidden></p>
 
       <form id="formVenta" class="venta__cliente">
         <label>Cliente<input name="cliente_nombre" required minlength="2" maxlength="80" /></label>
@@ -272,12 +391,51 @@
       <div class="venta__guardar">
         <button type="button" class="btn btn--negro" id="btnGuardarVenta">Guardar venta</button>
         <button type="button" class="btn btn--wa" id="btnCobrarWa">Enviar cobro por WhatsApp</button>
+        <button type="button" class="btn btn--linea v4" id="btnListo">Avisar que está listo</button>
       </div>
       <p class="msg msg--error" id="ventaMsg" role="alert"></p>
 
       <section id="boxCompCliente" hidden>
         <h3 class="subt">Comprobantes enviados por el cliente</h3>
         <ul class="pagos" id="compCliente"></ul>
+      </section>
+
+      <section class="v4" id="boxFactura" hidden>
+        <h3 class="subt">Factura electrónica</h3>
+        <p class="ayuda" id="facturaInfo"></p>
+        <button type="button" class="btn btn--sm btn--linea" id="btnNuevaFactura">El cliente pide factura</button>
+        <form id="formFactura" class="tarjeta registrar__form" novalidate hidden>
+          <div class="dos">
+            <label>Identificación
+              <select name="tipo_id">
+                <option value="fisica">Cédula física</option>
+                <option value="juridica">Cédula jurídica</option>
+                <option value="dimex">DIMEX</option>
+                <option value="nite">NITE</option>
+              </select></label>
+            <label>Número<input name="identificacion" inputmode="numeric" maxlength="20" autocomplete="off" /></label>
+          </div>
+          <div class="dos">
+            <label>Nombre o razón social<input name="nombre" maxlength="100" autocomplete="off" /></label>
+            <label>Correo<input name="correo" type="email" maxlength="120" autocomplete="off" /></label>
+          </div>
+          <div class="dos">
+            <label>Estado
+              <select name="estado">
+                <option value="pendiente">Pendiente de emitir</option>
+                <option value="enviada">Enviada a Hacienda</option>
+                <option value="aceptada">Aceptada por Hacienda</option>
+                <option value="rechazada">Rechazada por Hacienda</option>
+                <option value="error">Con error</option>
+                <option value="anulada">Anulada</option>
+              </select></label>
+            <label>Consecutivo (20 dígitos, opcional)<input name="consecutivo" inputmode="numeric" maxlength="20" autocomplete="off" /></label>
+          </div>
+          <label>Clave numérica (50 dígitos, opcional)<input name="clave" inputmode="numeric" maxlength="50" autocomplete="off" /></label>
+          <label>Nota<input name="mensaje" maxlength="500" /></label>
+          <p class="msg msg--error" id="facturaMsg" role="alert"></p>
+          <button class="btn btn--negro btn--sm" type="submit">Guardar factura</button>
+        </form>
       </section>
 
       <h3 class="subt">Pagos <span class="saldo" id="ventaSaldo"></span></h3>
@@ -330,6 +488,7 @@
 
   <script src="assets/vendor/supabase-2.119.2.js"></script>
   <script src="assets/js/config.js"></script>
+  <script src="assets/js/xlsx-mini.js"></script>
   <script src="assets/js/admin.js"></script>
 </body>
 </html>

@@ -48,3 +48,13 @@
 
 ## Privacidad
 Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usarlos solo para atender el pedido y no compartirlos. Los pedidos sin pagos se pueden borrar desde el panel; los comprobantes quedan como respaldo contable.
+
+## Mejoras v4
+
+- **Telegram:** el token del bot se guarda en la tabla `avisos`, que solo lee el admin con MFA. Los mensajes los envía la base de datos (pg_net), no el navegador, así que el token nunca llega a la página. Si se filtra, en @BotFather use `/revoke` y ponga el nuevo.
+- **Importar Excel:** la función `importar_productos` solo funciona para el admin con MFA. Valida cada fila (nombre, precio, enlaces https) y un error no detiene las demás. El Excel se lee en el navegador sin librerías externas.
+- **Precios:** la oferta y el agotado se revisan en la base de datos al crear el pedido. Aunque alguien cambie la página, no puede pedir a precio de oferta vencida ni un producto agotado.
+- **Envío:** el precio sale de las zonas guardadas en el panel, no de lo que mande el navegador.
+- **Factura:** cédula y correo del cliente quedan en `facturas` (solo admin). Para conectar un sistema de facturación se usa la llave secreta **solo en ese servidor** (ver FACTURACION.md).
+- **Reportes:** `reporte_ventas` exige admin con MFA.
+

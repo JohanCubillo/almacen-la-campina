@@ -16,6 +16,8 @@
 .mp__estado { margin: .9rem 0; padding: .6em .9em; border-radius: 12px; font-weight: 700; background: var(--fondo-2); }
 .mp__estado[data-tono="amarillo"] { background: #FFF3C4; }
 .mp__estado[data-tono="ok"] { background: var(--negro); color: #fff; }
+.mp__dato { margin: -.4rem 0 .8rem; font-size: .95rem; color: var(--gris); }
+.mp__dato + .mp__dato { margin-top: -.6rem; }
 .mp__items { width: 100%; border-collapse: collapse; font-size: .95rem; }
 .mp__items th, .mp__items td { text-align: left; padding: .55em .3em; border-bottom: 1px solid var(--renglon); vertical-align: top; }
 .mp__items thead th { font-size: .82rem; color: var(--gris); }

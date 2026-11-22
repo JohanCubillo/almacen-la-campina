@@ -13,8 +13,16 @@
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Almacén La Campiña — Construyendo sueños" />
   <meta property="og:description" content="Arme su pedido en línea y páguelo por SINPE Móvil. Barrio San Marcos, Cariari de Pococí." />
-  <meta property="og:image" content="assets/img/logo.png" />
-  <link rel="icon" href="assets/img/emblema.png" />
+  <meta property="og:url" content="https://johancubillo.github.io/almacen-la-campina/" />
+  <meta property="og:image" content="https://johancubillo.github.io/almacen-la-campina/assets/img/og.jpg" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:locale" content="es_CR" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="canonical" href="https://johancubillo.github.io/almacen-la-campina/" />
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "HardwareStore", "name": "Almacén La Campiña", "slogan": "Construyendo sueños", "url": "https://johancubillo.github.io/almacen-la-campina/", "image": "https://johancubillo.github.io/almacen-la-campina/assets/img/og.jpg", "logo": "https://johancubillo.github.io/almacen-la-campina/assets/img/icono-512.png", "telephone": "+506 4711-8869", "address": {"@type": "PostalAddress", "streetAddress": "150 m noreste del cruce de Perdiz, Barrio San Marcos", "addressLocality": "Cariari", "addressRegion": "Limón", "addressCountry": "CR"}, "areaServed": "Pococí", "paymentAccepted": "SINPE Móvil, efectivo", "currenciesAccepted": "CRC", "sameAs": ["https://www.facebook.com/p/Almacen-Campina-100092324825394/"]}</script>
+  <link rel="icon" href="assets/img/icono-192.png" />
+  <link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png" />
   <link rel="preload" href="assets/fonts/barlow-latin-600-normal.woff2" as="font" type="font/woff2" crossorigin />
   <link rel="stylesheet" href="assets/css/styles.css" />
 </head>
@@ -38,6 +46,8 @@
     <symbol id="i-cerrar" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
     <symbol id="i-mas" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="i-menos" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-techo" viewBox="0 0 48 48"><path d="M4 24L24 8l20 16"/><path d="M9 20v20h30V20"/><path d="M14 13.5l4 5M20 9l4 5M26 9l4 5M32 13.5l4 5" class="rel"/></symbol>
+    <symbol id="i-pared" viewBox="0 0 48 48"><rect x="6" y="8" width="36" height="32" rx="1"/><path d="M18 8v32M30 8v32"/><path d="M8 14c3 4 6-2 9 2M20 26c3 4 6-2 9 2M32 18c3 4 6-2 8 1"/></symbol>
   </svg>
 
   <a class="skip" href="#catalogo">Saltar al catálogo</a>
@@ -57,7 +67,7 @@
   <header class="top">
     <div class="wrap top__in">
       <a href="./" class="marca" aria-label="Almacén La Campiña, inicio">
-        <img src="assets/img/emblema.png" alt="" width="46" height="46" />
+        <img src="assets/img/emblema-redondo.png" alt="" width="46" height="46" />
         <span class="marca__txt">Almacén<br /><b>La Campiña</b></span>
       </a>
       <form class="buscador" role="search" id="buscador" action="./" method="get">
@@ -88,6 +98,26 @@
       </div>
     </section>
 
+    <!-- Calculadora -->
+    <section class="calc-intro" aria-labelledby="calcTitulo">
+      <div class="wrap calc-intro__in">
+        <div class="calc-intro__txt">
+          <h2 id="calcTitulo">¿Cuánto material necesita?</h2>
+          <p>Ponga las medidas y le decimos cuántas láminas llevar. Con un toque quedan en el carrito.</p>
+        </div>
+        <div class="calc-intro__btns">
+          <button type="button" class="calc-card" data-calc="techo">
+            <svg class="calc-card__ico" aria-hidden="true"><use href="#i-techo"/></svg>
+            <span><b>Techo de lámina</b><small>Láminas onduladas según el largo y la caída</small></span>
+          </button>
+          <button type="button" class="calc-card" data-calc="pvc">
+            <svg class="calc-card__ico" aria-hidden="true"><use href="#i-pared"/></svg>
+            <span><b>Paredes y cielos de PVC</b><small>Láminas de 1.22 × 2.44 m según el área</small></span>
+          </button>
+        </div>
+      </div>
+    </section>
+
     <!-- Catálogo -->
     <section id="catalogo" class="catalogo" aria-labelledby="catTitulo">
       <div class="wrap">
@@ -110,6 +140,7 @@
               <summary>Precio <svg class="ico ico--mas" aria-hidden="true"><use href="#i-mas"/></svg><svg class="ico ico--menos" aria-hidden="true"><use href="#i-menos"/></svg></summary>
               <div class="filtro__ops" id="filtroPrecio" role="radiogroup" aria-label="Precio">
                 <button type="button" role="radio" data-rango="" aria-checked="true">Todos</button>
+                <button type="button" role="radio" data-rango="o" aria-checked="false" id="filtroOfertas" hidden>En oferta</button>
                 <button type="button" role="radio" data-rango="a" aria-checked="false">Hasta ₡10 000</button>
                 <button type="button" role="radio" data-rango="b" aria-checked="false">₡10 000 a ₡50 000</button>
                 <button type="button" role="radio" data-rango="c" aria-checked="false">Más de ₡50 000</button>
@@ -225,6 +256,7 @@
       </form>
 
       <div class="totales" id="totales" hidden>
+        <div class="totales__fila totales__fila--envio" id="filaEnvio" hidden><span id="lblEnvio">Envío</span><span id="totalEnvio"></span></div>
         <div class="totales__fila"><span>Total estimado</span><b id="totalEstimado"></b></div>
         <p class="totales__nota" id="totalNota"></p>
       </div>
@@ -235,6 +267,36 @@
           <label>Teléfono<input name="telefono" required inputmode="tel" maxlength="20" placeholder="8888-8888" autocomplete="tel" /></label>
         </div>
         <label>Nota (opcional)<textarea name="detalle" rows="2" maxlength="500" placeholder="Ej: lo recojo el sábado en la mañana"></textarea></label>
+
+        <fieldset class="entrega" id="entrega" hidden>
+          <legend>Entrega</legend>
+          <div class="entrega__ops">
+            <label class="opcion"><input type="radio" name="entrega" value="retiro" checked /><span>Lo recojo en el almacén</span></label>
+            <label class="opcion"><input type="radio" name="entrega" value="envio" /><span>Envío a domicilio</span></label>
+          </div>
+          <div class="entrega__datos" id="envioDatos" hidden>
+            <label>Zona<select name="zona"></select></label>
+            <label>Dirección con señas<textarea name="direccion" rows="2" maxlength="300" placeholder="Ej: 200 m sur de la escuela, casa verde de portón negro"></textarea></label>
+            <p class="entrega__nota" id="envioNota"></p>
+          </div>
+        </fieldset>
+
+        <details class="pago-ya" id="facturaBox">
+          <summary>¿Necesita factura electrónica?</summary>
+          <div class="enviar__fila">
+            <label>Identificación
+              <select name="f_tipo">
+                <option value="fisica">Cédula física</option>
+                <option value="juridica">Cédula jurídica</option>
+                <option value="dimex">DIMEX</option>
+                <option value="nite">NITE</option>
+              </select>
+            </label>
+            <label>Número<input name="f_id" inputmode="numeric" maxlength="20" placeholder="1-2345-6789" autocomplete="off" /></label>
+          </div>
+          <label>Nombre o razón social<input name="f_nombre" maxlength="100" autocomplete="off" /></label>
+          <label>Correo para recibir la factura<input name="f_correo" type="email" maxlength="120" autocomplete="email" /></label>
+        </details>
 
         <details class="pago-ya" id="pagoYa">
           <summary>¿Ya pagó por SINPE Móvil? Adjunte el comprobante</summary>
@@ -288,6 +350,89 @@
       <div class="ficha__acc" id="fichaAcc"></div>
       <a class="enlace-btn ficha__wa" id="fichaWa" href="#" target="_blank" rel="noopener noreferrer">Preguntar por este producto en WhatsApp</a>
     </div>
+  </dialog>
+
+  <!-- Calculadora de materiales -->
+  <dialog class="calc" id="calc" aria-labelledby="calcDlgTitulo">
+    <button type="button" class="icono-btn calc__cerrar" id="btnCerrarCalc" aria-label="Cerrar"><svg class="ico" aria-hidden="true"><use href="#i-cerrar"/></svg></button>
+    <h2 id="calcDlgTitulo">Calculadora de materiales</h2>
+    <div class="calc__tabs" role="tablist" aria-label="Qué va a calcular">
+      <button type="button" role="tab" id="tabTecho" aria-controls="panTecho" aria-selected="true" data-tab="techo">Techo</button>
+      <button type="button" role="tab" id="tabPvc" aria-controls="panPvc" aria-selected="false" data-tab="pvc" tabindex="-1">Paredes y cielos PVC</button>
+    </div>
+
+    <form id="panTecho" class="calc__panel" role="tabpanel" aria-labelledby="tabTecho" novalidate>
+      <fieldset class="calc__op">
+        <legend>Forma del techo</legend>
+        <label class="opcion"><input type="radio" name="aguas" value="1" /><span>Una caída</span></label>
+        <label class="opcion"><input type="radio" name="aguas" value="2" checked /><span>Dos caídas</span></label>
+      </fieldset>
+      <div class="calc__fila">
+        <div class="campo">
+          <label for="tLargo">Largo del techo (m)</label>
+          <input id="tLargo" name="largo" type="number" min="0.5" max="200" step="0.01" inputmode="decimal" aria-describedby="tLargoAy" />
+          <small id="tLargoAy">De un extremo al otro, a lo largo del alero.</small>
+        </div>
+        <div class="campo">
+          <label for="tCaida">Caída (m)</label>
+          <input id="tCaida" name="caida" type="number" min="0.5" max="30" step="0.01" inputmode="decimal" aria-describedby="tCaidaAy" />
+          <small id="tCaidaAy">De la cumbrera al borde, contando el alero.</small>
+        </div>
+      </div>
+      <label>Lámina<select name="producto"></select></label>
+      <label>Largo de cada lámina
+        <select name="largoLam">
+          <option value="1.83">1.83 m (6 pies)</option>
+          <option value="2.44">2.44 m (8 pies)</option>
+          <option value="3.05">3.05 m (10 pies)</option>
+          <option value="3.66" selected>3.66 m (12 pies)</option>
+          <option value="4.27">4.27 m (14 pies)</option>
+          <option value="4.88">4.88 m (16 pies)</option>
+          <option value="5.49">5.49 m (18 pies)</option>
+          <option value="6.10">6.10 m (20 pies)</option>
+        </select>
+      </label>
+      <details class="calc__mas">
+        <summary>Ajustar ancho útil, traslape y desperdicio</summary>
+        <div class="calc__fila3">
+          <label>Ancho útil (m)<input name="ancho" type="number" min="0.3" max="1.5" step="0.01" value="0.72" inputmode="decimal" /></label>
+          <label>Traslape (m)<input name="traslape" type="number" min="0" max="1" step="0.01" value="0.20" inputmode="decimal" /></label>
+          <label>Desperdicio (%)<input name="desp" type="number" min="0" max="30" step="1" value="5" inputmode="numeric" /></label>
+        </div>
+      </details>
+      <label class="check"><input type="checkbox" name="extras" checked /><span>Agregar también cumbrera y tornillos (se los cotizamos)</span></label>
+      <div class="calc__res" id="resTecho" aria-live="polite"></div>
+      <button type="submit" class="btn btn--amarillo btn--full" disabled>Agregar al carrito</button>
+    </form>
+
+    <form id="panPvc" class="calc__panel" role="tabpanel" aria-labelledby="tabPvc" novalidate hidden>
+      <fieldset class="calc__op">
+        <legend>¿Qué va a forrar?</legend>
+        <label class="opcion"><input type="radio" name="tipo" value="pared" checked /><span>Paredes</span></label>
+        <label class="opcion"><input type="radio" name="tipo" value="cielo" /><span>Cielo raso</span></label>
+      </fieldset>
+      <div class="calc__fila">
+        <label>Ancho (m)<input name="ancho" type="number" min="0.3" max="100" step="0.01" inputmode="decimal" /></label>
+        <label><span id="lblAlto">Alto (m)</span><input name="alto" type="number" min="0.3" max="100" step="0.01" inputmode="decimal" /></label>
+      </div>
+      <div class="calc__fila">
+        <label><span id="lblCant">Paredes iguales</span><input name="cant" type="number" min="1" max="20" step="1" value="1" inputmode="numeric" /></label>
+        <label>Restar puertas y ventanas (m²)<input name="restar" type="number" min="0" max="500" step="0.1" value="0" inputmode="decimal" /></label>
+      </div>
+      <label>Diseño<select name="producto"></select></label>
+      <details class="calc__mas">
+        <summary>Ajustar medida de la lámina y desperdicio</summary>
+        <div class="calc__fila3">
+          <label>Ancho (m)<input name="lamA" type="number" min="0.3" max="3" step="0.01" value="1.22" inputmode="decimal" /></label>
+          <label>Largo (m)<input name="lamL" type="number" min="0.3" max="6" step="0.01" value="2.44" inputmode="decimal" /></label>
+          <label>Desperdicio (%)<input name="desp" type="number" min="0" max="30" step="1" value="10" inputmode="numeric" /></label>
+        </div>
+      </details>
+      <label class="check"><input type="checkbox" name="extras" checked /><span>Agregar también molduras y pegamento (se los cotizamos)</span></label>
+      <div class="calc__res" id="resPvc" aria-live="polite"></div>
+      <button type="submit" class="btn btn--amarillo btn--full" disabled>Agregar al carrito</button>
+    </form>
+    <p class="calc__nota">Es un cálculo aproximado. Revise las medidas antes de comprar; si tiene dudas, mándenos una foto del lugar por WhatsApp.</p>
   </dialog>
 
   <!-- Barra de acciones (celular) -->
