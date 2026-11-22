@@ -55,6 +55,11 @@ alter table public.ajustes add constraint ajuste_clave_valida check (clave in
    'sinpe_numero','sinpe_titular','envio_activo','envio_zonas','envio_nota'));
 alter table public.ajustes drop constraint if exists ajuste_envio_activo;
 alter table public.ajustes add constraint ajuste_envio_activo check (clave <> 'envio_activo' or valor in ('si','no'));
+-- La lista de zonas puede ser larga (un barrio por línea); lo demás sigue con 1000 letras
+alter table public.ajustes drop constraint if exists ajustes_valor_check;
+alter table public.ajustes drop constraint if exists ajuste_largo;
+alter table public.ajustes add constraint ajuste_largo check (
+  char_length(valor) <= case when clave = 'envio_zonas' then 4000 else 1000 end);
 
 insert into public.ajustes (clave, valor) values
   ('envio_activo', 'no'),

@@ -546,7 +546,8 @@
     $("#facturaBox").hidden = !S.v4;
     if (!ok) return;
     const antes = f.zona.value;
-    f.zona.innerHTML = `<option value="">Escoja su zona…</option>` + zonasEnvio().map((z) =>
+    const orden = zonasEnvio().sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+    f.zona.innerHTML = `<option value="">Escoja su barrio o zona…</option>` + orden.map((z) =>
       `<option value="${U.esc(z.nombre)}">${U.esc(z.nombre)} · ${z.precio ? U.esc(U.colones(z.precio)) : "gratis"}</option>`).join("");
     if (zonasEnvio().some((z) => z.nombre === antes)) f.zona.value = antes;
     $("#envioNota").textContent = S.ajustes.envio_nota || "";
@@ -647,7 +648,7 @@
     if (envioActivo() && f.entrega.value === "envio") {
       const z = zonasEnvio().find((x) => x.nombre === f.zona.value);
       const dir = f.direccion.value.trim().replace(/\s+/g, " ").slice(0, 300);
-      if (!z) { err.textContent = "Escoja la zona de envío."; f.zona.focus(); return; }
+      if (!z) { err.textContent = "Escoja su barrio o zona para el envío."; f.zona.focus(); return; }
       if (dir.length < 10) { err.textContent = "Escriba la dirección con señas para el envío."; f.direccion.focus(); return; }
       d.envio = { zona: z.nombre, direccion: dir };
     }
