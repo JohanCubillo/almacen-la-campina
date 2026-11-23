@@ -1,8 +1,8 @@
 {
   "id": "./admin.html",
   "name": "Panel · Almacén La Campiña",
-  "short_name": "Panel Campiña",
-  "description": "Pedidos, pagos SINPE, productos y reportes de Almacén La Campiña.",
+  "short_name": "La Campiña",
+  "description": "Ventas, pagos SINPE, productos, inventario y reportes de Almacén La Campiña.",
   "lang": "es-CR",
   "start_url": "./admin.html",
   "scope": "./",
@@ -10,7 +10,63 @@
   "background_color": "#ffffff",
   "theme_color": "#ffffff",
   "icons": [
-    { "src": "assets/img/icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "assets/img/icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    {
+      "src": "assets/img/icono-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/img/icono-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/img/icono-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
+  "categories": [
+    "business",
+    "productivity"
+  ],
+  "shortcuts": [
+    {
+      "name": "Nueva venta",
+      "short_name": "Venta",
+      "url": "./admin.html?ir=venta",
+      "icons": [
+        {
+          "src": "assets/img/icono-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Productos",
+      "url": "./admin.html?ir=productos",
+      "icons": [
+        {
+          "src": "assets/img/icono-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Caja SINPE",
+      "url": "./admin.html?ir=caja",
+      "icons": [
+        {
+          "src": "assets/img/icono-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
   ]
 }

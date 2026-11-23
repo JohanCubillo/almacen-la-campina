@@ -239,12 +239,49 @@
     addEventListener("online", estadoRedPanel);
     addEventListener("offline", estadoRedPanel);
     estadoRedPanel();
+    irA(new URLSearchParams(location.search).get("ir"));
     setInterval(() => {
       if (document.hidden) return;
       enviarCola();
       if (!SIN_RED && navigator.onLine && !$("#dlgVenta").open) { cargarVentas(); contarPorVerificar(); cargarPreguntas(); }
     }, 60000);
   }
+
+  // ---------- como programa (app instalada) ----------
+  // los accesos directos del ícono abren admin.html?ir=venta|productos|caja
+  function irA(destino) {
+    if (!destino) return;
+    history.replaceState(null, "", location.pathname);
+    const tab = { venta: "#tabVen", productos: "#tabProd", caja: "#tabCaja" }[destino];
+    if (tab) $(tab).click();
+    if (destino === "venta" && !$("#dlgVenta").open) $("#btnNuevaVenta").click();
+  }
+  // si el panel ya está abierto y se toca un acceso directo, llega aquí (launch_handler: focus-existing)
+  if ("launchQueue" in window) {
+    window.launchQueue.setConsumer((p) => {
+      if (!panelListo || !p.targetURL) return;
+      irA(new URL(p.targetURL).searchParams.get("ir"));
+    });
+  }
+  let pedirInstalar = null;
+  const yaInstalado = () => matchMedia("(display-mode: standalone)").matches || matchMedia("(display-mode: window-controls-overlay)").matches;
+  addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    pedirInstalar = e;
+    $("#btnInstalar").hidden = yaInstalado();
+  });
+  addEventListener("appinstalled", () => {
+    pedirInstalar = null;
+    $("#btnInstalar").hidden = true;
+    toast("Listo: el panel quedó instalado. Ábralo desde el ícono del escritorio o del menú Inicio.");
+  });
+  $("#btnInstalar").addEventListener("click", async () => {
+    if (!pedirInstalar) return;
+    pedirInstalar.prompt();
+    const r = await pedirInstalar.userChoice.catch(() => null);
+    if (r && r.outcome === "accepted") $("#btnInstalar").hidden = true;
+    pedirInstalar = null;
+  });
 
   // ---------- pestañas ----------
   $$(".pestana").forEach((tab) => tab.addEventListener("click", () => {

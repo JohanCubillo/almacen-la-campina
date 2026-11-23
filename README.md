@@ -82,6 +82,23 @@ Tienda: Agregar productos al carrito  ─►  Enviar pedido (nombre + teléfono)
 | Spam de pedidos o archivos | Máx. 3 pedidos por teléfono cada 15 min; subidas solo a rutas autorizadas, 5 por pedido al día, 5 MB |
 | Comprobantes expuestos | Bucket privado; solo el admin los ve con enlaces de 2 minutos |
 
+## Usar el panel como programa (en la compu del almacén)
+
+1. En la compu del almacén, abrir el panel en **Chrome** o **Edge**: `https://johancubillo.github.io/almacen-la-campina/admin.html`.
+2. Entrar con el usuario del almacén y tocar **Instalar como programa** (arriba, junto al correo). Si no aparece el botón, usar el ícono de instalar en la barra de direcciones (o menú ⋮ → *Instalar La Campiña*).
+3. Queda como un programa más: ícono en el escritorio y en el menú Inicio, ventana propia sin barra del navegador. Clic derecho sobre el ícono de la barra de tareas → **Anclar**.
+4. Clic derecho sobre el ícono también trae accesos directos: **Nueva venta**, **Productos** y **Caja SINPE**.
+
+- Abre aunque no haya internet (igual que el panel en el navegador: ventas sin internet que se envían solas al volver).
+- Se actualiza solo: cuando se publican cambios, la próxima vez que se abre ya trae la versión nueva. No hay que reinstalar.
+- Los datos siguen en Supabase, así que la tienda web, los respaldos y otras compus ven lo mismo.
+
+**Imprimir sin la ventana de impresión (opcional, para la caja):** crear un acceso directo en el escritorio con este destino y usarlo para abrir el panel. Imprime directo en la impresora predeterminada de Windows. Solo funciona si Edge no estaba abierto antes.
+
+```
+"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --app=https://johancubillo.github.io/almacen-la-campina/admin.html --kiosk-printing
+```
+
 ## Inventario desde Moriah
 
 0. **Solo la primera vez:** a los productos que ya están en la página con foto, ponerles el código que tienen en Moriah (**Productos → Editar → Código**). Así la importación los actualiza en vez de crear otro igual sin foto. Si ya se importó y quedó repetido: borrar el que vino de Moriah y poner su código en el que tiene foto.
