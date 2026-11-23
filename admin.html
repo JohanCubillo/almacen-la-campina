@@ -105,6 +105,7 @@
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tComp" id="tabComp" hidden>Comprobantes</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tRep" id="tabRep">Reportes</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tProd" id="tabProd">Productos</button>
+      <button role="tab" class="pestana" aria-selected="false" aria-controls="tInv" id="tabInv" hidden>Inventario</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCat" id="tabCat">Categorías</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tAj" id="tabAj">Datos del negocio</button>
     </nav>
@@ -241,6 +242,40 @@
           <button type="button" role="radio" aria-checked="false" data-fp="ocultos">Ocultos</button>
         </div>
         <ul id="listaProd" class="filas"></ul>
+      </section>
+
+      <!-- INVENTARIO -->
+      <section id="tInv" role="tabpanel" aria-labelledby="tabInv" hidden>
+        <div class="barra-herr">
+          <h2>Inventario</h2>
+          <div class="barra-herr__der">
+            <button type="button" class="btn btn--negro btn--sm" id="btnNuevaEntrada">Entrada de mercadería</button>
+          </div>
+        </div>
+        <div class="segmentos segmentos--sm" role="radiogroup" aria-label="Ver" id="invVista">
+          <button type="button" role="radio" aria-checked="true" data-iv="entradas">Entradas</button>
+          <button type="button" role="radio" aria-checked="false" data-iv="movs">Movimientos</button>
+        </div>
+        <div id="invEntradas">
+          <ul id="listaEntradas" class="filas"></ul>
+        </div>
+        <div id="invMovs" hidden>
+          <div class="inv-filtros">
+            <div class="buscar-item">
+              <input id="invProdQ" type="search" placeholder="Un producto: nombre, código o lector…" maxlength="60" autocomplete="off" aria-label="Filtrar movimientos por producto" />
+              <ul id="invProdRes" class="buscar-item__res" hidden></ul>
+            </div>
+            <label class="fecha-caja">Desde <input type="date" id="invDesde" /></label>
+            <label class="fecha-caja">Hasta <input type="date" id="invHasta" /></label>
+          </div>
+          <p class="inv-sel" id="invProdSel" hidden></p>
+          <div class="items-wrap">
+            <table class="items">
+              <thead><tr><th>Fecha</th><th>Producto</th><th>Movimiento</th><th class="num">Cantidad</th><th class="num">Queda</th><th>Referencia</th></tr></thead>
+              <tbody id="invMovFilas"></tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <!-- CATEGORÍAS -->
@@ -458,6 +493,7 @@
         <label>Existencia<input name="existencia" type="number" step="0.01" placeholder="Se pone sola al importar" /></label>
       </div>
       <p class="ayuda v9">Con el código, al importar el inventario de Moriah este producto se actualiza solo (precio y existencia) en vez de crearse otro igual.</p>
+      <p class="v12"><button type="button" class="enlace" id="btnProdKardex">Ver movimientos de inventario de este producto</button></p>
       <fieldset class="oferta v4">
         <legend>Oferta (opcional)</legend>
         <div class="dos">
@@ -479,6 +515,36 @@
       <div class="dlg__btns">
         <button type="button" class="btn btn--linea" id="btnCancelarProd">Cancelar</button>
         <button type="submit" class="btn btn--negro" id="btnGuardarProd">Guardar producto</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Entrada de mercadería -->
+  <dialog id="dlgEntrada" class="dlg dlg--ancho" aria-labelledby="entTitulo">
+    <form id="formEntrada" class="dlg__form" novalidate>
+      <h2 id="entTitulo">Entrada de mercadería</h2>
+      <div class="tres">
+        <label>Proveedor<input name="proveedor" maxlength="100" autocomplete="off" /></label>
+        <label>N.º de factura del proveedor<input name="documento" maxlength="40" autocomplete="off" /></label>
+        <label>Fecha<input name="fecha" type="date" /></label>
+      </div>
+      <div class="buscar-item">
+        <input id="entBuscar" type="search" placeholder="Agregar producto: nombre, código o lector de barras…" maxlength="60" autocomplete="off" aria-label="Agregar producto a la entrada" />
+        <ul id="entRes" class="buscar-item__res" hidden></ul>
+      </div>
+      <div class="items-wrap">
+        <table class="items">
+          <thead><tr><th>Descripción</th><th class="num">Hay</th><th class="num">Entran</th><th class="num">Costo unit. ₡</th><th class="num">Precio de venta ₡</th><th><span class="sr">Quitar</span></th></tr></thead>
+          <tbody id="entFilas"></tbody>
+          <tfoot><tr><td colspan="2"><b>Total</b></td><td class="num" id="entCant"></td><td class="num" id="entTotal"></td><td colspan="2"></td></tr></tfoot>
+        </table>
+      </div>
+      <p class="ayuda">El costo y el precio de venta son opcionales. Si pone un precio de venta, el producto queda con ese precio (y se anota en Movimientos de precios).</p>
+      <label>Nota<input name="nota" maxlength="300" placeholder="Opcional" /></label>
+      <p class="msg" id="entMsg" role="status"></p>
+      <div class="dlg__btns">
+        <button type="button" class="btn btn--linea" id="btnCerrarEntrada">Cancelar</button>
+        <button type="submit" class="btn btn--negro" id="btnGuardarEntrada" disabled>Guardar entrada</button>
       </div>
     </form>
   </dialog>
@@ -542,6 +608,7 @@
       </ol>
       <p class="ayuda"><b>¿Viene de Moriah?</b> Exporte el inventario a Excel y súbalo tal cual, sin arreglarlo: se reconoce solo. A los productos nuevos se les pone categoría según el nombre, y los que no tienen existencia quedan como agotados. Puede subirlo cada semana para poner al día precios y existencias: no se borran las fotos, nombres ni categorías que usted haya arreglado aquí.</p>
       <p class="ayuda">Las columnas que trae el archivo reemplazan lo que hay. Si no quiere cambiar una columna, bórrela del archivo. Precio vacío = “a consultar”.</p>
+      <label class="check v9"><input type="checkbox" id="impExistencias" checked /> Actualizar existencias desde el archivo (quítelo cuando el panel ya lleve el inventario y Moriah no)</label>
       <label>Archivo (.xlsx o .csv)<input type="file" id="impArchivo" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" /></label>
       <p class="msg" id="impMsg" role="status"></p>
       <div class="items-wrap" id="impVista" hidden>

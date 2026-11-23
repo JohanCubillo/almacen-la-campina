@@ -89,3 +89,9 @@ Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usar
 
 - Cada cambio de precio queda en `precios_movimientos` por un disparador de la base: no importa si se hizo con *Ajuste de precios*, editando el producto o importando el Excel. El panel solo puede **leer** ese historial; nadie lo puede editar ni borrar desde la página.
 - `ajustar_precios` exige admin con MFA y acepta máximo 500 productos por vez.
+
+## Inventario (v12)
+
+- La existencia la mueven **disparadores de la base**: las ventas, anulaciones y borrados, y las funciones `registrar_entrada` y `anular_entrada` (admin con MFA, máximo 500 productos por entrada). Cada cambio queda en `inventario_movimientos`, que el panel solo puede **leer**.
+- **Costo** y **existencia** no son públicos: la tienda no los puede pedir, porque v9 le dejó solo las columnas públicas de productos.
+- Al borrar una venta entera, la devolución se hace una sola vez, aunque los renglones se borren en cascada.

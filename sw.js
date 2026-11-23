@@ -7,7 +7,7 @@
  * - NUNCA guarda datos de la base ni de la sesión (/rest, /auth, /rpc):
  *   esos los guarda la propia página solo en el aparato del dueño.
  */
-const VERSION = "lc-v11-2";
+const VERSION = "lc-v12-1";
 const CASA = "casa-" + VERSION;
 const FOTOS = "fotos-v1";
 const MAX_FOTOS = 200;

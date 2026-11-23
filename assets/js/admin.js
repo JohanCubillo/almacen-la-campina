@@ -43,6 +43,7 @@
   let V10 = false;         // la base tiene facturación electrónica (v10_facturacion.sql)
   let FE = null;           // datos del emisor (fe_emisor)
   let V11 = false;         // la base tiene historial de precios (v11_precios.sql)
+  let V12 = false;         // la base lleva inventario (v12_inventario.sql)
   const MAX_LISTA_PROD = 150;
   let V5 = true;           // la base tiene registrar_venta_sin_internet
 
@@ -237,8 +238,13 @@
       let r11;
       try { r11 = await db.from("precios_movimientos").select("id").limit(1); } catch (e) { r11 = { error: e }; }
       V11 = !r11.error;
+      let r12;
+      try { r12 = await db.from("entradas").select("id").limit(1); } catch (e) { r12 = { error: e }; }
+      V12 = !r12.error;
     }
     document.documentElement.classList.toggle("sin-v11", !V11);
+    document.documentElement.classList.toggle("sin-v12", !V12);
+    $("#tabInv").hidden = !V12;
     $("#tabComp").hidden = !V10;
     document.documentElement.classList.toggle("sin-v10", !V10);
     if (V10) pintarConfFE();
@@ -306,6 +312,7 @@
     if (tab.id === "tabPreg") cargarPreguntas();
     if (tab.id === "tabRep") cargarReportes();
     if (tab.id === "tabComp") cargarComprobantes();
+    if (tab.id === "tabInv") cargarInventario();
   }));
   $(".pestanas").addEventListener("keydown", (e) => {
     if (!["ArrowRight", "ArrowLeft"].includes(e.key)) return;
@@ -1152,6 +1159,8 @@
   }
   buscadorProductos($("#agregarItemQ"), $("#agregarItemRes"), (p) => {
     const ya = V.items.find((i) => i.producto_id === p.id);
+    if (V12 && p.existencia != null && Number(p.existencia) - (ya ? Number(ya.cantidad) : 0) <= 0)
+      toast(`Ojo: según el inventario no hay ${p.nombre} (hay ${Number(p.existencia).toLocaleString("es-CR")}).`, true);
     if (ya) ya.cantidad = Number(ya.cantidad) + 1;
     else V.items.push({ producto_id: p.id, descripcion: p.nombre + (p.unidad ? ` (${p.unidad})` : ""), cantidad: 1, precio_unit: p.precio != null ? Number(p.precio) : 0 });
     V.dirty = true;
@@ -1210,6 +1219,7 @@
         if (ins.error) throw ins.error;
       }
       toast("Venta guardada");
+      refrescarExistencias(V.items.map((i) => i.producto_id));
       await abrirVenta(id);
       cargarVentas();
       return true;
@@ -1495,6 +1505,206 @@
         signo(d) * Math.round(Number(d.total) * 100) / 100, (FE_ESTADO[d.estado] || [d.estado])[0] + (d.anulado ? " (anulado)" : ""), d.detalle || ""]));
     descargar(XlsxMini.escribir(filas, { hoja: "Comprobantes", anchos: [16, 20, 10, 24, 54, 30, 14, 12, 14, 12, 14, 24, 40] }),
       `comprobantes-${$("#compDesde").value}-a-${$("#compHasta").value}.xlsx`);
+  });
+
+  // ---------- inventario: entradas de mercadería y movimientos ----------
+  async function refrescarExistencias(ids) {
+    ids = [...new Set((ids || []).filter(Boolean))];
+    if (!V12 || !ids.length) return;
+    const { data } = await db.from("productos").select("id,existencia,agotado").in("id", ids);
+    for (const r of data || []) { const p = productos.find((x) => x.id === r.id); if (p) { p.existencia = r.existencia; p.agotado = r.agotado; } }
+  }
+  const ORIGEN_INV = {
+    venta: "Venta", venta_cambio: "Cambio en una venta", venta_borrada: "Venta borrada", anulacion: "Venta anulada",
+    entrada: "Entrada de mercadería", entrada_anulada: "Entrada anulada", producto: "Editado en Productos", importacion: "Importación"
+  };
+  let invVista = "entradas", invProd = null;
+  const cant = (n) => Number(n).toLocaleString("es-CR", { maximumFractionDigits: 2 });
+  function cargarInventario() {
+    $("#invEntradas").hidden = invVista !== "entradas";
+    $("#invMovs").hidden = invVista !== "movs";
+    $$("#invVista [data-iv]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.iv === invVista)));
+    return invVista === "entradas" ? cargarEntradas() : cargarMovsInv();
+  }
+  $("#invVista").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-iv]"); if (!b) return;
+    invVista = b.dataset.iv; cargarInventario();
+  });
+
+  async function cargarEntradas() {
+    $("#listaEntradas").innerHTML = `<li class="vacio-adm">Cargando…</li>`;
+    const { data, error } = await db.from("entradas").select("*").order("fecha", { ascending: false }).order("id", { ascending: false }).limit(300);
+    if (error) { $("#listaEntradas").innerHTML = ""; return toast(errTxt(error), true); }
+    $("#listaEntradas").innerHTML = data.map((en) => `<li class="fila fila--pago ${en.estado === "anulada" ? "fila--oculta" : ""}">
+        <div class="fila__monto"><b>${en.total_costo > 0 ? fmt(en.total_costo) : `${en.productos} prod.`}</b><small>${new Date(en.fecha + "T12:00:00-06:00").toLocaleDateString("es-CR", { dateStyle: "medium", timeZone: TZ })}</small></div>
+        <div class="fila__txt">
+          <b>Entrada ${en.id}${en.proveedor ? " · " + U.esc(en.proveedor) : ""}</b>
+          <small>${en.documento ? "Factura " + U.esc(en.documento) + " · " : ""}${en.productos} ${en.productos === 1 ? "producto" : "productos"}${en.nota ? " · " + U.esc(en.nota) : ""}${en.estado === "anulada" ? " · Anulada: " + U.esc(en.motivo_anulacion || "") : ""}</small>
+          <details data-entrada="${en.id}"><summary>Ver productos</summary><ul class="entrada__items"><li>Cargando…</li></ul></details>
+        </div>
+        <div class="fila__acc">${en.estado === "aplicada" ? `<button type="button" class="enlace enlace--peligro" data-anular-entrada="${en.id}">Anular</button>` : '<span class="etq">Anulada</span>'}</div>
+      </li>`).join("") || `<li class="vacio-adm">Todavía no hay entradas. Cuando llegue mercadería del proveedor, toque <b>Entrada de mercadería</b>.</li>`;
+  }
+  $("#listaEntradas").addEventListener("toggle", async (e) => {
+    const d = e.target.closest("details[data-entrada]"); if (!d || !d.open || d.dataset.cargado) return;
+    const { data, error } = await db.from("entrada_items").select("cantidad,costo_unit,precio_nuevo,productos(nombre,codigo)").eq("entrada_id", d.dataset.entrada).order("id");
+    d.querySelector("ul").innerHTML = error ? `<li>${U.esc(errTxt(error))}</li>` : data.map((i) =>
+      `<li><b>${cant(i.cantidad)}</b> × ${U.esc(i.productos?.nombre || "(borrado)")}${i.costo_unit != null ? ` · costo ${fmt(i.costo_unit)}` : ""}${i.precio_nuevo != null ? ` · precio nuevo ${fmt(i.precio_nuevo)}` : ""}</li>`).join("");
+    d.dataset.cargado = "1";
+  }, true);
+  $("#listaEntradas").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-anular-entrada]"); if (!b) return;
+    const motivo = prompt("¿Por qué se anula esta entrada? (se resta lo que había sumado)", "Se registró por error");
+    if (motivo === null) return;
+    if (motivo.trim().length < 3) return toast("Escriba el motivo.", true);
+    const { error } = await db.rpc("anular_entrada", { p_id: Number(b.dataset.anularEntrada), p_motivo: motivo.trim() });
+    if (error) return toast(errTxt(error), true);
+    toast("Entrada anulada: se restó del inventario");
+    cargarEntradas(); cargarProductos();
+  });
+
+  // kardex
+  async function cargarMovsInv() {
+    const hoy = hoyCR();
+    if (!$("#invHasta").value) $("#invHasta").value = hoy;
+    if (!$("#invDesde").value) $("#invDesde").value = hoy.slice(0, 8) + "01";
+    $("#invDesde").max = $("#invHasta").max = hoy;
+    let desde = $("#invDesde").value, hasta = $("#invHasta").value;
+    if (desde > hasta) { [desde, hasta] = [hasta, desde]; $("#invDesde").value = desde; $("#invHasta").value = hasta; }
+    $("#invProdSel").hidden = !invProd;
+    if (invProd) $("#invProdSel").innerHTML = `<span>Solo <b>${U.esc(invProd.nombre)}</b>${invProd.existencia != null ? ` · hay ${cant(invProd.existencia)}` : " · no lleva existencia"}</span> <button type="button" class="enlace" id="btnInvTodos">Ver todos los productos</button>`;
+    $("#invMovFilas").innerHTML = `<tr><td colspan="6" class="vacio-adm">Cargando…</td></tr>`;
+    let q = db.from("inventario_movimientos")
+      .select("id,producto_id,cantidad,existencia_antes,existencia_despues,origen,pedido_id,entrada_id,nota,created_at,productos(nombre,codigo)")
+      .gte("created_at", rangoDia(desde)[0]).lt("created_at", rangoDia(hasta)[1]);
+    if (invProd) q = q.eq("producto_id", invProd.id);
+    const { data, error } = await q.order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1500);
+    if (error) { $("#invMovFilas").innerHTML = ""; return toast(errTxt(error), true); }
+    // editar una venta borra y vuelve a poner sus renglones: se junta en un solo movimiento (y si no cambió nada, no se muestra)
+    const grupos = [], abiertos = new Map();
+    for (const m of data) {
+      const esVenta = ["venta", "venta_cambio"].includes(m.origen) && m.pedido_id;
+      const k = esVenta ? `${m.producto_id}|${m.pedido_id}` : null, g = k && abiertos.get(k);
+      if (g && Math.abs(new Date(g.desde) - new Date(m.created_at)) < 180000) {
+        g.cantidad = Math.round((g.cantidad + Number(m.cantidad)) * 100) / 100; g.existencia_antes = m.existencia_antes; g.desde = m.created_at;
+        continue;
+      }
+      const n = { ...m, cantidad: Number(m.cantidad), desde: m.created_at };
+      grupos.push(n); if (k) abiertos.set(k, n);
+    }
+    const lista = grupos.filter((g) => g.cantidad !== 0);
+    const codigos = {};
+    const ids = [...new Set(lista.map((g) => g.pedido_id).filter(Boolean))];
+    for (let i = 0; i < ids.length; i += 200) {
+      const { data: ps } = await db.from("pedidos").select("id,codigo").in("id", ids.slice(i, i + 200));
+      for (const p of ps || []) codigos[p.id] = p.codigo;
+    }
+    $("#invMovFilas").innerHTML = lista.map((g) => {
+      const origen = g.origen === "venta_cambio" && g.cantidad < 0 ? "venta" : g.origen === "venta" && g.cantidad > 0 ? "venta_cambio" : g.origen;
+      const ref = g.pedido_id ? `<button type="button" class="enlace" data-inv-venta="${g.pedido_id}">Venta ${U.esc(codigos[g.pedido_id] || "#" + g.pedido_id)}</button>`
+        : g.entrada_id ? `Entrada ${g.entrada_id}` : "";
+      return `<tr>
+        <td>${fechaCR(g.created_at, { dateStyle: "short", timeStyle: "short" })}</td>
+        <td>${U.esc(g.productos?.nombre || "(borrado)")}${g.productos?.codigo ? `<small class="imp__cod">${U.esc(g.productos.codigo)}</small>` : ""}</td>
+        <td>${ORIGEN_INV[origen] || U.esc(origen)}</td>
+        <td class="num ${g.cantidad > 0 ? "inv-mas" : "inv-menos"}">${g.cantidad > 0 ? "+" : "−"}${cant(Math.abs(g.cantidad))}</td>
+        <td class="num">${g.existencia_despues != null ? cant(g.existencia_despues) : "—"}</td>
+        <td>${ref}${g.nota ? `${ref ? " · " : ""}${U.esc(g.nota)}` : ""}</td>
+      </tr>`;
+    }).join("") || `<tr><td colspan="6" class="vacio-adm">No hay movimientos en esas fechas${invProd ? " para este producto" : ""}.</td></tr>`;
+  }
+  $("#invDesde").addEventListener("change", cargarMovsInv);
+  $("#invHasta").addEventListener("change", cargarMovsInv);
+  buscadorProductos($("#invProdQ"), $("#invProdRes"), (p) => { invProd = p; cargarMovsInv(); }, { ocultos: true, nada: "No se encontró ese producto." });
+  $("#invProdSel").addEventListener("click", (e) => { if (e.target.closest("#btnInvTodos")) { invProd = null; cargarMovsInv(); } });
+  $("#invMovFilas").addEventListener("click", (e) => { const b = e.target.closest("[data-inv-venta]"); if (b) abrirVenta(Number(b.dataset.invVenta)); });
+  $("#btnProdKardex").addEventListener("click", () => {
+    const p = productos.find((x) => x.id == $("#formProd").id.value);
+    if (!p) return toast("Primero guarde el producto.", true);
+    $("#dlgProd").close();
+    invProd = p; invVista = "movs";
+    $("#invDesde").value = ""; $("#invHasta").value = "";
+    const hoy = hoyCR(); $("#invHasta").value = hoy;
+    $("#invDesde").value = new Date(Date.now() - 365 * 864e5).toISOString().slice(0, 10);
+    $("#tabInv").click();
+  });
+
+  // nueva entrada de mercadería
+  const ENT = new Map();      // id → { p, cant, costo, precio }
+  const numOk = (v) => v === "" || /^[0-9]{1,10}(\.[0-9]{1,2})?$/.test(String(v).trim());
+  function totalesEntrada() {
+    const filas = [...ENT.values()];
+    const total = filas.reduce((t, f) => t + (Number(f.cant) || 0) * (Number(f.costo) || 0), 0);
+    $("#entCant").textContent = filas.length ? `${filas.length} ${filas.length === 1 ? "producto" : "productos"}` : "";
+    $("#entTotal").textContent = total ? fmt(total) : "";
+    $("#btnGuardarEntrada").disabled = !filas.length;
+  }
+  function pintarEntrada() {
+    $("#entFilas").innerHTML = [...ENT.values()].map((f) => `<tr>
+        <td>${U.esc(f.p.nombre)}${f.p.codigo ? `<small class="imp__cod">${U.esc(f.p.codigo)}</small>` : ""}</td>
+        <td class="num">${f.p.existencia != null ? cant(f.p.existencia) : "—"}</td>
+        <td class="num"><input type="number" min="0.01" step="0.01" inputmode="decimal" value="${U.esc(String(f.cant))}" data-ent="cant" data-id="${f.p.id}" aria-label="Cantidad que entra de ${U.esc(f.p.nombre)}" /></td>
+        <td class="num"><input type="number" min="0" step="0.01" inputmode="decimal" value="${U.esc(String(f.costo))}" data-ent="costo" data-id="${f.p.id}" aria-label="Costo unitario" /></td>
+        <td class="num"><input type="number" min="1" step="0.01" inputmode="decimal" value="${U.esc(String(f.precio))}" placeholder="${f.p.precio != null ? Number(f.p.precio) : ""}" data-ent="precio" data-id="${f.p.id}" aria-label="Precio de venta nuevo (vacío = no cambia)" /></td>
+        <td><button type="button" class="enlace enlace--peligro" data-ent-quitar="${f.p.id}">Quitar</button></td>
+      </tr>`).join("") || `<tr><td colspan="6" class="vacio-adm">Busque arriba los productos que llegaron (o páselos por el lector).</td></tr>`;
+    totalesEntrada();
+  }
+  buscadorProductos($("#entBuscar"), $("#entRes"), (p) => {
+    const f = ENT.get(p.id);
+    if (f) f.cant = Math.round(((Number(f.cant) || 0) + 1) * 100) / 100;
+    else ENT.set(p.id, { p, cant: 1, costo: p.costo != null ? Number(p.costo) : "", precio: "" });
+    pintarEntrada();
+    const inp = $(`#entFilas [data-ent="cant"][data-id="${p.id}"]`);
+    if (inp) { inp.focus(); inp.select(); }
+  }, { ocultos: true, nada: "No se encontró. Si es un producto nuevo, créelo primero en Productos." });
+  $("#entFilas").addEventListener("input", (e) => {
+    const i = e.target.closest("[data-ent]"); if (!i) return;
+    const f = ENT.get(Number(i.dataset.id)); if (!f) return;
+    f[i.dataset.ent] = i.value.trim();
+    totalesEntrada();
+  });
+  $("#entFilas").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && e.target.closest("[data-ent]")) { e.preventDefault(); $("#entBuscar").focus(); }
+  });
+  $("#entFilas").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-ent-quitar]"); if (!b) return;
+    ENT.delete(Number(b.dataset.entQuitar)); pintarEntrada();
+  });
+  $("#btnNuevaEntrada").addEventListener("click", () => {
+    ENT.clear(); $("#formEntrada").reset();
+    $("#formEntrada").fecha.value = hoyCR(); $("#formEntrada").fecha.max = hoyCR();
+    $("#entMsg").textContent = ""; $("#entMsg").className = "msg";
+    pintarEntrada();
+    $("#dlgEntrada").showModal();
+    $("#formEntrada").proveedor.focus();
+  });
+  $("#btnCerrarEntrada").addEventListener("click", () => {
+    if (ENT.size && !confirm("La entrada no se ha guardado. ¿Cerrar de todos modos?")) return;
+    $("#dlgEntrada").close();
+  });
+  $("#formEntrada").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#entMsg"), filas = [...ENT.values()];
+    if (!filas.length) return;
+    for (const x of filas) {
+      if (!(Number(x.cant) > 0) || !numOk(x.cant)) { msg.className = "msg msg--error"; msg.textContent = `Revise la cantidad de ${x.p.nombre}.`; return; }
+      if (!numOk(x.costo)) { msg.className = "msg msg--error"; msg.textContent = `Revise el costo de ${x.p.nombre}.`; return; }
+      if (!numOk(x.precio) || (x.precio !== "" && !(Number(x.precio) > 0))) { msg.className = "msg msg--error"; msg.textContent = `Revise el precio de venta de ${x.p.nombre}.`; return; }
+    }
+    const precios = filas.filter((x) => x.precio !== "").length;
+    if (!confirm(`¿Guardar la entrada? Se suman ${filas.length} ${filas.length === 1 ? "producto" : "productos"} al inventario${precios ? ` y cambian ${precios} ${precios === 1 ? "precio" : "precios"} de venta` : ""}.`)) return;
+    const b = $("#btnGuardarEntrada"); b.disabled = true; msg.className = "msg"; msg.textContent = "Guardando…";
+    const { data, error } = await db.rpc("registrar_entrada", { p: {
+      proveedor: f.proveedor.value.trim(), documento: f.documento.value.trim(), fecha: f.fecha.value, nota: f.nota.value.trim(),
+      items: filas.map((x) => ({ producto_id: x.p.id, cantidad: String(Number(x.cant)), costo: x.costo === "" ? "" : String(Number(x.costo)), precio: x.precio === "" ? "" : String(Number(x.precio)) }))
+    } });
+    if (error) { msg.className = "msg msg--error"; msg.textContent = errTxt(error); b.disabled = false; return; }
+    ENT.clear();
+    $("#dlgEntrada").close();
+    toast(`Entrada ${data.id} guardada: ${data.productos} ${data.productos === 1 ? "producto" : "productos"} sumados al inventario`);
+    invVista = "entradas";
+    cargarInventario(); cargarProductos();
   });
 
   // ---------- ajuste de precios (como "Ajuste de Precios" de Moriah) ----------
@@ -1847,7 +2057,8 @@
   const TABLAS_RESPALDO = [
     ["categorias", "id"], ["productos", "id"], ["ajustes", "clave"], ["pedidos", "id"], ["pedido_items", "id"],
     ["pagos", "id"], ["comprobantes_cliente", "id"], ["facturas", "id"], ["consultas", "id"], ["archivos_borrados", "ruta"], ["auditoria", "id"],
-    ["fe_emisor", "id"], ["fe_consecutivos", "ambiente"], ["fe_documentos", "id"], ["precios_movimientos", "id"]
+    ["fe_emisor", "id"], ["fe_consecutivos", "ambiente"], ["fe_documentos", "id"], ["precios_movimientos", "id"],
+    ["entradas", "id"], ["entrada_items", "id"], ["inventario_movimientos", "id"]
   ];
 
   function pintarUltimoRespaldo() {
@@ -2144,6 +2355,7 @@
     const { error } = await db.from("pedidos").update({ estado: "anulada", motivo_anulacion: motivo.trim().slice(0, 300) }).eq("id", V.pedido.id);
     if (error) return toast(errTxt(error), true);
     toast("Venta anulada");
+    refrescarExistencias(V.items.map((i) => i.producto_id));
     await abrirVenta(V.pedido.id); cargarVentas();
   });
 
@@ -2161,6 +2373,7 @@
     if (error) return toast(errTxt(error), true);
     $("#dlgVenta").close();
     toast("Venta borrada");
+    refrescarExistencias(V.items.map((i) => i.producto_id));
     cargarVentas();
   });
 
@@ -2611,7 +2824,8 @@
   });
   $("#btnHacerImport").addEventListener("click", async () => {
     const b = $("#btnHacerImport"), msg = $("#impMsg");
-    const filas = importacion.filter((x) => !x.error).map(({ fila: { _auto, ...f } }) => f);
+    const conExist = !$("#impExistencias") || $("#impExistencias").checked;
+    const filas = importacion.filter((x) => !x.error).map(({ fila: { _auto, ...f } }) => { if (!conExist) delete f.existencia; return f; });
     if (!filas.length) return;
     if (!confirm(`¿Importar ${filas.length} productos? Los que ya existen se actualizan con los datos del archivo.`)) return;
     b.disabled = true;

@@ -410,3 +410,12 @@ html:not(.panel-ok) body { visibility: hidden; }
 .aj-baja { color: #1d6b39; }
 #ajMovBuscar { width: 100%; margin-bottom: .6rem; }
 .fila__monto small.comp-tipo { white-space: nowrap; }
+.sin-v12 .v12 { display: none !important; }
+.inv-filtros { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin: .75rem 0; }
+.inv-filtros .buscar-item { flex: 1 1 18rem; }
+.inv-sel { display: flex; align-items: center; gap: .6rem; margin: 0 0 .6rem; }
+.inv-mas { color: #1d6b39; font-weight: 600; }
+.inv-menos { color: var(--peligro); font-weight: 600; }
+#entFilas input { width: 7rem; text-align: right; }
+.entrada__items { margin: .4rem 0 0; padding: 0; list-style: none; font-size: .9rem; display: grid; gap: .15rem; }
+.fila__txt details summary { cursor: pointer; font-size: .9rem; color: var(--gris); }
