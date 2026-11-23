@@ -880,7 +880,9 @@
     // comprobantes enviados por el cliente
     const etqComp = { nuevo: '<span class="etq etq--por_verificar">Nuevo</span>', registrado: '<span class="etq etq--pagado">Registrado como pago</span>', rechazado: '<span class="etq">Rechazado</span>' };
     $("#boxCompCliente").hidden = !(V.comps && V.comps.length);
-    $("#compCliente").innerHTML = (V.comps || []).map((c) => `<li class="pago">
+    $("#compCliente").innerHTML = (V.comps || []).map((c) => `<li class="pago pago--foto">
+      ${/\.pdf$/i.test(c.ruta) ? `<button type="button" class="comp-mini comp-mini--pdf" data-comp="${U.esc(c.ruta)}">PDF</button>`
+        : `<button type="button" class="comp-mini" data-comp="${U.esc(c.ruta)}" aria-label="Ver comprobante en grande"><img alt="Foto del comprobante" data-mini="${U.esc(c.ruta)}" /></button>`}
       <div class="pago__monto">${c.monto_reportado ? fmt(c.monto_reportado) : "Sin monto"}<small>según el cliente</small></div>
       <div class="pago__datos">
         ${c.referencia_reportada ? `<span>Comprobante <b>${U.esc(c.referencia_reportada)}</b></span>` : ""}
@@ -894,6 +896,8 @@
         <button type="button" class="enlace enlace--peligro" data-rechazar-comp="${c.id}">Rechazar</button>` : ""}
       </div>
     </li>`).join("");
+
+    if (!V.soloLectura) cargarMiniaturas();
 
     // pagos
     $("#ventaSaldo").textContent = p ? `· Total ${fmt(p.total)} · Registrado ${fmt(p.pagado_registrado)} · Verificado ${fmt(p.pagado_verificado)}` : "";
@@ -1287,6 +1291,16 @@
     toast("Pago verificado");
     contarPorVerificar();
     return true;
+  }
+
+  // miniaturas de las fotos de comprobantes (enlaces privados que vencen en 10 minutos)
+  async function cargarMiniaturas() {
+    const imgs = $$("#compCliente img[data-mini]");
+    if (!imgs.length || !navigator.onLine) return;
+    const rutas = imgs.map((i) => i.dataset.mini);
+    let r;
+    try { r = await db.storage.from("comprobantes").createSignedUrls(rutas, 600); } catch { return; }
+    (r.data || []).forEach((x, n) => { if (x && x.signedUrl && imgs[n].isConnected) imgs[n].src = x.signedUrl; });
   }
 
   async function verComprobante(path) {

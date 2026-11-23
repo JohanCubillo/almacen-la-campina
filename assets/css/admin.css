@@ -358,3 +358,12 @@ html:not(.panel-ok) body { visibility: hidden; }
 .etq--error { background: #fff; color: var(--peligro); border-color: var(--peligro); }
 #dlgVenta.solo-ver .pago__acc,
 #dlgVenta.solo-ver #boxCompCliente .pago__acc { display: none; }
+
+/* miniatura del comprobante del cliente */
+.pago--foto { align-items: center; }
+.comp-mini { flex: none; width: 76px; height: 96px; padding: 0; border: 1px solid var(--linea); border-radius: 10px; overflow: hidden; background: var(--fondo-2); cursor: zoom-in; font-weight: 800; }
+.comp-mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.comp-mini img:not([src]) { visibility: hidden; }
+.comp-mini:focus-visible { outline: 3px solid var(--cinta); outline-offset: 2px; }
+.pago.pago--foto { grid-template-columns: 76px 8.5rem minmax(0, 1fr) auto; }
+@media (max-width: 760px) { .pago.pago--foto { grid-template-columns: 76px minmax(0, 1fr); } .pago.pago--foto .pago__acc, .pago.pago--foto .pago__datos { grid-column: 1 / -1; } }

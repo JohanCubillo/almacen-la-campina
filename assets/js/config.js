@@ -134,6 +134,13 @@ window.U = {
 
   // ---------- imágenes ----------
   // Reescala y re-codifica (también elimina datos EXIF/GPS). Devuelve un Blob.
+  // tipo del archivo aunque el teléfono no lo diga (pasa con fotos de iPhone o de la app Archivos)
+  tipoArchivo(file) {
+    if (file && file.type) return file.type;
+    const ext = String(file?.name || "").split(".").pop().toLowerCase();
+    return { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic", heif: "image/heif", pdf: "application/pdf" }[ext] || "";
+  },
+
   comprimirImagen(file, max = 1600, tipo = "image/jpeg", calidad = 0.85) {
     return new Promise((res, rej) => {
       const img = new Image(), src = URL.createObjectURL(file);
@@ -156,10 +163,17 @@ window.U = {
   // Devuelve el File listo para compartir por WhatsApp.
   async subirComprobanteCliente(codigo, tel, file, extra = {}) {
     if (!window.db) throw new Error("La tienda en línea no está conectada.");
-    const esPdf = file.type === "application/pdf";
-    if (!esPdf && !/^image\//.test(file.type)) throw new Error("Adjunte una foto o un PDF del comprobante.");
+    const tipo = U.tipoArchivo(file);
+    const esPdf = tipo === "application/pdf";
+    if (!esPdf && !/^image\//.test(tipo)) throw new Error("Adjunte una foto o un PDF del comprobante.");
     if (file.size > 20 * 1024 * 1024) throw new Error("El archivo es muy pesado.");
-    const blob = esPdf ? file : await U.comprimirImagen(file);
+    let blob;
+    try { blob = esPdf ? file : await U.comprimirImagen(file); }
+    catch {
+      throw new Error(/heic|heif/.test(tipo)
+        ? "La foto está en formato HEIC del iPhone y no se pudo abrir. Envíe mejor una captura de pantalla del comprobante."
+        : "No se pudo abrir la foto. Envíe una captura de pantalla del comprobante.");
+    }
     if (blob.size > 5 * 1024 * 1024) throw new Error("El comprobante pesa más de 5 MB. Envíe una foto más liviana.");
     const ext = esPdf ? "pdf" : "jpg";
 

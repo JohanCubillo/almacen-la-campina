@@ -654,7 +654,7 @@
     if (!S.lista.length) { err.textContent = "El carrito está vacío: agregue al menos un producto."; return; }
     if (d.nombre.length < 2) { err.textContent = "Escriba su nombre para saber a quién preparar el pedido."; f.nombre.focus(); return; }
     if (!/^[0-9 +()-]{8,20}$/.test(d.telefono) || U.soloDigitos(d.telefono).length < 8) { err.textContent = "Revise el teléfono: necesitamos 8 dígitos, por ejemplo 8888-8888."; f.telefono.focus(); return; }
-    if (archivo && !/^image\/|^application\/pdf$/.test(archivo.type)) { err.textContent = "El comprobante debe ser una foto o un PDF."; return; }
+    if (archivo && !/^image\/|^application\/pdf$/.test(U.tipoArchivo(archivo))) { err.textContent = "El comprobante debe ser una foto o un PDF."; return; }
     const agotado = S.lista.find((i) => i.agotado);
     if (agotado) { err.textContent = `"${agotado.nombre}" está agotado. Quítelo del carrito para enviar el pedido.`; return; }
     if (envioActivo() && f.entrega.value === "envio") {
