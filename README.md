@@ -20,15 +20,16 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 6. **SQL Editor → New query** → pegar `supabase/v6_espacio.sql` → **Run**. Muestra el espacio usado y permite limpiar fotos de comprobantes viejos.
 7. **SQL Editor → New query** → pegar `supabase/v7_monto_completo.sql` → **Run**. El cliente ya no escribe el monto: el comprobante queda por el saldo completo del pedido.
 8. **SQL Editor → New query** → pegar `supabase/v8_consultas.sql` → **Run**. Activa el formulario de preguntas y la pestaña *Preguntas* del panel.
-9. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
-10. Registrar al administrador:
+9. **SQL Editor → New query** → pegar `supabase/v9_inventario.sql` → **Run**. Agrega código, existencia y CABYS a los productos y permite importar el inventario de Moriah.
+10. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
+11. Registrar al administrador:
    ```sql
    insert into public.admins (user_id)
    select id from auth.users where email = 'correo-del-admin@ejemplo.com'
    on conflict do nothing;
    ```
-11. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
-12. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
+12. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
+13. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
 
 ## 2. Primer ingreso al panel
 
@@ -81,6 +82,19 @@ Tienda: Agregar productos al carrito  ─►  Enviar pedido (nombre + teléfono)
 | Spam de pedidos o archivos | Máx. 3 pedidos por teléfono cada 15 min; subidas solo a rutas autorizadas, 5 por pedido al día, 5 MB |
 | Comprobantes expuestos | Bucket privado; solo el admin los ve con enlaces de 2 minutos |
 
+## Inventario desde Moriah
+
+1. En Moriah, exportar el inventario a Excel (el archivo trae *Tip-Cod*, *Codigo*, *Codigo Cabys*, el nombre, *Unidad*, *Precio* y *Exist 1*).
+2. Panel → **Productos → Importar de Excel** → escoger ese archivo tal cual, sin arreglarlo. El panel lo reconoce solo y muestra una vista previa antes de importar.
+3. **Productos nuevos:** se crean con su código, precio y existencia. Como Moriah no usa categorías, se les pone una según el nombre (Electricidad, Fontanería, Pesca…). Se puede cambiar después en cada producto.
+4. **Productos que ya existen** (mismo código): se actualizan precio, existencia y agotado. No se tocan el nombre, la foto, la descripción, la categoría ni si se muestra o no en la tienda: lo que se arregló en el panel se respeta.
+5. Existencia 0 o menos → **agotado** (se ve en la tienda, pero al final y marcado). Precio 0 → **a consultar**.
+6. Se salta: productos con "(prueba)" en el nombre y códigos repetidos dentro del archivo.
+
+Para tener precios y existencias al día, repetir la importación cada semana (o cuando cambien precios en Moriah). La existencia **no** se publica en la tienda: solo la ve el panel.
+
+Con miles de productos, la tienda muestra 48 a la vez con **Ver más productos**, y el buscador encuentra por nombre o por código de barras. En una venta del panel, el producto se agrega escribiendo parte del nombre o el código (sirve el lector de código de barras: lee y da Enter).
+
 ## Preguntas de clientes
 
 En la tienda, la sección **¿Tiene una pregunta?** (y el enlace *Dejar una pregunta sobre este producto* en cada ficha) guarda nombre, teléfono, asunto y la pregunta. Llegan a la pestaña **Preguntas** del panel y, si están encendidos, por Telegram. **Responder por WhatsApp** abre el chat del cliente con su pregunta y la marca como respondida. Freno de spam: 5 preguntas por teléfono al día y 30 en total cada 10 minutos.
@@ -128,7 +142,7 @@ assets/productos/  fotos de productos (WebP 800×800)
 assets/vendor/     supabase-js 2.119.2 (local, sin CDN)
 assets/fonts/      Barlow / Barlow Condensed (OFL)
 assets/img/        logo, íconos de la app, og.jpg (imagen para compartir)
-supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql
+supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql
 sw.js              copia de la página para abrirla sin internet
 panel.webmanifest  app instalable del panel
 SEGURIDAD.md, FACTURACION.md, GOOGLE-Y-DOMINIO.md

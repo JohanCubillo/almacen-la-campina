@@ -39,6 +39,8 @@
   const LS_COLA = "lc_ventas_sin_red_v1", LS_COPIA = "lc_copia_panel_v1", LS_PERMISO = "lc_panel_sin_red_v1", LS_NUM = "lc_sin_red_num_v1";
   const HORAS_SIN_RED = 12;
   let SIN_RED = false;     // panel abierto sin conexión (con la copia de la última vez)
+  let V9 = false;          // la base tiene código y existencia en productos (v9_inventario.sql)
+  const MAX_LISTA_PROD = 150;
   let V5 = true;           // la base tiene registrar_venta_sin_internet
 
   const leerLS = (k, def) => { try { const v = JSON.parse(localStorage.getItem(k) || "null"); return v ?? def; } catch { return def; } };
@@ -216,12 +218,16 @@
     panelListo = true;
     vigilarInactividad();
     pintarDiasHorario();
-    if (sinRed) V4 = !!copia.leer().v4;
+    if (sinRed) { V4 = !!copia.leer().v4; V9 = !!copia.leer().v9; }
     else {
       let r;
       try { r = await db.from("avisos").select("id").limit(1); } catch (e) { r = { error: e }; }
       V4 = r.error && U.esErrorRed(r.error) ? !!copia.leer().v4 : !r.error;
       if (!r.error || !U.esErrorRed(r.error)) copia.poner("v4", V4);
+      let r9;
+      try { r9 = await db.from("productos").select("codigo").limit(1); } catch (e) { r9 = { error: e }; }
+      V9 = r9.error && U.esErrorRed(r9.error) ? !!copia.leer().v9 : !r9.error;
+      if (!r9.error || !U.esErrorRed(r9.error)) copia.poner("v9", V9);
     }
     document.documentElement.classList.toggle("sin-v4", !V4);
     $("#avisoV4").hidden = V4;
@@ -312,10 +318,21 @@
   });
 
   // ---------- PRODUCTOS ----------
+  // copia liviana para usar sin internet (con miles de productos no cabe todo)
+  const productoCorto = (p) => ({ id: p.id, nombre: p.nombre, codigo: p.codigo, precio: p.precio, unidad: p.unidad, categoria_id: p.categoria_id,
+    activo: p.activo, agotado: p.agotado, destacado: p.destacado, existencia: p.existencia });
   async function cargarProductos() {
-    const { data, error } = await consulta("productos", db.from("productos").select("*").order("nombre"));
-    if (error) return toast(errTxt(error), true);
+    let data = null, error = null;
+    if (SIN_RED) data = copia.leer().productos || null;
+    else {
+      try { data = await leerTabla("productos", "nombre"); } catch (e) { error = e; }
+      if (error && U.esErrorRed(error)) { data = copia.leer().productos || null; error = data ? null : error; }
+      else if (!error) copia.poner("productos", data.map(productoCorto));
+    }
+    if (error || !data) return toast(errTxt(error || { message: "Failed to fetch" }), true);
     productos = data;
+    V9 = V9 || productos.some((p) => "codigo" in p) || !!copia.leer().v9;
+    if (!SIN_RED && !error) copia.poner("v9", V9);
     pintarProductos();
   }
 
@@ -325,7 +342,8 @@
   const PASA_PROD = { todos: () => true, agotados: (p) => p.agotado, ofertas: ofertaVigente, sinprecio: (p) => p.precio == null, ocultos: (p) => !p.activo };
   function pintarProductos() {
     const q = norm($("#aBuscar").value);
-    const lista = productos.filter((p) => PASA_PROD[filtroProd](p) && (!q || norm(p.nombre).includes(q)));
+    const todos = productos.filter((p) => PASA_PROD[filtroProd](p) && (!q || norm(p.nombre).includes(q) || (p.codigo && String(p.codigo).toLowerCase().includes(q))));
+    const lista = todos.slice(0, MAX_LISTA_PROD);
     const cat = (id) => categorias.find((c) => c.id === id);
     $("#listaProd").innerHTML = lista.map((p) => {
       const c = cat(p.categoria_id);
@@ -334,7 +352,7 @@
         <span class="fila__img">${url ? `<img src="${U.esc(url)}" alt="" loading="lazy" />` : SIN_FOTO}</span>
         <div class="fila__txt">
           <b>${U.esc(p.nombre)}</b>
-          <small>${U.esc(c?.nombre || "Sin categoría")} · ${U.colones(p.precio) ? U.esc(U.colones(p.precio)) + (p.unidad ? " por " + U.esc(p.unidad) : "") : "Precio a consultar"}</small>
+          <small>${p.codigo ? `Cód. ${U.esc(p.codigo)} · ` : ""}${U.esc(c?.nombre || "Sin categoría")} · ${U.colones(p.precio) ? U.esc(U.colones(p.precio)) + (p.unidad ? " por " + U.esc(p.unidad) : "") : "Precio a consultar"}${p.existencia != null ? ` · Existencia: ${Number(p.existencia).toLocaleString("es-CR")}` : ""}</small>
           <span class="etiquetas">${p.destacado ? '<span class="etq etq--rec">Recomendado</span>' : ""}${p.activo ? "" : '<span class="etq">Oculto</span>'}${p.agotado ? '<span class="etq etq--sin_pago">Agotado</span>' : ""}${ofertaVigente(p) ? `<span class="etq etq--por_verificar">Oferta ${U.esc(U.colones(p.precio_oferta))} hasta ${U.esc(String(p.oferta_hasta).split("-").reverse().join("/"))}</span>` : p.oferta_hasta ? '<span class="etq">Oferta vencida</span>' : ""}</span>
         </div>
         <div class="fila__acc">
@@ -343,7 +361,8 @@
           <button type="button" class="enlace enlace--peligro" data-del="${p.id}">Borrar</button>
         </div>
       </li>`;
-    }).join("") || `<li class="vacio-adm">${q || filtroProd !== "todos" ? "Ningún producto en este grupo." : "Agregue el primer producto con el botón Nuevo producto."}</li>`;
+    }).join("") + (todos.length > lista.length ? `<li class="vacio-adm">Se muestran ${lista.length} de ${todos.length.toLocaleString("es-CR")} productos. Escriba en el buscador (nombre o código) para encontrar los demás.</li>` : "")
+      || `<li class="vacio-adm">${q || filtroProd !== "todos" ? "Ningún producto en este grupo." : "Agregue el primer producto con el botón Nuevo producto."}</li>`;
   }
   $("#aBuscar").addEventListener("input", pintarProductos);
   $("#filtroProd").addEventListener("click", (e) => {
@@ -871,8 +890,6 @@
     actualizarTotal();
     $("#itemsAcc").hidden = !edit;
     $("#itemsBloqueo").hidden = edit;
-    $("#agregarItemSel").innerHTML = `<option value="">Agregar del catálogo…</option>` +
-      productos.filter((x) => x.activo).map((x) => `<option value="${x.id}">${U.esc(x.nombre)}${x.precio != null ? " — " + fmt(x.precio) : ""}</option>`).join("");
 
     const cerrada = p && p.estado !== "abierta";
     $("#btnGuardarVenta").hidden = !!(p && p.estado === "anulada") || !!V.soloLectura;
@@ -1010,9 +1027,45 @@
     V.dirty = true;
     pintarVenta();
   });
-  $("#agregarItemSel").addEventListener("change", (e) => {
-    const p = productos.find((x) => x.id == e.target.value);
+  // buscador para agregar productos a la venta (con miles de productos, una lista desplegable no sirve)
+  function buscarItems() {
+    const q = norm($("#agregarItemQ").value), res = $("#agregarItemRes");
+    if (q.length < 2) { res.hidden = true; res.innerHTML = ""; return; }
+    const hallados = [];
+    for (const x of productos) {
+      if (!x.activo) continue;
+      if (norm(x.nombre).includes(q) || (x.codigo && String(x.codigo).toLowerCase() === q)) hallados.push(x);
+      if (hallados.length >= 12) break;
+    }
+    res.innerHTML = hallados.map((x) => `<li><button type="button" data-item-id="${x.id}">
+        <span>${U.esc(x.nombre)}${x.codigo ? ` <small>· ${U.esc(x.codigo)}</small>` : ""}</span>
+        <span class="buscar-item__det">${x.precio != null ? fmt(x.precio) : "sin precio"}${x.existencia != null ? ` · hay ${Number(x.existencia).toLocaleString("es-CR")}` : ""}${x.agotado ? " · agotado" : ""}</span>
+      </button></li>`).join("") || `<li class="buscar-item__nada">No se encontró. Use “Agregar renglón libre”.</li>`;
+    res.hidden = false;
+  }
+  $("#agregarItemQ").addEventListener("input", buscarItems);
+  $("#agregarItemQ").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); const b = $("#agregarItemRes button"); if (b) b.click(); }
+    if (e.key === "Escape") { $("#agregarItemRes").hidden = true; }
+    if (e.key === "ArrowDown") { const b = $("#agregarItemRes button"); if (b) { e.preventDefault(); b.focus(); } }
+  });
+  $("#agregarItemRes").addEventListener("keydown", (e) => {
+    const bs = $$("#agregarItemRes button"), i = bs.indexOf(document.activeElement);
+    if (e.key === "ArrowDown" && i < bs.length - 1) { e.preventDefault(); bs[i + 1].focus(); }
+    if (e.key === "ArrowUp") { e.preventDefault(); (i > 0 ? bs[i - 1] : $("#agregarItemQ")).focus(); }
+    if (e.key === "Escape") { $("#agregarItemRes").hidden = true; $("#agregarItemQ").focus(); }
+  });
+  // si el foco sale del buscador, se cierra la lista (que no tape los botones de abajo)
+  $("#agregarItemQ").closest(".buscar-item").addEventListener("focusout", (e) => {
+    const caja = e.currentTarget;
+    if (!e.relatedTarget || !caja.contains(e.relatedTarget)) setTimeout(() => { if (!caja.contains(document.activeElement)) $("#agregarItemRes").hidden = true; }, 150);
+  });
+  $("#agregarItemQ").addEventListener("focus", () => { if ($("#agregarItemQ").value.trim().length >= 2) buscarItems(); });
+  $("#agregarItemRes").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-item-id]"); if (!b) return;
+    const p = productos.find((x) => x.id == b.dataset.itemId);
     if (!p) return;
+    $("#agregarItemQ").value = ""; $("#agregarItemRes").hidden = true;
     const ya = V.items.find((i) => i.producto_id === p.id);
     if (ya) ya.cantidad = Number(ya.cantidad) + 1;
     else V.items.push({ producto_id: p.id, descripcion: p.nombre + (p.unidad ? ` (${p.unidad})` : ""), cantidad: 1, precio_unit: p.precio != null ? Number(p.precio) : 0 });
@@ -1970,30 +2023,55 @@
   // =========================================================
   const COLS = [
     ["nombre", "Nombre", /^(nombre|producto|articulo|descripcion del producto)$/],
+    ["codigo", "Código", /^(codigo|cod|codigo interno|sku|codigo de barras)$/],
     ["categoria", "Categoría", /^categoria/],
     ["precio", "Precio", /^precio( normal| colones| ₡)?$/],
+    ["existencia", "Existencia", /^(existencia|exist ?1?|stock|inventario|cantidad)$/],
     ["unidad", "Se vende por", /^(se vende por|unidad|presentacion|medida)/],
     ["descripcion", "Descripción", /^descripcion/],
     ["activo", "Mostrar", /^(mostrar|visible|activo|en el sitio)/],
     ["destacado", "Recomendado", /^(recomendado|destacado)/],
     ["agotado", "Agotado", /^agotado/],
-    ["imagen_url", "Foto (enlace)", /^(foto|imagen)/]
+    ["imagen_url", "Foto (enlace)", /^(foto|imagen)/],
+    ["cabys", "CABYS", /^(codigo )?cabys$/]
   ];
-  const ANCHOS = [44, 26, 12, 16, 50, 10, 13, 10, 50];
+  const ANCHOS = [44, 16, 26, 12, 11, 16, 50, 10, 13, 10, 50, 16];
+  const COLS_V4 = ["agotado"], COLS_V9 = ["codigo", "existencia", "cabys"];
+  const colUsable = (k) => (V4 || !COLS_V4.includes(k)) && (V9 || !COLS_V9.includes(k));
   function descargar(blob, nombre) {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = nombre;
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   }
-  $("#btnPlantilla").addEventListener("click", () => descargar(XlsxMini.escribir([COLS.map((c) => c[1])], { hoja: "Productos", anchos: ANCHOS }), "plantilla-productos.xlsx"));
+  const colsHoja = () => COLS.map((c, i) => [...c, ANCHOS[i]]).filter((c) => colUsable(c[0]));
+  $("#btnPlantilla").addEventListener("click", () => descargar(XlsxMini.escribir([colsHoja().map((c) => c[1])], { hoja: "Productos", anchos: colsHoja().map((c) => c[3]) }), "plantilla-productos.xlsx"));
   $("#btnExportar").addEventListener("click", () => {
     const sn = (b) => (b ? "Sí" : "No"), cat = (id) => categorias.find((c) => c.id === id)?.nombre || "";
-    const filas = [COLS.filter((c) => V4 || c[0] !== "agotado").map((c) => c[1])].concat(productos.map((p) => [
-      p.nombre, cat(p.categoria_id), p.precio == null ? "" : Number(p.precio), p.unidad || "", p.descripcion || "",
-      sn(p.activo), sn(p.destacado), ...(V4 ? [sn(p.agotado)] : []), p.imagen_url || ""]));
-    descargar(XlsxMini.escribir(filas, { hoja: "Productos", anchos: V4 ? ANCHOS : ANCHOS.filter((_, i) => i !== 7) }), `productos-la-campina-${hoyCR()}.xlsx`);
+    const valor = {
+      nombre: (p) => p.nombre, codigo: (p) => p.codigo || "", categoria: (p) => cat(p.categoria_id),
+      precio: (p) => (p.precio == null ? "" : Number(p.precio)), existencia: (p) => (p.existencia == null ? "" : Number(p.existencia)),
+      unidad: (p) => p.unidad || "", descripcion: (p) => p.descripcion || "", activo: (p) => sn(p.activo), destacado: (p) => sn(p.destacado),
+      agotado: (p) => sn(p.agotado), imagen_url: (p) => p.imagen_url || "", cabys: (p) => p.cabys || ""
+    };
+    const cols = colsHoja();
+    const filas = [cols.map((c) => c[1])].concat(productos.map((p) => cols.map((c) => valor[c[0]](p))));
+    descargar(XlsxMini.escribir(filas, { hoja: "Productos", anchos: cols.map((c) => c[3]) }), `productos-la-campina-${hoyCR()}.xlsx`);
   });
+
+  // Unidades que en Moriah significan "por unidad" (no hace falta mostrarlas)
+  const unidadLimpia = (u) => {
+    const s = String(u ?? "").trim();
+    if (/^(unid|unidad|und|un|u|c\/u|pza|pieza)\.?$/i.test(s)) return "";
+    return { m: "metro", mts: "metro", kg: "kg", lt: "litro", ltr: "litro", gl: "galón" }[s.toLowerCase()] || s;
+  };
+  const leerCantidad = (v) => {
+    const s = String(v ?? "").trim().replace(/\s/g, "");
+    if (!s) return { v: "" };
+    const n = Number(s.replace(/,(?=\d{1,4}$)/, ".").replace(/,/g, ""));
+    if (!Number.isFinite(n) || Math.abs(n) > 9999999999) return { error: `Existencia no válida: ${v}` };
+    return { v: String(Math.round(n * 100) / 100) };
+  };
 
   function leerPrecio(v) {
     let s = String(v ?? "").trim().replace(/₡|¢|CRC|colones|\s/gi, "");
@@ -2031,11 +2109,22 @@
     msg.className = "msg"; msg.textContent = "Leyendo archivo…";
     try {
       const filas = await XlsxMini.leer(file);
-      const iCab = filas.slice(0, 6).findIndex((f) => f.celdas.some((c) => COLS[0][2].test(norm(c))));
+      // ¿Es el inventario exportado de Moriah? (trae "Tip-Cod" y "Codigo Cabys"; el nombre va en la columna sin título que sigue)
+      const iMoriah = filas.slice(0, 6).findIndex((f) => f.celdas.some((c) => norm(c) === "tip-cod") && f.celdas.some((c) => norm(c) === "codigo cabys"));
+      const iCab = iMoriah >= 0 ? iMoriah : filas.slice(0, 6).findIndex((f) => f.celdas.some((c) => COLS[0][2].test(norm(c))));
       if (iCab < 0) throw new Error("No se encontró la columna “Nombre”. Use la plantilla o ponga los títulos en la primera fila.");
+      if (iMoriah >= 0 && !V9) throw new Error("Para importar el inventario de Moriah, primero corra supabase/v9_inventario.sql en Supabase.");
       const cab = filas[iCab].celdas.map((c) => norm(c));
-      const mapa = COLS.map(([k, , re]) => [k, cab.findIndex((h) => re.test(h))]).filter(([k, i]) => i >= 0 && (V4 || k !== "agotado"));
-      const existentes = new Set(productos.map((p) => norm(p.nombre)));
+      let mapa;
+      if (iMoriah >= 0) {
+        const col = (t) => cab.indexOf(t);
+        mapa = [["codigo", col("codigo")], ["cabys", col("codigo cabys")], ["nombre", col("codigo cabys") + 1],
+                ["unidad", col("unidad")], ["precio", col("precio")], ["existencia", col("exist 1")]].filter(([k, i]) => i >= 0 && colUsable(k));
+      } else {
+        mapa = COLS.map(([k, , re]) => [k, cab.findIndex((h) => re.test(h))]).filter(([k, i]) => i >= 0 && colUsable(k));
+      }
+      const porCodigo = new Set(productos.filter((p) => p.codigo).map((p) => String(p.codigo)));
+      const porNombre = new Set(productos.filter((p) => !p.codigo).map((p) => norm(p.nombre)));
       const vistos = new Set();
       for (const f of filas.slice(iCab + 1)) {
         if (mapa.every(([, i]) => String(f.celdas[i] ?? "").trim() === "")) continue;     // fila vacía
@@ -2043,27 +2132,41 @@
         let error = "";
         for (const [k, i] of mapa) {
           const v = f.celdas[i] ?? "";
-          if (k === "precio") { const p = leerPrecio(v); if (p.error) error = p.error; else fila.precio = p.v; }
+          if (k === "precio") { const p = leerPrecio(v); if (p.error) error = p.error; else fila.precio = p.v === "0" ? "" : p.v; }
+          else if (k === "existencia") { const c = leerCantidad(v); if (c.error) error = c.error; else if (c.v !== "") fila.existencia = c.v; }
           else if (["activo", "destacado", "agotado"].includes(k)) { const b = leerSiNo(v); if (b === null) error = `No se entiende “${v}” (use Sí o No)`; else if (b !== undefined) fila[k] = b; }
           else if (k === "imagen_url") { const u = String(v).trim(); if (u && !/^https:\/\/\S+$/.test(u)) error = "La foto debe ser un enlace que empiece con https://"; else if (u) fila.imagen_url = u; }
+          else if (k === "codigo") { const c = String(v).replace(/[\s'"\ufeff]/g, ""); if (c.length > 40) error = "Código muy largo"; else if (c) fila.codigo = c; }
+          else if (k === "cabys") { const c = String(v).replace(/\D/g, ""); if (/^\d{13}$/.test(c)) fila.cabys = c; }
+          else if (k === "unidad") { const u = unidadLimpia(v); if (u) fila.unidad = u; }
+          else if (k === "categoria") { const c = String(v).trim(); if (c && !/^(sin categoria|general)$/.test(norm(c))) fila.categoria = c; }
           else fila[k] = String(v).trim();
         }
-        fila.nombre = String(fila.nombre || "").replace(/\s+/g, " ").slice(0, 100);
+        // Moriah pega "Detalle:" al final del nombre
+        fila.nombre = String(fila.nombre || "").split(/\n\s*detalle\s*:/i)[0].replace(/\s+/g, " ").trim().slice(0, 100);
+        const llave = fila.codigo ? "c:" + fila.codigo : "n:" + norm(fila.nombre);
         if (fila.nombre.length < 2) error = error || "Falta el nombre";
-        else if (vistos.has(norm(fila.nombre))) error = error || "Nombre repetido en el archivo";
-        vistos.add(norm(fila.nombre));
-        importacion.push({ fila, error, nuevo: !existentes.has(norm(fila.nombre)) });
+        else if (/\(prueba\)/i.test(fila.nombre)) error = error || "Producto de prueba";
+        else if (vistos.has(llave)) error = error || (fila.codigo ? "Código repetido en el archivo" : "Nombre repetido en el archivo");
+        vistos.add(llave);
+        const nuevo = fila.codigo ? !porCodigo.has(fila.codigo) && !porNombre.has(norm(fila.nombre)) : !porNombre.has(norm(fila.nombre));
+        // productos nuevos sin categoría: se les busca una por el nombre
+        if (nuevo && !fila.categoria && window.Clasificar) { fila.categoria = window.Clasificar.clasificar(fila.nombre); fila._auto = true; }
+        importacion.push({ fila, error, nuevo });
       }
       const ok = importacion.filter((x) => !x.error), malas = importacion.length - ok.length;
       if (!importacion.length) throw new Error("El archivo no trae productos debajo de los títulos.");
       $("#impFilas").innerHTML = importacion.slice(0, 300).map((x) => `<tr class="${x.error ? "imp--error" : ""}">
-        <td>${x.fila.fila}</td><td>${U.esc(x.fila.nombre)}</td><td>${U.esc(x.fila.categoria || "")}</td>
+        <td>${x.fila.fila}</td><td>${U.esc(x.fila.nombre)}${x.fila.codigo ? `<small class="imp__cod">${U.esc(x.fila.codigo)}</small>` : ""}</td><td>${U.esc(x.fila.categoria || "")}${x.fila._auto ? ' <small class="imp__cod">automática</small>' : ""}</td>
         <td class="num">${x.fila.precio === undefined ? "" : x.fila.precio === "" ? "a consultar" : U.esc(fmt(x.fila.precio))}</td>
         <td>${x.error ? `<b>No se importa:</b> ${U.esc(x.error)}` : x.nuevo ? "Producto nuevo" : "Actualiza el existente"}</td></tr>`).join("") +
         (importacion.length > 300 ? `<tr><td colspan="5" class="vacio-adm">… y ${importacion.length - 300} filas más</td></tr>` : "");
       $("#impVista").hidden = false;
-      const nuevos = ok.filter((x) => x.nuevo).length;
-      msg.textContent = `${ok.length} listos: ${nuevos} nuevos y ${ok.length - nuevos} para actualizar.${malas ? ` ${malas} con errores no se importan.` : ""} Columnas encontradas: ${mapa.map(([k]) => COLS.find((c) => c[0] === k)[1]).join(", ")}.`;
+      const nuevos = ok.filter((x) => x.nuevo).length, sinExist = ok.filter((x) => x.fila.existencia !== undefined && Number(x.fila.existencia) <= 0).length;
+      msg.textContent = `${iMoriah >= 0 ? "Inventario de Moriah. " : ""}${ok.length} listos: ${nuevos} nuevos y ${ok.length - nuevos} para actualizar.`
+        + (sinExist ? ` ${sinExist} sin existencia quedan como agotados.` : "")
+        + (ok.some((x) => x.fila._auto) ? " A los nuevos sin categoría se les puso una según el nombre (se puede cambiar después)." : "")
+        + `${malas ? ` ${malas} con errores no se importan.` : ""} Columnas: ${mapa.map(([k]) => COLS.find((c) => c[0] === k)[1]).join(", ")}.`;
       $("#btnHacerImport").disabled = !ok.length;
       $("#btnHacerImport").textContent = `Importar ${ok.length} ${ok.length === 1 ? "producto" : "productos"}`;
     } catch (e) {
@@ -2072,15 +2175,15 @@
   });
   $("#btnHacerImport").addEventListener("click", async () => {
     const b = $("#btnHacerImport"), msg = $("#impMsg");
-    const filas = importacion.filter((x) => !x.error).map((x) => x.fila);
+    const filas = importacion.filter((x) => !x.error).map(({ fila: { _auto, ...f } }) => f);
     if (!filas.length) return;
     if (!confirm(`¿Importar ${filas.length} productos? Los que ya existen se actualizan con los datos del archivo.`)) return;
     b.disabled = true;
     const tot = { insertados: 0, actualizados: 0, categorias_nuevas: 0, errores: [] };
     try {
-      for (let i = 0; i < filas.length; i += 500) {
-        msg.className = "msg"; msg.textContent = `Importando… ${Math.min(i + 500, filas.length)} de ${filas.length}`;
-        const { data, error } = await db.rpc("importar_productos", { p_filas: filas.slice(i, i + 500) });
+      for (let i = 0; i < filas.length; i += 1000) {
+        msg.className = "msg"; msg.textContent = `Importando… ${Math.min(i + 1000, filas.length)} de ${filas.length}`;
+        const { data, error } = await db.rpc("importar_productos", { p_filas: filas.slice(i, i + 1000) });
         if (error) throw error;
         tot.insertados += data.insertados; tot.actualizados += data.actualizados; tot.categorias_nuevas += data.categorias_nuevas;
         tot.errores.push(...(data.errores || []));

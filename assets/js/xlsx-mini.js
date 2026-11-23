@@ -6,7 +6,8 @@
    ===================================================================== */
 (function () {
   "use strict";
-  const MAX_FILAS = 5000;
+  const MAX_FILAS = 30000;   // el inventario de Moriah trae ~9 000; más que esto, mejor partir el archivo
+  const muchas = () => new Error(`El archivo tiene más de ${MAX_FILAS.toLocaleString("es-CR")} filas. Pártalo en dos archivos e impórtelos uno por uno.`);
   const enc = new TextEncoder(), dec = new TextDecoder();
 
   // ---------- ZIP ----------
@@ -127,7 +128,7 @@
         celdas[ci] = val;
       }
       filas.push({ r: Number(row.getAttribute("r")) || filas.length + 1, celdas });
-      if (filas.length > MAX_FILAS) break;
+      if (filas.length > MAX_FILAS) throw muchas();
     }
     return filas;
   }
@@ -138,7 +139,8 @@
     const sep = [";", ",", "\t"].map((s) => [s, primera.split(s).length]).sort((a, b) => b[1] - a[1])[0][0];
     const filas = [];
     let fila = [], campo = "", comillas = false;
-    for (let i = 0; i < texto.length && filas.length <= MAX_FILAS; i++) {
+    for (let i = 0; i < texto.length; i++) {
+      if (filas.length > MAX_FILAS) throw muchas();
       const ch = texto[i];
       if (comillas) {
         if (ch === '"') { if (texto[i + 1] === '"') { campo += '"'; i++; } else comillas = false; }

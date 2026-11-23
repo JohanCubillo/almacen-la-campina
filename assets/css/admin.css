@@ -382,3 +382,15 @@ html:not(.panel-ok) body { visibility: hidden; }
 .preg__msj { margin: .45rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--negro); line-height: 1.45; max-width: 70ch; }
 .preg__acc { display: flex; flex-direction: column; align-items: flex-end; gap: .4rem; }
 @media (max-width: 760px) { .preg__acc { flex-direction: row; flex-wrap: wrap; align-items: center; } }
+
+/* buscador de productos en la venta */
+.buscar-item { position: relative; flex: 1 1 18rem; min-width: 0; }
+.buscar-item input { width: 100%; }
+.buscar-item__res { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: .3rem; list-style: none;
+  background: #fff; border: 1px solid var(--linea); border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.12); max-height: 22rem; overflow: auto; }
+.buscar-item__res button { display: flex; width: 100%; justify-content: space-between; gap: .75rem; align-items: baseline; text-align: left;
+  padding: .55rem .65rem; border: 0; border-radius: 8px; background: none; font: inherit; color: var(--negro); cursor: pointer; }
+.buscar-item__res button:hover, .buscar-item__res button:focus-visible { background: var(--fondo-2); outline: none; }
+.buscar-item__res small, .buscar-item__det { color: var(--gris); font-size: .85rem; white-space: nowrap; }
+.buscar-item__nada { padding: .6rem; color: var(--gris); }
+.imp__cod { display: block; color: var(--gris); font-size: .8rem; }

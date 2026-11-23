@@ -391,9 +391,10 @@
       <h2 id="impTitulo">Importar productos desde Excel</h2>
       <ol class="pasos-ayuda">
         <li><button type="button" class="enlace" id="btnPlantilla">Descargue la plantilla</button> (o use <b>Descargar en Excel</b> para editar los que ya tiene).</li>
-        <li>Una fila por producto. Columnas: <b>Nombre</b>, Categoría, Precio, Se vende por, Descripción, Mostrar, Recomendado, Agotado, Foto (enlace https).</li>
-        <li>Si el nombre ya existe, se actualiza; si no, se crea. Las categorías nuevas se crean solas.</li>
+        <li>Una fila por producto. Columnas: <b>Nombre</b>, Código, Categoría, Precio, Existencia, Se vende por, Descripción, Mostrar, Recomendado, Agotado, Foto (enlace https).</li>
+        <li>Si el código (o el nombre) ya existe, se actualiza; si no, se crea. Las categorías nuevas se crean solas.</li>
       </ol>
+      <p class="ayuda"><b>¿Viene de Moriah?</b> Exporte el inventario a Excel y súbalo tal cual, sin arreglarlo: se reconoce solo. A los productos nuevos se les pone categoría según el nombre, y los que no tienen existencia quedan como agotados. Puede subirlo cada semana para poner al día precios y existencias: no se borran las fotos, nombres ni categorías que usted haya arreglado aquí.</p>
       <p class="ayuda">Las columnas que trae el archivo reemplazan lo que hay. Si no quiere cambiar una columna, bórrela del archivo. Precio vacío = “a consultar”.</p>
       <label>Archivo (.xlsx o .csv)<input type="file" id="impArchivo" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" /></label>
       <p class="msg" id="impMsg" role="status"></p>
@@ -439,8 +440,11 @@
         </table>
       </div>
       <div class="items-acc" id="itemsAcc">
-        <label class="sr" for="agregarItemSel">Agregar del catálogo</label>
-        <select id="agregarItemSel"><option value="">Agregar del catálogo…</option></select>
+        <div class="buscar-item">
+          <label class="sr" for="agregarItemQ">Agregar del catálogo</label>
+          <input id="agregarItemQ" type="search" placeholder="Agregar del catálogo: escriba nombre o código…" autocomplete="off" aria-controls="agregarItemRes" />
+          <ul id="agregarItemRes" class="buscar-item__res" hidden></ul>
+        </div>
         <button type="button" class="btn btn--sm btn--linea" id="btnItemLibre">Agregar renglón libre</button>
       </div>
       <p class="ayuda" id="itemsBloqueo" hidden>Los productos ya no se pueden cambiar porque la venta tiene pagos verificados o está cerrada.</p>
@@ -557,6 +561,7 @@
   <script src="assets/vendor/supabase-2.119.2.js"></script>
   <script src="assets/js/config.js"></script>
   <script src="assets/js/xlsx-mini.js"></script>
+  <script src="assets/js/clasificar.js"></script>
   <script src="assets/js/admin.js"></script>
 </body>
 </html>

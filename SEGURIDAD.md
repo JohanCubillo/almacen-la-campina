@@ -71,3 +71,8 @@ Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usar
 - Se borra solo la imagen; el pago (monto, comprobante, fecha) queda. Cada borrado se anota en `archivos_borrados` con quién y cuándo.
 - Antes de borrar, el panel obliga a descargar el ZIP con las fotos.
 
+## Inventario (v9)
+
+- La tabla `productos` ya no se puede leer completa con la llave pública: la tienda solo puede pedir las columnas que se muestran (nombre, precio, foto, código, etc.). **Existencia y CABYS no salen de la base** hacia la tienda; solo el panel (admin con MFA) las ve.
+- `importar_productos` exige admin con MFA, acepta máximo 3 000 filas por llamada y revisa cada dato (código sin espacios y de máximo 40 caracteres, CABYS de 13 dígitos, precios y existencias numéricos). El panel envía de 1 000 en 1 000.
+- La importación nunca borra productos ni cambia nombres, fotos o categorías de productos que ya existen.

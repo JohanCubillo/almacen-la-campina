@@ -33,6 +33,7 @@
     v4: false,          // la base ya tiene las mejoras v4 (agotado, ofertas, envío, factura)
     categorias: [], productos: [],
     cat: "", q: "", rango: "", orden: "rel", vista: "cuadros",
+    limite: 48, firma: "",  // cuántos productos se muestran (con miles de productos se van cargando de a poco)
     lista: [],          // [{k, id, nombre, unidad, precio, cant}]
     ultimo: null,       // pedido recién enviado {codigo, tel, nombre, archivo}
     fichaId: null       // producto abierto en la ficha
@@ -132,13 +133,23 @@
     if (!db) { S.categorias = DEMO.categorias; S.productos = DEMO.productos; return "demo"; }
     try {
       const BASE = "id,nombre,descripcion,precio,unidad,categoria_id,imagen_url,destacado";
-      const prods = (cols) => db.from("productos").select(cols).eq("activo", true)
-        .order("destacado", { ascending: false }).order("nombre");
+      // la base entrega de a 1000 filas: se piden todas las páginas en paralelo
+      const prods = async (cols) => {
+        const pag = (d, contar) => db.from("productos").select(cols, contar ? { count: "exact" } : undefined).eq("activo", true).order("id").range(d, d + 999);
+        const p0 = await pag(0, true);
+        if (p0.error) return p0;
+        const total = Number(p0.count) || p0.data.length, resto = [];
+        for (let d = 1000; d < total; d += 1000) resto.push(pag(d));
+        const rs = await Promise.all(resto);
+        const malo = rs.find((r) => r.error);
+        return malo || { data: p0.data.concat(...rs.map((r) => r.data)), error: null };
+      };
       let [a, c, p] = await Promise.all([
         db.from("ajustes").select("clave,valor"),
         db.from("categorias").select("id,nombre,orden").order("orden"),
-        prods(BASE + ",agotado,precio_oferta,oferta_hasta")
+        prods(BASE + ",agotado,precio_oferta,oferta_hasta,codigo")
       ]);
+      if (p.error) p = await prods(BASE + ",agotado,precio_oferta,oferta_hasta");   // base sin la v9 (código)
       S.v4 = !p.error;
       if (p.error) p = await prods(BASE);     // base sin la migración v4
       if (a.error || c.error || p.error) throw a.error || c.error || p.error;
@@ -234,14 +245,20 @@
   function iconoCat(nombre) {
     const n = norm(nombre);
     const k = /construc|cement|block|varilla/.test(n) ? "ladrillos"
-      : /electric|herramienta/.test(n) ? "taladro"
+      : /herramientas? electric|electrica/.test(n) ? "taladro"
+      : /herramienta|manual/.test(n) ? "martillo"
+      : /electric|iluminac/.test(n) ? "bombillo"
+      : /fontaner|plomer|tuberia/.test(n) ? "tubo"
       : /ferreter|tornill/.test(n) ? "tornillo"
       : /acabad|pared|pintur/.test(n) ? "rodillo"
       : /agro|jardin|finca/.test(n) ? "planta"
+      : /hogar|limpieza|cocina/.test(n) ? "balde"
       : /mascota|perro|gato/.test(n) ? "huella"
       : /pesca/.test(n) ? "pez"
+      : /seguridad|proteccion|ropa/.test(n) ? "casco"
       : /auto|carro|vehic|moto/.test(n) ? "carro" : "caja";
     if (["ladrillos", "taladro", "tornillo", "rodillo", "planta"].includes(k)) return `<img src="assets/img/cat-${k}.png" alt="" width="62" height="62" />`;
+    if (k !== "caja") return `<img src="assets/img/cat-${k}.svg" alt="" width="62" height="62" />`;
     return `<svg viewBox="0 0 64 64" aria-hidden="true">${ICONOS[k]}</svg>`;
   }
   const FLECHA = '<svg class="ico" aria-hidden="true"><use href="#i-flecha"/></svg>';
@@ -312,16 +329,27 @@
     c: (p) => precioDe(p) > 50000,
     x: (p) => !(precioDe(p) > 0)
   };
+  // texto de búsqueda de cada producto, calculado una sola vez (con miles de productos importa)
+  function prepararProductos() {
+    for (const p of S.productos) {
+      Object.defineProperty(p, "_q", { value: norm(p.nombre + " " + (p.descripcion || "") + " " + (catDe(p.categoria_id).nombre || "") + " " + (p.codigo || "")), enumerable: false, configurable: true });
+    }
+  }
   const filtrados = () => {
-    const q = norm(S.q);
+    const palabras = norm(S.q).split(" ").filter(Boolean);
     const l = S.productos.filter((p) =>
       (!S.cat || String(p.categoria_id) === String(S.cat)) &&
       (!S.rango || RANGOS[S.rango](p)) &&
-      (!q || norm(p.nombre + " " + (p.descripcion || "") + " " + (catDe(p.categoria_id).nombre || "")).includes(q)));
+      (!palabras.length || palabras.every((w) => (p._q || norm(p.nombre)).includes(w))));
     const pr = (p, alto) => (precioDe(p) > 0 ? precioDe(p) : alto);
     if (S.orden === "pmen") l.sort((a, b) => pr(a, Infinity) - pr(b, Infinity));
     else if (S.orden === "pmay") l.sort((a, b) => pr(b, -1) - pr(a, -1));
     else if (S.orden === "nom") l.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+    else {
+      // recomendados: primero los destacados, luego los que tienen foto y precio
+      const peso = (p) => (p.destacado ? 4 : 0) + (p.imagen_url ? 2 : 0) + (precioDe(p) > 0 ? 1 : 0);
+      l.sort((a, b) => peso(b) - peso(a) || a.nombre.localeCompare(b.nombre, "es"));
+    }
     // lo agotado siempre al final
     return l.sort((a, b) => (a.agotado === true) - (b.agotado === true));
   };
@@ -343,7 +371,10 @@
   };
 
   function pintarProductos() {
-    const lista = filtrados();
+    const todos = filtrados();
+    const firma = [S.cat, S.q, S.rango, S.orden].join("|");
+    if (firma !== S.firma) { S.firma = firma; S.limite = 48; }
+    const lista = todos.slice(0, S.limite);
     const ul = $("#lista");
     ul.classList.toggle("es-lista", S.vista === "lista");
     ul.innerHTML = lista.map((p) => {
@@ -370,11 +401,14 @@
 
     const cat = S.cat ? catDe(Number(S.cat)).nombre : "";
     $("#catTitulo").textContent = S.q ? `Resultados para “${S.q.slice(0, 40)}”` : cat || "Catálogo";
-    $("#conteo").textContent = `${lista.length} ${lista.length === 1 ? "producto" : "productos"}`;
+    $("#conteo").textContent = `${todos.length.toLocaleString("es-CR")} ${todos.length === 1 ? "producto" : "productos"}`;
+    const falta = todos.length - lista.length;
+    $("#btnVerMas").hidden = falta <= 0;
+    $("#btnVerMas").textContent = `Ver más productos (${falta.toLocaleString("es-CR")} más)`;
     const bq = $("#busqueda");
     bq.hidden = !S.q;
     if (S.q) bq.innerHTML = `“${U.esc(S.q.slice(0, 40))}” <button type="button" id="btnLimpiarQ" aria-label="Quitar la búsqueda"><svg class="ico" aria-hidden="true"><use href="#i-cerrar"/></svg></button>`;
-    $("#vacio").hidden = lista.length > 0;
+    $("#vacio").hidden = todos.length > 0;
     $("#btnAgregarLibre").textContent = S.q ? `Agregar “${S.q.slice(0, 40)}” al carrito` : "Escribirlo en el carrito";
     $$("#cats [data-cat]").forEach((b) => b.setAttribute("aria-pressed", String(String(S.cat) === b.dataset.cat)));
     $$("#filtroCat [data-cat]").forEach((b) => b.setAttribute("aria-checked", String(String(S.cat) === b.dataset.cat)));
@@ -948,6 +982,13 @@
     $("#entrega").addEventListener("change", () => { $("#envioDatos").hidden = $("#formEnviar").entrega.value !== "envio"; pintarCarrito(); });
     $("#filtroCat").addEventListener("click", (e) => { const b = e.target.closest("[data-cat]"); if (b) ponerCategoria(b.dataset.cat, false); });
     $("#filtroPrecio").addEventListener("click", (e) => { const b = e.target.closest("[data-rango]"); if (b) { S.rango = b.dataset.rango; pintarProductos(); } });
+    $("#btnVerMas").addEventListener("click", () => {
+      const antes = S.limite;
+      S.limite += 48;
+      pintarProductos();
+      const li = $$("#lista .tarjeta-prod")[antes];
+      if (li) li.querySelector(".tarjeta-prod__nombre")?.focus({ preventScroll: true });
+    });
     $("#orden").addEventListener("change", (e) => { S.orden = e.target.value; pintarProductos(); });
     $$("[data-vista]").forEach((b) => b.addEventListener("click", () => {
       S.vista = b.dataset.vista;
@@ -1040,6 +1081,7 @@
     pintarContacto();
     U.registrarCopia();
     const r = await cargarDatos();
+    prepararProductos();
     pintarContacto();
     addEventListener("online", estadoRed);
     addEventListener("offline", estadoRed);

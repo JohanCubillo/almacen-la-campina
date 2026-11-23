@@ -7,7 +7,7 @@
  * - NUNCA guarda datos de la base ni de la sesión (/rest, /auth, /rpc):
  *   esos los guarda la propia página solo en el aparato del dueño.
  */
-const VERSION = "lc-v9-2";
+const VERSION = "lc-v10-1";
 const CASA = "casa-" + VERSION;
 const FOTOS = "fotos-v1";
 const MAX_FOTOS = 200;
@@ -25,6 +25,9 @@ const BASICOS = [
   "assets/fonts/barlow-condensed-latin-800-normal.woff2",
   "assets/img/marca.png", "assets/img/logo-nav.png", "assets/img/logo-pie.png",
   "assets/img/cat-ladrillos.png", "assets/img/cat-taladro.png", "assets/img/cat-tornillo.png", "assets/img/cat-rodillo.png", "assets/img/cat-planta.png",
+  "assets/img/cat-bombillo.svg", "assets/img/cat-tubo.svg", "assets/img/cat-martillo.svg", "assets/img/cat-balde.svg",
+  "assets/img/cat-huella.svg", "assets/img/cat-pez.svg", "assets/img/cat-carro.svg", "assets/img/cat-casco.svg",
+  "assets/js/clasificar.js",
   "assets/img/icono-192.png", "assets/img/icono-512.png", "assets/img/apple-touch-icon.png",
   "panel.webmanifest"
 ];

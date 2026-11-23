@@ -599,3 +599,7 @@ html.bloqueo { overflow: hidden; }
 .preguntas__ok p { margin: 0 0 .75rem; }
 .ficha__preg { margin: .9rem 0 0; font-size: .95rem; color: var(--gris); }
 @media (max-width: 760px) { .preguntas__in { grid-template-columns: 1fr; gap: 1.25rem; } }
+
+/* ver más productos */
+.ver-mas { display: flex; justify-content: center; margin-top: 1.5rem; }
+.ver-mas .btn[hidden] { display: none; }
