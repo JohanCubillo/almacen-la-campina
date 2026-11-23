@@ -79,6 +79,10 @@ Tienda: Agregar productos al carrito  ─►  Enviar pedido (nombre + teléfono)
 | Spam de pedidos o archivos | Máx. 3 pedidos por teléfono cada 15 min; subidas solo a rutas autorizadas, 5 por pedido al día, 5 MB |
 | Comprobantes expuestos | Bucket privado; solo el admin los ve con enlaces de 2 minutos |
 
+## Respaldo
+
+**Datos del negocio → Respaldo en esta compu → Descargar respaldo.** Baja un ZIP con todas las tablas (cada una en CSV para Excel, y `respaldo.json` con todo junto) y, si se marca la casilla, las fotos de comprobantes y productos. No incluye contraseñas ni el token de Telegram. Hacerlo al menos una vez al mes y guardar una copia fuera de la compu (USB o Drive). El panel avisa cuando ya pasaron 30 días.
+
 ## Espacio de fotos
 
 - Las fotos no van en la base de datos sino en el almacenamiento de archivos (1 GB en el plan gratis). Cada comprobante se achica antes de subirse (1200 px, WebP): pesa unos 100–150 KB.

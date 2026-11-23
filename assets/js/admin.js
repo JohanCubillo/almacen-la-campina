@@ -242,7 +242,7 @@
   $$(".pestana").forEach((tab) => tab.addEventListener("click", () => {
     $$(".pestana").forEach((t) => t.setAttribute("aria-selected", String(t === tab)));
     $$("[role=tabpanel]").forEach((p) => (p.hidden = p.id !== tab.getAttribute("aria-controls")));
-    if (tab.id === "tabAj") { cargarAuditoria(); cargarEspacio(); }
+    if (tab.id === "tabAj") { cargarAuditoria(); cargarEspacio(); pintarUltimoRespaldo(); }
     if (tab.id === "tabVen") cargarVentas();
     if (tab.id === "tabCaja") cargarCaja();
     if (tab.id === "tabRep") cargarReportes();
@@ -1292,6 +1292,108 @@
     contarPorVerificar();
     return true;
   }
+
+  // ---------- respaldo en la compu ----------
+  const LS_RESPALDO = "lc_ultimo_respaldo_v1";
+  const TABLAS_RESPALDO = [
+    ["categorias", "id"], ["productos", "id"], ["ajustes", "clave"], ["pedidos", "id"], ["pedido_items", "id"],
+    ["pagos", "id"], ["comprobantes_cliente", "id"], ["facturas", "id"], ["archivos_borrados", "ruta"], ["auditoria", "id"]
+  ];
+
+  function pintarUltimoRespaldo() {
+    const t = leerLS(LS_RESPALDO, null), el = $("#respaldoUltimo");
+    if (!t) { el.textContent = "Todavía no se ha hecho un respaldo en esta compu."; el.classList.add("msg--error"); return; }
+    const dias = Math.floor((Date.now() - t) / 864e5);
+    el.textContent = `Último respaldo en esta compu: ${fechaCR(new Date(t).toISOString(), { dateStyle: "long", timeStyle: "short" })}${dias ? ` (hace ${dias} ${dias === 1 ? "día" : "días"})` : " (hoy)"}.${dias >= 30 ? " Ya toca hacer otro." : ""}`;
+    el.classList.toggle("msg--error", dias >= 30);
+  }
+
+  async function leerTabla(tabla, orden) {
+    const filas = [];
+    for (let desde = 0; ; desde += 1000) {
+      const { data, error } = await db.from(tabla).select("*").order(orden).range(desde, desde + 999);
+      if (error) throw error;
+      filas.push(...data);
+      if (data.length < 1000) return filas;
+    }
+  }
+
+  // el registro de actividad puede traer el token de Telegram: nunca va al respaldo
+  const sinSecretos = (v) => Array.isArray(v) ? v.map(sinSecretos)
+    : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).filter(([k]) => !/token|secret|password|clave_api/i.test(k)).map(([k, x]) => [k, sinSecretos(x)]))
+    : v;
+
+  const aCsv = (filas) => {
+    if (!filas.length) return "\ufeff";
+    const cols = [...new Set(filas.flatMap((f) => Object.keys(f)))];
+    return "\ufeff" + [cols, ...filas.map((f) => cols.map((c) => (f[c] !== null && typeof f[c] === "object" ? JSON.stringify(f[c]) : f[c])))]
+      .map((r) => r.map(csvCelda).join(",")).join("\r\n");
+  };
+
+  $("#btnRespaldo").addEventListener("click", async () => {
+    if (SIN_RED || !navigator.onLine) return toast("Sin internet: el respaldo se hace cuando vuelva la conexión.", true);
+    const msg = $("#respaldoMsg"), btn = $("#btnRespaldo"), conFotos = $("#respaldoFotos").checked;
+    btn.disabled = true; msg.className = "msg";
+    try {
+      const fecha = new Date(), dia = hoyCR();
+      const tablas = {}, omitidas = [], archivos = [];
+      for (const [t, orden] of TABLAS_RESPALDO) {
+        msg.textContent = `Copiando ${t.replace(/_/g, " ")}…`;
+        try { tablas[t] = sinSecretos(await leerTabla(t, orden)); }
+        catch (e) { if (U.esErrorRed(e)) throw e; omitidas.push(t); }
+      }
+      for (const [t, filas] of Object.entries(tablas)) archivos.push({ nombre: `tablas/${t}.csv`, datos: aCsv(filas) });
+      archivos.push({ nombre: "respaldo.json", datos: JSON.stringify({ sistema: "Almacén La Campiña", formato: 1, fecha: fecha.toISOString(), tablas }, null, 1) });
+
+      let fotosOk = 0, fotosMal = 0;
+      if (conFotos) {
+        const rutas = [...new Set([...(tablas.pagos || []).map((g) => g.comprobante_path), ...(tablas.comprobantes_cliente || []).map((c) => c.ruta)].filter(Boolean))]
+          .filter((r) => !(tablas.archivos_borrados || []).some((b) => b.ruta === r));
+        for (let i = 0; i < rutas.length; i += 100) {
+          const parte = rutas.slice(i, i + 100);
+          const { data: urls } = await db.storage.from("comprobantes").createSignedUrls(parte, 600);
+          for (let k = 0; k < parte.length; k++) {
+            msg.textContent = `Copiando fotos de comprobantes… ${i + k + 1} de ${rutas.length}`;
+            try {
+              const u = urls && urls[k] && urls[k].signedUrl; if (!u) { fotosMal++; continue; }
+              const r = await fetch(u); if (!r.ok) { fotosMal++; continue; }
+              archivos.push({ nombre: `fotos/comprobantes/${parte[k]}`, datos: new Uint8Array(await r.arrayBuffer()) }); fotosOk++;
+            } catch { fotosMal++; }
+          }
+        }
+        const fotosProd = (tablas.productos || []).map((p) => p.imagen_url).filter((u) => u && /\/storage\/v1\/object\/public\/productos\//.test(u));
+        for (const u of fotosProd) {
+          msg.textContent = "Copiando fotos de productos…";
+          try { const r = await fetch(u); if (r.ok) { archivos.push({ nombre: `fotos/productos/${u.split("/").pop()}`, datos: new Uint8Array(await r.arrayBuffer()) }); fotosOk++; } else fotosMal++; } catch { fotosMal++; }
+        }
+      }
+
+      const resumen = Object.entries(tablas).map(([t, f]) => `  ${t}: ${f.length} filas`).join("\r\n");
+      archivos.unshift({ nombre: "LEEME.txt", datos: [
+        `RESPALDO DE ALMACÉN LA CAMPIÑA`, `Fecha: ${fechaCR(fecha.toISOString(), { dateStyle: "full", timeStyle: "short" })}`, ``,
+        `Contenido:`, resumen, conFotos ? `  fotos: ${fotosOk}${fotosMal ? ` (${fotosMal} no se pudieron copiar)` : ""}` : `  fotos: no incluidas`,
+        omitidas.length ? `  no copiadas (no existen en esta base): ${omitidas.join(", ")}` : ``, ``,
+        `- La carpeta "tablas" tiene cada tabla en CSV (se abre con Excel).`,
+        `- respaldo.json tiene todo junto: es el archivo para volver a cargar los datos si algún día hace falta.`,
+        `- Este archivo tiene nombres, teléfonos y pagos de clientes: guárdelo en un lugar seguro y no lo comparta.`,
+        `- No incluye contraseñas ni el token de Telegram.`
+      ].join("\r\n") });
+
+      msg.textContent = "Armando el archivo…";
+      const zip = window.XlsxMini.zip(archivos, "application/zip");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(zip);
+      a.download = `respaldo-la-campina-${dia}.zip`;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      ponerLS(LS_RESPALDO, Date.now());
+      pintarUltimoRespaldo();
+      msg.textContent = `Respaldo descargado (${MB(zip.size)}): ${(tablas.pedidos || []).length} ventas, ${(tablas.productos || []).length} productos${conFotos ? `, ${fotosOk} fotos` : ""}. Guárdelo en la compu y, mejor aún, también en una memoria USB o en Drive.`;
+      if (fotosMal) msg.textContent += ` ${fotosMal} fotos no se pudieron copiar.`;
+    } catch (e) {
+      msg.className = "msg msg--error"; msg.textContent = errTxt(e);
+    } finally { btn.disabled = false; }
+  });
 
   // ---------- espacio de fotos y limpieza de comprobantes viejos ----------
   const LIMITE_FOTOS = 1024 ** 3, LIMITE_BASE = 500 * 1024 ** 2;
