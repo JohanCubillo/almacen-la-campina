@@ -883,7 +883,7 @@
     $("#compCliente").innerHTML = (V.comps || []).map((c) => `<li class="pago pago--foto">
       ${/\.pdf$/i.test(c.ruta) ? `<button type="button" class="comp-mini comp-mini--pdf" data-comp="${U.esc(c.ruta)}">PDF</button>`
         : `<button type="button" class="comp-mini" data-comp="${U.esc(c.ruta)}" aria-label="Ver comprobante en grande"><img alt="Foto del comprobante" data-mini="${U.esc(c.ruta)}" /></button>`}
-      <div class="pago__monto">${c.monto_reportado ? fmt(c.monto_reportado) : "Sin monto"}<small>según el cliente</small></div>
+      <div class="pago__monto">${c.monto_reportado ? fmt(c.monto_reportado) : "Sin monto"}<small>${c.monto_reportado ? "saldo del pedido al enviarlo" : "sin total confirmado"}</small></div>
       <div class="pago__datos">
         ${c.referencia_reportada ? `<span>Comprobante <b>${U.esc(c.referencia_reportada)}</b></span>` : ""}
         <span>${fechaCR(c.created_at)}</span>

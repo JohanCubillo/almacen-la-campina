@@ -612,6 +612,9 @@
     $("#totalNota").textContent = sinPrecio
       ? `${sinPrecio === 1 ? "1 producto" : sinPrecio + " productos"} con precio a confirmar. Los demás precios son aproximados: le enviamos el total final.`
       : "Precios aproximados. Le confirmamos el total y la disponibilidad antes de cobrar.";
+    $("#montoPagar").innerHTML = sinPrecio || !(t > 0)
+      ? "Hay productos con precio a confirmar: <b>espere a que le confirmemos el total</b> antes de pagar."
+      : `El pago es por el <b>total del pedido: ${U.esc(U.colones(t))}</b>. Si prefiere, espere a que le confirmemos el total y pague después desde “Ver mi pedido”.`;
   }
 
   function abrirCarrito(abrir) {
@@ -705,7 +708,7 @@
         btn.textContent = "Subiendo comprobante…";
         try {
           archivoCompartir = await U.subirComprobanteCliente(ped.codigo, d.telefono, archivo, {
-            monto: f.monto.value, referencia: f.referencia.value.trim(), nota: null
+            referencia: f.referencia.value.trim(), nota: null
           });
         } catch (e2) { errorComp = e2.message; }
       }
@@ -722,7 +725,7 @@
 
   function limpiarTrasEnviar(f) {
     S.lista = [];
-    f.detalle.value = ""; f.comprobante.value = ""; f.referencia.value = ""; f.monto.value = "";
+    f.detalle.value = ""; f.comprobante.value = ""; f.referencia.value = "";
     f.f_id.value = ""; f.f_nombre.value = ""; f.f_correo.value = ""; f.direccion.value = "";
     $("#pagoYa").open = false; $("#facturaBox").open = false;
     cambioCarrito();

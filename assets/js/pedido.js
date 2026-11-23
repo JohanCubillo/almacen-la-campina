@@ -67,10 +67,14 @@
       <b>${etq[c.estado] || U.esc(c.estado)}</b> · ${fecha(c.fecha)}${c.monto ? " · " + U.esc(U.colones(c.monto)) : ""}
       ${c.estado === "rechazado" && c.motivo ? `<br><small>Motivo: ${U.esc(c.motivo)}</small>` : ""}</li>`).join("");
 
-    $("#cajaSubir").hidden = d.estado === "anulada" || d.estado === "entregada";
+    // el cliente paga el saldo completo; no escribe el monto
+    const puedePagar = saldo > 0 && !d.precios_pendientes;
+    $("#cajaSubir").hidden = d.estado === "anulada" || d.estado === "entregada" || (!puedePagar && Number(d.total) > 0 && saldo <= 0);
     $("#formSubir").hidden = false; $("#subidoOk").hidden = true;
-    const fm = $("#formSubir").monto;
-    fm.value = saldo > 0 && !d.precios_pendientes ? saldo : "";
+    $("#montoPagar").innerHTML = puedePagar
+      ? `Monto a pagar: <b>${U.esc(U.colones(saldo))}</b> (el total de su pedido${Number(d.pagado_verificado || 0) > 0 ? ", menos lo que ya pagó" : ""}).`
+      : "Todavía no hay un total confirmado: <b>espere a que se lo confirmemos por WhatsApp</b> antes de pagar.";
+    $("#formSubir").archivo.disabled = $("#btnSubir").disabled = !puedePagar;
   }
 
   async function buscar(codigo, tel) {
@@ -108,7 +112,7 @@
     if (ref && !/^[0-9A-Za-z-]{4,40}$/.test(ref)) { err.textContent = "El número de comprobante solo lleva números, letras o guiones."; return; }
     btn.disabled = true; btn.textContent = "Subiendo…";
     try {
-      archivoCompartir = await U.subirComprobanteCliente(actual.codigo, actual.tel, archivo, { monto: f.monto.value, referencia: ref, nota: f.nota.value.trim() });
+      archivoCompartir = await U.subirComprobanteCliente(actual.codigo, actual.tel, archivo, { referencia: ref, nota: f.nota.value.trim() });
       f.reset();
       $("#formSubir").hidden = true;
       $("#subidoOk").hidden = false;

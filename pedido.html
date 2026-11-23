@@ -94,10 +94,8 @@
           <h2>Enviar comprobante de pago</h2>
           <form id="formSubir" class="enviar" novalidate>
             <label>Foto o PDF del comprobante<input name="archivo" type="file" accept="image/*,application/pdf" required /></label>
-            <div class="enviar__fila">
-              <label>Monto pagado ₡<input name="monto" type="number" min="1" step="0.01" inputmode="decimal" /></label>
-              <label>Nº de comprobante (opcional)<input name="referencia" maxlength="40" autocomplete="off" /></label>
-            </div>
+            <p class="mp__monto" id="montoPagar"></p>
+            <label>Nº de comprobante (opcional)<input name="referencia" maxlength="40" autocomplete="off" /></label>
             <label>Nota (opcional)<input name="nota" maxlength="300" /></label>
             <p class="enviar__error" id="subirError" role="alert"></p>
             <button class="btn btn--amarillo btn--full" type="submit" id="btnSubir">Enviar comprobante</button>
