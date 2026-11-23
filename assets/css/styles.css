@@ -114,7 +114,7 @@ button, input, select, textarea { font: inherit; }
 .top { position: sticky; top: 0; z-index: 40; background: #fff; color: var(--negro); border-bottom: 1px solid var(--borde); }
 .top__in { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 1.75rem; min-height: var(--top-h); }
 .marca { display: flex; align-items: center; gap: .65rem; color: var(--negro); text-decoration: none; }
-.marca img { width: 46px; height: 46px; object-fit: cover; border-radius: 50%; background: #fff; box-shadow: 0 0 0 1px var(--borde); }
+.marca img { width: 48px; height: 48px; object-fit: contain; }
 .marca__txt { font-family: var(--cond); font-weight: 600; font-size: 1rem; line-height: 1; }
 .marca__txt b { font-size: 1.4rem; font-weight: 800; }
 
@@ -174,6 +174,7 @@ button, input, select, textarea { font: inherit; }
 }
 .cat-btn:hover { background: var(--fondo-2); }
 .cat-btn:focus-visible { outline: 3px solid var(--negro); outline-offset: -3px; }
+.cat-btn img { width: 62px; height: 62px; object-fit: contain; }
 .cat-btn svg { width: 58px; height: 58px; fill: none; stroke: var(--negro); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 .cat-btn svg .rel { fill: var(--cinta); stroke: none; }
 .cat-btn__pie { display: flex; align-items: center; justify-content: center; gap: .45rem; width: 100%; font-weight: 600; font-size: .95rem; line-height: 1.2; text-align: center; }
@@ -546,6 +547,7 @@ html.bloqueo { overflow: hidden; }
   .cats__fila { grid-auto-columns: 104px; margin-inline: -1.25rem; padding-inline: 1.25rem; }
   .cat-btn { padding: .75rem .25rem; }
   .cat-btn svg { width: 48px; height: 48px; }
+  .cat-btn img { width: 52px; height: 52px; }
   .cat-btn__pie { font-size: .88rem; }
   .cat-btn__pie .ico { display: none; }
   .banda { padding: 1.2rem 1rem; border-radius: 14px; }

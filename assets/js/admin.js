@@ -1775,7 +1775,7 @@
     const valeFactura = fac && fac.estado === "aceptada";
     return `
       <div class="r-cab">
-        <img class="r-logo" src="assets/img/emblema-redondo.png" alt="" />
+        <img class="r-logo" src="assets/img/marca.png" alt="" />
         <b class="r-neg">${U.esc(C.NEGOCIO)}</b>
         <span class="r-peq">${U.esc(aj.direccion || C.DIRECCION)}</span>
         ${tels ? `<span class="r-peq">Tel. ${tels}</span>` : ""}

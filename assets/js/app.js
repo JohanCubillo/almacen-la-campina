@@ -241,6 +241,7 @@
       : /mascota|perro|gato/.test(n) ? "huella"
       : /pesca/.test(n) ? "pez"
       : /auto|carro|vehic|moto/.test(n) ? "carro" : "caja";
+    if (["ladrillos", "taladro", "tornillo", "rodillo", "planta"].includes(k)) return `<img src="assets/img/cat-${k}.png" alt="" width="62" height="62" />`;
     return `<svg viewBox="0 0 64 64" aria-hidden="true">${ICONOS[k]}</svg>`;
   }
   const FLECHA = '<svg class="ico" aria-hidden="true"><use href="#i-flecha"/></svg>';
