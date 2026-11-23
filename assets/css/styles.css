@@ -115,6 +115,7 @@ button, input, select, textarea { font: inherit; }
 .top__in { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 1.75rem; min-height: var(--top-h); }
 .marca { display: flex; align-items: center; gap: .65rem; color: var(--negro); text-decoration: none; }
 .marca img { width: 48px; height: 48px; object-fit: contain; }
+.marca .marca__logo { width: auto; height: 48px; }
 .marca__txt { font-family: var(--cond); font-weight: 600; font-size: 1rem; line-height: 1; }
 .marca__txt b { font-size: 1.4rem; font-weight: 800; }
 
@@ -376,7 +377,7 @@ button, input, select, textarea { font: inherit; }
 .pie { background: var(--fondo-2); color: var(--texto); padding-top: 3rem; }
 .pie__in { display: grid; gap: 1.5rem; max-width: 1000px; }
 .pie__marca { display: grid; justify-items: center; gap: .75rem; text-align: center; padding-bottom: 1.5rem; border-bottom: 1px solid var(--borde); }
-.pie__marca img { width: 170px; background: #fff; padding: 10px 12px; border-radius: 18px; border: 1px solid var(--borde); }
+.pie__marca img { width: 300px; max-width: 100%; height: auto; background: #fff; padding: 14px 18px; border-radius: 18px; border: 1px solid var(--borde); }
 .pie__marca p { margin: 0; color: var(--gris); }
 .contactos { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: .75rem; }
 .contacto { display: flex; align-items: center; gap: .8rem; height: 100%; padding: .85rem 1rem; background: #fff; border: 1px solid var(--borde); border-radius: var(--radio); text-decoration: none; color: var(--texto); }
