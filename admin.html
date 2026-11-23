@@ -99,6 +99,7 @@
 
     <nav class="pestanas wrap" role="tablist" aria-label="Secciones del panel">
       <button role="tab" class="pestana" aria-selected="true" aria-controls="tVen" id="tabVen">Pedidos y ventas <span class="badge" id="badgeVen" hidden></span></button>
+      <button role="tab" class="pestana" aria-selected="false" aria-controls="tPreg" id="tabPreg" hidden>Preguntas <span class="badge" id="badgePreg" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCaja" id="tabCaja">Caja SINPE <span class="badge badge--amarillo" id="badgeCaja" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tRep" id="tabRep">Reportes</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tProd" id="tabProd">Productos</button>
@@ -126,6 +127,19 @@
           <button type="button" role="radio" aria-checked="false" data-f="todas">Todas</button>
         </div>
         <ul id="listaVentas" class="filas"></ul>
+      </section>
+
+      <!-- PREGUNTAS -->
+      <section id="tPreg" role="tabpanel" aria-labelledby="tabPreg" hidden>
+        <div class="barra-herr">
+          <h2>Preguntas de clientes</h2>
+        </div>
+        <div class="segmentos" role="radiogroup" aria-label="Filtrar preguntas" id="filtroPreg">
+          <button type="button" role="radio" aria-checked="true" data-f="nueva">Sin responder</button>
+          <button type="button" role="radio" aria-checked="false" data-f="respondida">Respondidas</button>
+          <button type="button" role="radio" aria-checked="false" data-f="archivada">Archivadas</button>
+        </div>
+        <ul id="listaPreg" class="filas"></ul>
       </section>
 
       <!-- CAJA SINPE -->

@@ -834,8 +834,69 @@
     S.ultimo = null;
   }
 
+  // ---------- preguntas ----------
+  function prepararPregunta(prod) {
+    const f = $("#formPregunta");
+    $("#pregOk").hidden = true; f.hidden = false;
+    f.producto.value = prod ? prod.id : "";
+    $("#pregProducto").hidden = !prod;
+    if (prod) { $("#pregProducto").textContent = `Pregunta sobre: ${prod.nombre}`; f.asunto.value = "producto"; }
+    try {
+      const cli = JSON.parse(localStorage.getItem(LS_CLIENTE) || "null");
+      if (cli && !f.nombre.value) f.nombre.value = String(cli.nombre || "").slice(0, 80);
+      if (cli && !f.telefono.value) f.telefono.value = String(cli.tel || "").slice(0, 20);
+    } catch { /* */ }
+  }
+
+  async function enviarPregunta(e) {
+    e.preventDefault();
+    const f = e.currentTarget, err = $("#pregError"), btn = $("#btnPregunta");
+    const d = {
+      nombre: f.nombre.value.trim().slice(0, 80), telefono: f.telefono.value.trim().slice(0, 20),
+      correo: f.correo.value.trim().slice(0, 120), mensaje: f.mensaje.value.trim().slice(0, 1000)
+    };
+    f.nombre.setAttribute("aria-invalid", String(d.nombre.length < 2));
+    f.telefono.setAttribute("aria-invalid", String(U.soloDigitos(d.telefono).length < 8));
+    f.mensaje.setAttribute("aria-invalid", String(d.mensaje.length < 5));
+    if (d.nombre.length < 2) { err.textContent = "Escriba su nombre."; f.nombre.focus(); return; }
+    if (!/^[0-9 +()-]{8,20}$/.test(d.telefono) || U.soloDigitos(d.telefono).length < 8) { err.textContent = "Revise el teléfono: necesitamos 8 dígitos, por ejemplo 8888-8888."; f.telefono.focus(); return; }
+    if (d.correo && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.correo)) { err.textContent = "Revise el correo o déjelo en blanco."; f.correo.focus(); return; }
+    if (d.mensaje.length < 5) { err.textContent = "Escriba su pregunta."; f.mensaje.focus(); return; }
+    err.textContent = "";
+    if (f.empresa.value) return;                                   // bot
+    if (!db) { U.abrir(U.waLink(waNum(), `¡Hola, ${C.NEGOCIO}! Soy ${d.nombre}. ${d.mensaje}`)); return; }
+    if (!navigator.onLine) { err.textContent = "No hay internet en este momento. Intente de nuevo cuando vuelva la conexión."; return; }
+    btn.disabled = true; btn.textContent = "Enviando…";
+    try {
+      let r;
+      try {
+        r = await db.rpc("enviar_consulta", { p_nombre: d.nombre, p_telefono: d.telefono, p_correo: d.correo || null,
+          p_asunto: f.asunto.value, p_mensaje: d.mensaje, p_producto: f.producto.value ? Number(f.producto.value) : null });
+      } catch (e2) { r = { error: e2 }; }
+      if (r.error) throw new Error(U.esErrorRed(r.error) ? "No hay internet en este momento. Intente de nuevo cuando vuelva la conexión." : "No se pudo enviar la pregunta. Intente de nuevo o escríbanos por WhatsApp.");
+      if (!r.data?.ok) throw new Error(r.data?.error || "No se pudo enviar la pregunta.");
+      try { localStorage.setItem(LS_CLIENTE, JSON.stringify({ nombre: d.nombre, tel: d.telefono })); } catch { /* */ }
+      $("#pregOkTxt").textContent = `Le respondemos por WhatsApp al ${U.fmtTel(d.telefono)} lo antes posible, en horario del almacén.`;
+      f.mensaje.value = ""; f.correo.value = ""; f.producto.value = "";
+      $("#pregProducto").hidden = true;
+      f.hidden = true; $("#pregOk").hidden = false; $("#pregOk").focus();
+    } catch (e3) {
+      err.textContent = e3.message;
+    } finally { btn.disabled = false; btn.textContent = "Enviar pregunta"; }
+  }
+
   // ---------- eventos ----------
   function eventos() {
+    $("#formPregunta").addEventListener("submit", enviarPregunta);
+    $("#formPregunta").addEventListener("input", (e) => { e.target.removeAttribute("aria-invalid"); $("#pregError").textContent = ""; });
+    $("#btnOtraPregunta").addEventListener("click", () => { prepararPregunta(null); $("#formPregunta").mensaje.focus(); });
+    $("#fichaPregunta").addEventListener("click", () => {
+      const p = S.productos.find((x) => x.id === S.fichaId);
+      $("#ficha").close();
+      prepararPregunta(p || null);
+      $("#preguntas").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+      setTimeout(() => $("#formPregunta").mensaje.focus({ preventScroll: true }), 400);
+    });
     // búsqueda en el encabezado
     let t;
     // al buscar se busca en todo el catálogo, sin el filtro de categoría
@@ -974,6 +1035,7 @@
       if (cli) { $("#formEnviar").nombre.value = String(cli.nombre || "").slice(0, 80); $("#formEnviar").telefono.value = String(cli.tel || "").slice(0, 20); }
     } catch { /* */ }
     eventos();
+    prepararPregunta(null);
     pintarContacto();
     U.registrarCopia();
     const r = await cargarDatos();

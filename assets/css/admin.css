@@ -376,3 +376,9 @@ html:not(.panel-ok) body { visibility: hidden; }
 .espacio-lista b { color: var(--negro); margin-right: .3rem; }
 .btn--borrar { color: var(--peligro); border-color: var(--peligro); }
 .btn--borrar:disabled { opacity: .45; cursor: not-allowed; }
+
+/* preguntas de clientes */
+.fila--preg { align-items: start; }
+.preg__msj { margin: .45rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--negro); line-height: 1.45; max-width: 70ch; }
+.preg__acc { display: flex; flex-direction: column; align-items: flex-end; gap: .4rem; }
+@media (max-width: 760px) { .preg__acc { flex-direction: row; flex-wrap: wrap; align-items: center; } }

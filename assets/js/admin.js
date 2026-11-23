@@ -228,13 +228,14 @@
     await cargarCategorias();
     await Promise.all([cargarProductos(), cargarAjustes(), contarPorVerificar(), V4 && !sinRed ? cargarAvisos() : null]);
     await cargarVentas();
+    cargarPreguntas();
     addEventListener("online", estadoRedPanel);
     addEventListener("offline", estadoRedPanel);
     estadoRedPanel();
     setInterval(() => {
       if (document.hidden) return;
       enviarCola();
-      if (!SIN_RED && navigator.onLine && !$("#dlgVenta").open) { cargarVentas(); contarPorVerificar(); }
+      if (!SIN_RED && navigator.onLine && !$("#dlgVenta").open) { cargarVentas(); contarPorVerificar(); cargarPreguntas(); }
     }, 60000);
   }
 
@@ -245,6 +246,7 @@
     if (tab.id === "tabAj") { cargarAuditoria(); cargarEspacio(); pintarUltimoRespaldo(); }
     if (tab.id === "tabVen") cargarVentas();
     if (tab.id === "tabCaja") cargarCaja();
+    if (tab.id === "tabPreg") cargarPreguntas();
     if (tab.id === "tabRep") cargarReportes();
   }));
   $(".pestanas").addEventListener("keydown", (e) => {
@@ -1293,11 +1295,79 @@
     return true;
   }
 
+  // ---------- preguntas de clientes ----------
+  const ASUNTO = { producto: "Producto", precio: "Precio o cotización", envio: "Envíos", pedido: "Su pedido", otro: "Otra cosa" };
+  let preguntas = [], filtroPreg = "nueva";
+
+  async function cargarPreguntas() {
+    if (SIN_RED || !navigator.onLine) {
+      if ($("#tabPreg").getAttribute("aria-selected") === "true") $("#listaPreg").innerHTML = `<li class="vacio-adm">Sin internet: las preguntas se ven cuando vuelva la conexión.</li>`;
+      return;
+    }
+    let r;
+    try { r = await db.from("consultas").select("*, productos(nombre)").order("created_at", { ascending: false }).limit(300); } catch (e) { r = { error: e }; }
+    if (r.error) {
+      if (!U.esErrorRed(r.error)) $("#tabPreg").hidden = true;      // base sin v8
+      return;
+    }
+    $("#tabPreg").hidden = false;
+    preguntas = r.data;
+    const n = preguntas.filter((p) => p.estado === "nueva").length;
+    $("#badgePreg").hidden = !n; $("#badgePreg").textContent = n || "";
+    pintarPreguntas();
+  }
+
+  function pintarPreguntas() {
+    const lista = preguntas.filter((p) => p.estado === filtroPreg);
+    $("#listaPreg").innerHTML = lista.map((p) => `<li class="fila fila--preg">
+      <div class="fila__txt">
+        <b>${U.esc(p.nombre)}</b>
+        <small>${fechaCR(p.created_at)} · ${U.esc(U.fmtTel(p.telefono))}${p.correo ? " · " + U.esc(p.correo) : ""}</small>
+        <span class="etiquetas"><span class="etq">${U.esc(ASUNTO[p.asunto] || p.asunto)}</span>${p.productos?.nombre ? `<span class="etq etq--web">${U.esc(p.productos.nombre)}</span>` : ""}${p.estado === "respondida" && p.respondida_at ? `<span class="etq etq--ok">Respondida ${fechaCR(p.respondida_at, { dateStyle: "short" })}</span>` : ""}</span>
+        <p class="preg__msj">${U.esc(p.mensaje)}</p>
+      </div>
+      <div class="fila__acc preg__acc">
+        <button type="button" class="btn btn--sm btn--wa" data-preg-wa="${p.id}">Responder por WhatsApp</button>
+        ${p.estado === "nueva" ? `<button type="button" class="btn btn--sm btn--linea" data-preg-estado="respondida" data-id="${p.id}">Ya la respondí</button>` : ""}
+        ${p.estado !== "archivada" ? `<button type="button" class="enlace" data-preg-estado="archivada" data-id="${p.id}">Archivar</button>` : `<button type="button" class="enlace" data-preg-estado="nueva" data-id="${p.id}">Volver a sin responder</button>`}
+      </div>
+    </li>`).join("") || `<li class="vacio-adm">${filtroPreg === "nueva" ? "No hay preguntas sin responder. Las que hagan los clientes en la página aparecen aquí." : "No hay preguntas en este grupo."}</li>`;
+  }
+
+  async function estadoPregunta(id, estado) {
+    const { error } = await db.from("consultas").update({ estado, respondida_at: estado === "respondida" ? new Date().toISOString() : null }).eq("id", id);
+    if (error) { toast(errTxt(error), true); return false; }
+    await cargarPreguntas();
+    return true;
+  }
+
+  $("#filtroPreg").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-f]"); if (!b) return;
+    filtroPreg = b.dataset.f;
+    $$("#filtroPreg [data-f]").forEach((x) => x.setAttribute("aria-checked", String(x === b)));
+    pintarPreguntas();
+  });
+  $("#listaPreg").addEventListener("click", async (e) => {
+    const wa = e.target.closest("[data-preg-wa]");
+    if (wa) {
+      const p = preguntas.find((x) => x.id == wa.dataset.pregWa); if (!p) return;
+      const tel = U.soloDigitos(p.telefono);
+      const corta = p.mensaje.length > 120 ? p.mensaje.slice(0, 117) + "…" : p.mensaje;
+      const txt = `¡Hola, ${p.nombre}! Le escribimos de ${C.NEGOCIO} por su pregunta en la página: "${corta}"\n\n`;
+      const w = window.open(`https://wa.me/${tel.length === 8 ? "506" + tel : tel}?text=${encodeURIComponent(txt)}`, "_blank");
+      if (w) w.opener = null;
+      if (p.estado === "nueva") estadoPregunta(p.id, "respondida");
+      return;
+    }
+    const b = e.target.closest("[data-preg-estado]");
+    if (b) { if (await estadoPregunta(Number(b.dataset.id), b.dataset.pregEstado)) toast(b.dataset.pregEstado === "archivada" ? "Pregunta archivada" : b.dataset.pregEstado === "respondida" ? "Marcada como respondida" : "Pregunta sin responder otra vez"); }
+  });
+
   // ---------- respaldo en la compu ----------
   const LS_RESPALDO = "lc_ultimo_respaldo_v1";
   const TABLAS_RESPALDO = [
     ["categorias", "id"], ["productos", "id"], ["ajustes", "clave"], ["pedidos", "id"], ["pedido_items", "id"],
-    ["pagos", "id"], ["comprobantes_cliente", "id"], ["facturas", "id"], ["archivos_borrados", "ruta"], ["auditoria", "id"]
+    ["pagos", "id"], ["comprobantes_cliente", "id"], ["facturas", "id"], ["consultas", "id"], ["archivos_borrados", "ruta"], ["auditoria", "id"]
   ];
 
   function pintarUltimoRespaldo() {

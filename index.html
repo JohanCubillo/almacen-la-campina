@@ -192,6 +192,45 @@
         </ol>
       </div>
     </section>
+
+    <!-- Preguntas -->
+    <section class="preguntas" id="preguntas" aria-labelledby="pregTitulo">
+      <div class="wrap preguntas__in">
+        <div class="preguntas__txt">
+          <h2 id="pregTitulo">¿Tiene una pregunta?</h2>
+          <p>Pregúntenos por un producto, un precio, el envío o su pedido. Le respondemos por WhatsApp al número que nos deje.</p>
+          <p class="preguntas__peq">Si es urgente, escríbanos directo por <a href="#" data-wa target="_blank" rel="noopener noreferrer">WhatsApp</a>.</p>
+        </div>
+        <form class="enviar preguntas__form" id="formPregunta" novalidate>
+          <div class="enviar__fila">
+            <label>Su nombre<input name="nombre" autocomplete="name" maxlength="80" required /></label>
+            <label>Teléfono (WhatsApp)<input name="telefono" type="tel" inputmode="tel" autocomplete="tel" maxlength="20" placeholder="8888-8888" required /></label>
+          </div>
+          <div class="enviar__fila">
+            <label>Sobre qué es
+              <select name="asunto">
+                <option value="producto">Un producto</option>
+                <option value="precio">Un precio o cotización</option>
+                <option value="envio">Envíos</option>
+                <option value="pedido">Mi pedido</option>
+                <option value="otro" selected>Otra cosa</option>
+              </select></label>
+            <label>Correo (opcional)<input name="correo" type="email" autocomplete="email" maxlength="120" /></label>
+          </div>
+          <p class="preguntas__prod" id="pregProducto" hidden></p>
+          <input type="hidden" name="producto" />
+          <label>Su pregunta<textarea name="mensaje" rows="4" maxlength="1000" required placeholder="Ej: ¿Tienen lámina de 4 metros? ¿Hacen envíos a Campo Dos?"></textarea></label>
+          <div class="hp" aria-hidden="true"><label>Empresa<input name="empresa" tabindex="-1" autocomplete="off" /></label></div>
+          <p class="enviar__error" id="pregError" role="alert"></p>
+          <button class="btn btn--negro btn--full" type="submit" id="btnPregunta">Enviar pregunta</button>
+        </form>
+        <div class="preguntas__ok" id="pregOk" hidden tabindex="-1">
+          <p class="preguntas__oktit">¡Recibimos su pregunta!</p>
+          <p id="pregOkTxt"></p>
+          <button type="button" class="enlace-btn" id="btnOtraPregunta">Hacer otra pregunta</button>
+        </div>
+      </div>
+    </section>
   </main>
 
   <!-- Pie -->
@@ -346,7 +385,7 @@
         <p><b>Retiro en el almacén</b><span data-dir></span></p>
       </div>
       <div class="ficha__acc" id="fichaAcc"></div>
-      <a class="enlace-btn ficha__wa" id="fichaWa" href="#" target="_blank" rel="noopener noreferrer">Preguntar por este producto en WhatsApp</a>
+      <p class="ficha__preg"><button type="button" class="enlace-btn" id="fichaPregunta">Dejar una pregunta sobre este producto</button> o <a class="enlace-btn" id="fichaWa" href="#" target="_blank" rel="noopener noreferrer">escribir por WhatsApp</a></p>
     </div>
   </dialog>
 

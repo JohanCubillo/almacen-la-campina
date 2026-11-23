@@ -579,3 +579,20 @@ html.bloqueo { overflow: hidden; }
 .banda-red__btn { font: inherit; font-weight: 700; padding: .3rem .9rem; border-radius: 999px; border: 2px solid currentColor; background: transparent; color: inherit; cursor: pointer; }
 .banda-red__btn:focus-visible { outline: 3px solid var(--cinta); outline-offset: 2px; }
 @media print { .banda-red { display: none !important; } }
+
+/* ---------- preguntas ---------- */
+.preguntas { padding: 3.25rem 0; border-top: 1px solid var(--borde); }
+.preguntas__in { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); gap: 2.5rem; align-items: start; }
+.preguntas h2 { margin: 0 0 .6rem; }
+.preguntas__txt p { margin: 0 0 .75rem; color: var(--gris); max-width: 40ch; }
+.preguntas__peq a { color: var(--negro); font-weight: 700; }
+.preguntas__form { border-top: 0; padding-top: 0; }
+.preguntas__form select { font-size: 1rem; color: var(--texto); padding: .6em .8em; border: 1px solid var(--borde); border-radius: 10px; background: #fff; width: 100%; }
+.preguntas__form select:focus { border-color: var(--negro); outline: 2px solid var(--cinta); }
+.preguntas__prod { margin: 0; padding: .55rem .8rem; border-radius: 10px; background: var(--fondo-2, #f3f3f1); font-weight: 600; font-size: .95rem; }
+.preguntas__ok { padding: 1.5rem; border-radius: 16px; background: var(--cinta); color: var(--negro); }
+.preguntas__ok:focus { outline: none; }
+.preguntas__oktit { margin: 0 0 .35rem; font-weight: 800; font-size: 1.25rem; }
+.preguntas__ok p { margin: 0 0 .75rem; }
+.ficha__preg { margin: .9rem 0 0; font-size: .95rem; color: var(--gris); }
+@media (max-width: 760px) { .preguntas__in { grid-template-columns: 1fr; gap: 1.25rem; } }
