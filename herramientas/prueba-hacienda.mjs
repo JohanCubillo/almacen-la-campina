@@ -13,6 +13,9 @@
 //        set HACIENDA_CLAVE=la-contraseña-de-pruebas
 //        set HACIENDA_P12=C:\ruta\a\la-llave-de-pruebas.p12
 //        set HACIENDA_PIN=1234
+//  Sin llave todavía: sin poner HACIENDA_P12, el script solo arma los comprobantes y los
+//  revisa contra el esquema 4.4 (no firma ni envía). Sirve para probar antes de tener credenciales.
+//
 //  3) node herramientas/prueba-hacienda.mjs           → arma, valida y firma un tiquete (no envía nada)
 //     node herramientas/prueba-hacienda.mjs --enviar  → además lo envía a PRUEBAS y espera la respuesta
 //     node herramientas/prueba-hacienda.mjs --enviar --factura   → igual, pero factura (pide receptor en el json)
@@ -25,7 +28,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  armarComprobante, armarNotaCredito, firmar, conectar, enviar, consultar, revisarEmisor,
+  armarComprobante, armarNotaCredito, firmar, conectar, enviar, consultar, revisarEmisor, validarSinFirma,
 } from "../supabase/functions/facturar/comprobante.ts";
 
 const aqui = dirname(fileURLToPath(import.meta.url));
@@ -47,8 +50,11 @@ const req = (n) => {
   if (!v) { console.error(`Falta ${n}. Póngalo con:  set ${n}=...  (en la misma ventana de CMD)`); process.exit(1); }
   return v;
 };
-const p12 = await readFile(req("HACIENDA_P12"));
-const pin = req("HACIENDA_PIN");
+const SIN_LLAVE = !process.env.HACIENDA_P12;
+if (SIN_LLAVE && ENVIAR) { console.error("Para --enviar hacen falta la llave y las credenciales de pruebas (HACIENDA_P12, HACIENDA_PIN, HACIENDA_USUARIO, HACIENDA_CLAVE)."); process.exit(1); }
+if (SIN_LLAVE) console.log("Sin llave (HACIENDA_P12 no está puesto): solo se revisa el XML contra el esquema 4.4.");
+const p12 = SIN_LLAVE ? null : await readFile(req("HACIENDA_P12"));
+const pin = SIN_LLAVE ? "" : req("HACIENDA_PIN");
 
 const salida = join(aqui, "salida");
 await mkdir(salida, { recursive: true });
@@ -64,6 +70,7 @@ async function hacer(c, etiqueta) {
   console.log(`\n${etiqueta}: clave ${c.clave}`);
   console.log(`  consecutivo ${c.consecutivo} · total ₡${c.total} (IVA ₡${c.impuesto})`);
   await guardar(`${c.clave}-sin-firmar.xml`, c.xml);
+  if (SIN_LLAVE) { await validarSinFirma(c.xml); console.log("  ✔ pasa el esquema 4.4 (sin firmar)"); return null; }
   const firmado = await firmar(c.xml, new Uint8Array(p12), pin);
   await guardar(`${c.clave}-firmado.xml`, firmado);
   console.log("  ✔ pasa el esquema 4.4 y quedó firmado");
@@ -94,7 +101,12 @@ try {
     receptor: FACTURA ? conf.receptor : null,
   });
   const estado = await hacer(c, tipo === "01" ? "Factura electrónica" : "Tiquete electrónico");
-  if (ANULAR) {
+  if (SIN_LLAVE) {
+    // también la nota de crédito, sin enviar
+    const nc = armarNotaCredito({ numero: numero() + 1, emisor, motivo: "Prueba: anulación del comprobante",
+      original: { tipo: c.tipo, clave: c.clave, fechaEmision: c.fechaEmision, doc: c.doc } });
+    await hacer(nc, "Nota de crédito");
+  } else if (ANULAR) {
     if (estado !== "aceptado") throw new Error("Para probar la nota de crédito, el comprobante tiene que salir aceptado (use --enviar).");
     await espera(1500);
     const nc = armarNotaCredito({

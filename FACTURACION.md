@@ -14,7 +14,7 @@ La parte técnica de Hacienda (XML, firma XAdES-EPES, token y envío) la hace [`
 
 ## 1. Lo que hay que sacar en TRIBU-CR
 
-Se hace en https://ovitribucr.hacienda.go.cr, con el usuario del dueño del almacén, en la parte de comprobantes electrónicos. Hay dos juegos de credenciales:
+Se hace en https://ovitribucr.hacienda.go.cr con el usuario **del dueño del almacén**. Hacienda solo da credenciales, incluso las de pruebas, a quien está inscrito con una actividad económica, así que no se pueden sacar a nombre del desarrollador. Para el ambiente de pruebas está la opción *“Necesito un usuario de pruebas”* (en *Mi perfil → Credenciales pruebas*), que da su propio usuario, contraseña y llave. Hay dos juegos de credenciales:
 
 | | Pruebas (*sandbox*) | Producción |
 |---|---|---|
@@ -61,6 +61,8 @@ node herramientas\prueba-hacienda.mjs --enviar --anular
 - **`--enviar`:** además lo manda a PRUEBAS y espera la respuesta.
 - **`--enviar --factura`:** lo mismo, pero con una factura; usa el `receptor` del json.
 - **`--enviar --anular`:** emite un tiquete y después una nota de crédito que lo anula.
+
+**Sin credenciales todavía:** si no pone `HACIENDA_P12`, el script arma un tiquete y una nota de crédito y los revisa contra el esquema 4.4, sin firmar ni enviar. Para eso solo hace falta `prueba-emisor.json`.
 
 Los XML (sin firmar, firmado y la respuesta de Hacienda) quedan en `herramientas\salida\`. Esa carpeta tampoco se sube a GitHub. Cuando termine, cierre la ventana de CMD para que se borren las variables.
 

@@ -220,6 +220,12 @@ export function armarNotaCredito(op: {
            total: Number(res.totalComprobante), impuesto: Number(res.totalImpuesto), doc, xml };
 }
 
+// Solo revisa el XML sin firmar contra el esquema 4.4 (para probar sin llave)
+export async function validarSinFirma(xml: string): Promise<void> {
+  const v = await validateDocumentXml(xml);
+  if (!v.valid) falla("El comprobante no pasa el esquema de Hacienda: " + v.issues.slice(0, 5).join("; "));
+}
+
 // Revisa el XML contra el esquema 4.4. Si el validador no puede correr en este servidor
 // (es WebAssembly), se sigue: Hacienda igual valida y lo rechazaría con el motivo.
 async function revisarEsquema(xml: string, conFirma: boolean, que: string) {
