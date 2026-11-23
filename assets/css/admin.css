@@ -419,3 +419,7 @@ html:not(.panel-ok) body { visibility: hidden; }
 #entFilas input { width: 7rem; text-align: right; }
 .entrada__items { margin: .4rem 0 0; padding: 0; list-style: none; font-size: .9rem; display: grid; gap: .15rem; }
 .fila__txt details summary { cursor: pointer; font-size: .9rem; color: var(--gris); }
+.stock-nota { display: block; font-size: .8rem; line-height: 1.3; margin-top: .2rem; }
+.stock-nota:empty { display: none; }
+.stock-bajo { color: #8a5a00; font-weight: 600; }
+.stock-sin { color: var(--peligro); font-weight: 700; }

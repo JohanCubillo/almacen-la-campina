@@ -119,7 +119,9 @@ Tienda: Agregar productos al carrito  ─►  Enviar pedido (nombre + teléfono)
 - **Inventario → Entrada de mercadería:** cuando llega mercadería del proveedor. Se buscan los productos (sirve el lector; pasar el mismo código dos veces suma 1) y se pone cuántos entran. El costo unitario y el precio de venta nuevo son opcionales. Una entrada mal hecha se **anula** y se resta lo que había sumado.
 - **Inventario → Movimientos:** cada subida o bajada con su motivo (venta, anulación, entrada, edición, importación), lo que queda y la referencia (la venta se abre con un clic). Se filtra por producto y fechas. También desde **Productos → Editar → Ver movimientos de inventario**.
 - Si la existencia llega a 0, el producto queda **agotado** en la tienda. Si vuelve a haber, deja de estarlo.
-- Al agregar a una venta un producto sin existencia, el panel avisa pero deja vender, porque el conteo puede estar atrasado.
+- **En una venta no se puede poner más de lo que hay:** el buscador no deja agregar más y la cantidad se corrige sola al máximo. Al guardar se revisa otra vez contra la existencia del momento, por si otra compu vendió. Si el conteo está mal, corríjalo en Productos o registre la entrada de mercadería.
+- **Menos de 10:** el panel avisa *“Ya casi no quedan”* al agregarlo y el renglón muestra cuántos quedan después de esa venta (o *“Es lo último que hay”*).
+- Los pedidos de la página y las ventas sin internet no se bloquean en la base (para no perder un pedido); la revisión es del panel.
 - Solo se lleva existencia de los productos que la tienen: los de Moriah o los que reciben una entrada. Para corregir un conteo físico, en **Productos → Editar → Existencia**; queda en Movimientos como "Editado en Productos".
 
 **Mientras se usen Moriah y el panel a la vez:** Moriah no sabe lo que vende el panel, ni el panel lo que vende Moriah. Mientras Moriah sea el principal, importe su Excel con **Actualizar existencias desde el archivo** marcado. El día que el panel pase a ser el principal, haga un conteo, importe una última vez y desde entonces importe con esa casilla **sin marcar**, para no pisar lo que lleva el panel.

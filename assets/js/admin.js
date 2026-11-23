@@ -865,6 +865,10 @@
     let fe = { data: [] };
     if (V10 && FE?.activo) { try { fe = await db.from("v_fe_documentos").select("*").eq("pedido_id", id).order("id"); } catch { fe = { data: [] }; } }
     V = { pedido: p.data, items: it.data.map((i) => ({ ...i })), pagos: pg.data, comps: cc.data, factura: fac.data || null, fe: fe.data || [], dirty: false };
+    // lo que esta venta ya descontó del inventario (cuenta como disponible al editarla)
+    V.orig = new Map();
+    if (p.data.estado !== "anulada") for (const i of it.data) if (i.producto_id) V.orig.set(i.producto_id, (V.orig.get(i.producto_id) || 0) + Number(i.cantidad));
+    await refrescarExistencias(it.data.map((i) => i.producto_id));
     copia.detalle(id, { pedido: p.data, items: it.data, pagos: pg.data, factura: fac.data || null });
     if (!p.data.revisado) {
       db.from("pedidos").update({ revisado: true }).eq("id", id).then(({ error }) => { if (!error) { const v = ventas.find((x) => x.id === id); if (v) v.revisado = true; } });
@@ -946,6 +950,32 @@
     if (ok || malas) pintarVentas();
   }
 
+  // ---------- existencia dentro de la venta ----------
+  const STOCK_BAJO = 10;                       // menos de esto: "ya casi no quedan"
+  const cantTxt = (n) => Number(n).toLocaleString("es-CR", { maximumFractionDigits: 2 });
+  const quedaTxt = (n) => (Number(n) === 1 ? "queda 1" : `quedan ${cantTxt(n)}`);
+  const prodDe = (id) => (id ? productos.find((x) => x.id === id) : null);
+  const nombreItem = (it) => prodDe(it.producto_id)?.nombre || it.descripcion;
+  // cuánto se puede vender en esta venta: la existencia + lo que esta misma venta ya había descontado
+  function disponible(id) {
+    const p = prodDe(id);
+    if (!V12 || !p || p.existencia == null || V.soloLectura) return Infinity;
+    return Number(p.existencia) + (V.local ? 0 : (V.orig?.get(id) || 0));
+  }
+  const usadoEnVenta = (id, salvo) => V.items.reduce((t, i) => t + (i.producto_id === id && i !== salvo ? Number(i.cantidad) || 0 : 0), 0);
+  function notaStock(it) {
+    const disp = disponible(it.producto_id);
+    if (!isFinite(disp)) return "";
+    const quedan = disp - usadoEnVenta(it.producto_id);
+    if (quedan < 0) return `<span class="stock-sin">Solo hay ${cantTxt(Math.max(0, disp))}: baje la cantidad</span>`;
+    if (quedan === 0) return `<span class="stock-bajo">Es lo último que hay</span>`;
+    if (quedan < STOCK_BAJO) return `<span class="stock-bajo">Ya casi no quedan: después de esta venta ${quedaTxt(quedan)}</span>`;
+    return "";
+  }
+  function pintarNotasStock() {
+    $$("#itemsVenta [data-stock]").forEach((el) => { const it = V.items[Number(el.dataset.stock)]; if (it) el.innerHTML = notaStock(it); });
+  }
+
   function pintarVenta() {
     const p = V.pedido, edit = itemsEditables();
     $("#ventaTitulo").textContent = p ? p.cliente_nombre : "Nueva venta";
@@ -960,8 +990,8 @@
 
     $("#itemsVenta").innerHTML = V.items.map((i, n) => `
       <tr data-n="${n}">
-        <td><input data-k="descripcion" value="${U.esc(i.descripcion)}" maxlength="120" aria-label="Descripción" ${edit ? "" : "disabled"} /></td>
-        <td class="num"><input data-k="cantidad" type="number" min="0.01" step="0.01" value="${U.esc(i.cantidad)}" aria-label="Cantidad" ${edit ? "" : "disabled"} /></td>
+        <td><input data-k="descripcion" value="${U.esc(i.descripcion)}" maxlength="120" aria-label="Descripción" ${edit ? "" : "disabled"} />${edit ? `<small class="stock-nota" data-stock="${n}">${notaStock(i)}</small>` : ""}</td>
+        <td class="num"><input data-k="cantidad" type="number" min="0.01" step="0.01" value="${U.esc(i.cantidad)}" ${edit && isFinite(disponible(i.producto_id)) ? `max="${disponible(i.producto_id)}"` : ""} aria-label="Cantidad" ${edit ? "" : "disabled"} /></td>
         <td class="num"><input data-k="precio_unit" type="number" min="0" step="0.01" value="${U.esc(i.precio_unit)}" aria-label="Precio unitario" ${edit ? "" : "disabled"} /></td>
         <td class="num" data-sub>${fmt(i.cantidad * i.precio_unit)}</td>
         <td>${edit ? `<button type="button" class="cerrar-x" data-quitar-item="${n}" aria-label="Quitar renglón">✕</button>` : ""}</td>
@@ -1097,6 +1127,15 @@
     if (!tr || !k) return;
     const it = V.items[Number(tr.dataset.n)];
     it[k] = k === "descripcion" ? e.target.value : Number(e.target.value);
+    if (k === "cantidad" && it.producto_id) {
+      const max = disponible(it.producto_id) - usadoEnVenta(it.producto_id, it);
+      if (it.cantidad > max) {
+        it.cantidad = Math.max(0, max);
+        e.target.value = it.cantidad;
+        toast(max > 0 ? `Solo hay ${cantTxt(max)} de ${nombreItem(it)}. No se puede vender más de lo que hay.` : `No hay ${nombreItem(it)} en el inventario.`, true);
+      }
+      pintarNotasStock();
+    }
     tr.querySelector("[data-sub]").textContent = fmt((Number(it.cantidad) || 0) * (Number(it.precio_unit) || 0));
     V.dirty = true;
     actualizarTotal();
@@ -1159,10 +1198,16 @@
   }
   buscadorProductos($("#agregarItemQ"), $("#agregarItemRes"), (p) => {
     const ya = V.items.find((i) => i.producto_id === p.id);
-    if (V12 && p.existencia != null && Number(p.existencia) - (ya ? Number(ya.cantidad) : 0) <= 0)
-      toast(`Ojo: según el inventario no hay ${p.nombre} (hay ${Number(p.existencia).toLocaleString("es-CR")}).`, true);
-    if (ya) ya.cantidad = Number(ya.cantidad) + 1;
-    else V.items.push({ producto_id: p.id, descripcion: p.nombre + (p.unidad ? ` (${p.unidad})` : ""), cantidad: 1, precio_unit: p.precio != null ? Number(p.precio) : 0 });
+    const quedan = disponible(p.id) - usadoEnVenta(p.id);
+    if (quedan <= 0) {
+      return toast(disponible(p.id) > 0 ? `Ya agregó todo lo que hay de ${p.nombre} (${cantTxt(disponible(p.id))}).` : `No hay ${p.nombre} en el inventario.`, true);
+    }
+    const suma = Math.min(1, quedan);          // si queda menos de 1 (p. ej. 0,5 m), se agrega lo que queda
+    const despues = Math.round((quedan - suma) * 100) / 100;
+    if (despues === 0) toast(`Es lo último que hay de ${p.nombre}.`);
+    else if (despues < STOCK_BAJO) toast(`Ya casi no quedan: después de esta venta ${quedaTxt(despues)} de ${p.nombre}.`);
+    if (ya) ya.cantidad = Math.round((Number(ya.cantidad) + suma) * 100) / 100;
+    else V.items.push({ producto_id: p.id, descripcion: p.nombre + (p.unidad ? ` (${p.unidad})` : ""), cantidad: suma, precio_unit: p.precio != null ? Number(p.precio) : 0 });
     V.dirty = true;
     pintarVenta();
   }, { nada: "No se encontró. Use “Agregar renglón libre”." });
@@ -1185,6 +1230,14 @@
     if (items.some((i) => i.precio_unit === 0) && !confirm("Hay renglones con precio ₡0. ¿Guardar así?")) return false;
 
     if (V.soloLectura) return false;
+    if (V12 && !SIN_RED && navigator.onLine) await refrescarExistencias(items.map((i) => i.producto_id));
+    const pasados = [...new Set(items.filter((i) => i.producto_id).map((i) => i.producto_id))]
+      .filter((id) => usadoEnVenta(id) > disponible(id));
+    if (pasados.length) {
+      pintarNotasStock();
+      msg.textContent = "No hay suficiente: " + pasados.map((id) => `${prodDe(id).nombre} (hay ${cantTxt(Math.max(0, disponible(id)))})`).join(", ") + ". Baje la cantidad o registre la entrada de mercadería.";
+      return false;
+    }
     // venta hecha sin internet que todavía no se envía: se actualiza en la compu
     if (V.local) return guardarLocal(d, items);
     // venta nueva sin conexión: se guarda en la compu
