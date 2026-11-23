@@ -1,0 +1,23 @@
+{
+  "emisor": {
+    "tipo_id": "02",
+    "identificacion": "3101000000",
+    "nombre": "NOMBRE O RAZÓN SOCIAL DEL ALMACÉN",
+    "nombre_comercial": "Almacén La Campiña",
+    "actividad": "000000",
+    "provincia": "7",
+    "canton": "02",
+    "distrito": "02",
+    "otras_senas": "Cariari, Pococí. Dirección del almacén",
+    "telefono": "47118869",
+    "correo": "correo-del-almacen@ejemplo.com",
+    "proveedor_sistemas": "CEDULA-DE-JOHAN"
+  },
+  "receptor": {
+    "tipo_id": "fisica",
+    "identificacion": "100000000",
+    "nombre": "Cliente de prueba",
+    "correo": "cliente@ejemplo.com"
+  },
+  "lineas": []
+}

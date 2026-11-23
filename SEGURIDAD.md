@@ -55,7 +55,7 @@ Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usar
 - **Importar Excel:** la función `importar_productos` solo funciona para el admin con MFA. Valida cada fila (nombre, precio, enlaces https) y un error no detiene las demás. El Excel se lee en el navegador sin librerías externas.
 - **Precios:** la oferta y el agotado se revisan en la base de datos al crear el pedido. Aunque alguien cambie la página, no puede pedir a precio de oferta vencida ni un producto agotado.
 - **Envío:** el precio sale de las zonas guardadas en el panel, no de lo que mande el navegador.
-- **Factura:** cédula y correo del cliente quedan en `facturas` (solo admin). Para conectar un sistema de facturación se usa la llave secreta **solo en ese servidor** (ver FACTURACION.md).
+- **Factura:** cédula y correo del cliente quedan en `facturas` (solo admin). La emisión la hace la función `facturar` de Supabase (ver abajo y FACTURACION.md).
 - **Reportes:** `reporte_ventas` exige admin con MFA.
 
 ## Sin internet (v5)
@@ -76,3 +76,11 @@ Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usar
 - La tabla `productos` ya no se puede leer completa con la llave pública: la tienda solo puede pedir las columnas que se muestran (nombre, precio, foto, código, etc.). **Existencia y CABYS no salen de la base** hacia la tienda; solo el panel (admin con MFA) las ve.
 - `importar_productos` exige admin con MFA, acepta máximo 3 000 filas por llamada y revisa cada dato (código sin espacios y de máximo 40 caracteres, CABYS de 13 dígitos, precios y existencias numéricos). El panel envía de 1 000 en 1 000.
 - La importación nunca borra productos ni cambia nombres, fotos o categorías de productos que ya existen.
+
+## Facturación electrónica (v10)
+
+- La **llave criptográfica (.p12)**, su **PIN** y el **usuario/contraseña de Hacienda** viven solo como **secretos de la función** `facturar` en Supabase. No están en el código, en GitHub, en la base ni en el navegador. Para probar en la compu se ponen con `set` en la ventana de CMD, sin archivos; `*.p12` y la carpeta de salida están en `.gitignore`.
+- La función solo atiende a un **admin con MFA** (revisa `is_admin()` con el token de quien llama) y solo acepta llamadas desde el dominio del panel (`PANEL_ORIGENES`).
+- Escribir comprobantes y reservar consecutivos lo hace **solo la función** con la llave de servicio que Supabase le da por dentro; el panel solo puede **leer** `fe_documentos` y `fe_consecutivos`. Así nadie puede marcar a mano un comprobante como "aceptado".
+- Cada comprobante se guarda **firmado antes de enviarlo**. Si el envío falla, se reenvía el mismo XML con la misma clave, sin duplicar ni gastar otro número.
+- La numeración de pruebas y la de producción van separadas. Pasar a producción pide confirmación en el panel.

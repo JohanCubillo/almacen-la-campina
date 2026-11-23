@@ -40,6 +40,8 @@
   const HORAS_SIN_RED = 12;
   let SIN_RED = false;     // panel abierto sin conexión (con la copia de la última vez)
   let V9 = false;          // la base tiene código y existencia en productos (v9_inventario.sql)
+  let V10 = false;         // la base tiene facturación electrónica (v10_facturacion.sql)
+  let FE = null;           // datos del emisor (fe_emisor)
   const MAX_LISTA_PROD = 150;
   let V5 = true;           // la base tiene registrar_venta_sin_internet
 
@@ -228,7 +230,12 @@
       try { r9 = await db.from("productos").select("codigo").limit(1); } catch (e) { r9 = { error: e }; }
       V9 = r9.error && U.esErrorRed(r9.error) ? !!copia.leer().v9 : !r9.error;
       if (!r9.error || !U.esErrorRed(r9.error)) copia.poner("v9", V9);
+      let r10;
+      try { r10 = await db.from("fe_emisor").select("*").eq("id", 1).maybeSingle(); } catch (e) { r10 = { error: e }; }
+      V10 = !r10.error; FE = r10.data || null;
     }
+    document.documentElement.classList.toggle("sin-v10", !V10);
+    if (V10) pintarConfFE();
     document.documentElement.classList.toggle("sin-v4", !V4);
     document.documentElement.classList.toggle("sin-v9", !V9);
     $("#avisoV4").hidden = V4;
@@ -428,6 +435,7 @@
     fp.activo.checked = p ? !!p.activo : true;
     fp.agotado.checked = !!p?.agotado;
     fp.codigo.value = p?.codigo || "";
+    fp.iva_codigo.value = p?.iva_codigo || "08";
     fp.existencia.value = p?.existencia ?? "";
     fp.precio_oferta.value = p?.precio_oferta ?? "";
     fp.oferta_hasta.value = p?.oferta_hasta || "";
@@ -536,6 +544,7 @@
         if (po != null && d.precio != null && po >= d.precio) throw new Error("El precio de oferta debe ser menor que el precio normal.");
         d.precio_oferta = po; d.oferta_hasta = hasta;
       }
+      if (V10) d.iva_codigo = fp.iva_codigo.value;
       if (V9) {
         const cod = fp.codigo.value.replace(/[\s'"]/g, "");
         if (cod.length > 40) throw new Error("El código es muy largo (máximo 40 caracteres).");
@@ -839,7 +848,9 @@
     if (fallo) return toast(errTxt(fallo), true);
     let fac = { data: null };
     if (V4) { try { fac = await db.from("facturas").select("*").eq("pedido_id", id).maybeSingle(); } catch { fac = { data: null }; } }
-    V = { pedido: p.data, items: it.data.map((i) => ({ ...i })), pagos: pg.data, comps: cc.data, factura: fac.data || null, dirty: false };
+    let fe = { data: [] };
+    if (V10 && FE?.activo) { try { fe = await db.from("v_fe_documentos").select("*").eq("pedido_id", id).order("id"); } catch { fe = { data: [] }; } }
+    V = { pedido: p.data, items: it.data.map((i) => ({ ...i })), pagos: pg.data, comps: cc.data, factura: fac.data || null, fe: fe.data || [], dirty: false };
     copia.detalle(id, { pedido: p.data, items: it.data, pagos: pg.data, factura: fac.data || null });
     if (!p.data.revisado) {
       db.from("pedidos").update({ revisado: true }).eq("id", id).then(({ error }) => { if (!error) { const v = ventas.find((x) => x.id === id); if (v) v.revisado = true; } });
@@ -1008,6 +1019,8 @@
     $("#btnListo").textContent = p?.listo_at ? "Avisar otra vez que está listo" : "Avisar que está listo";
     $("#boxFactura").hidden = !p || !V4 || !!V.local || !!V.soloLectura;
     if (p && V4 && !V.local && !V.soloLectura) pintarFactura();
+    $("#boxFE").hidden = !p || !V10 || !FE?.activo || !!V.local || !!V.soloLectura;
+    if (!$("#boxFE").hidden) pintarFEVenta();
     $("#btnAnularVenta").hidden = !p || p.estado === "anulada" || !!V.local || !!V.soloLectura;
     $(".imprimir").hidden = !p;
     $("#btnBorrarVenta").hidden = V.local ? false : (!p || p.estado !== "abierta" || V.pagos.length > 0 || !!V.soloLectura);
@@ -1248,7 +1261,7 @@
   function pintarFactura(nueva) {
     const fac = V.factura, f = $("#formFactura");
     $("#facturaInfo").textContent = fac
-      ? `${ETQ_FAC[fac.estado] || fac.estado}. La pidió ${fac.solicitada_por === "cliente" ? "el cliente en la página" : "el almacén"}. Emítala en su sistema de facturación y anote aquí el resultado.`
+      ? `${ETQ_FAC[fac.estado] || fac.estado}. La pidió ${fac.solicitada_por === "cliente" ? "el cliente en la página" : "el almacén"}. ${V10 && FE?.activo ? "Emítala con el botón “Emitir factura” de abajo." : "Emítala en su sistema de facturación y anote aquí el resultado."}`
       : "Esta venta no tiene factura electrónica.";
     $("#btnNuevaFactura").hidden = !!fac || !!nueva;
     f.hidden = !fac && !nueva;
@@ -1278,6 +1291,135 @@
     if (r.error) { msg.textContent = errTxt(r.error); return; }
     toast("Factura guardada");
     await abrirVenta(V.pedido.id);
+  });
+
+  // ---------- facturación electrónica (función "facturar") ----------
+  const FE_TIPO = { "01": "Factura electrónica", "03": "Nota de crédito", "04": "Tiquete electrónico" };
+  const FE_ESTADO = {
+    firmado: ["Sin enviar", "etq--error"], enviado: ["Enviado a Hacienda", "etq--por_verificar"], procesando: ["Hacienda lo está revisando", "etq--por_verificar"],
+    aceptado: ["Aceptado por Hacienda", "etq--pagado"], rechazado: ["Rechazado por Hacienda", "etq--error"], error: ["Con error", "etq--error"]
+  };
+  async function llamarFE(cuerpo) {
+    const { data, error } = await db.functions.invoke("facturar", { body: cuerpo });
+    if (error) {
+      let m = "";
+      try { m = (await error.context.json()).error; } catch { /* sin detalle */ }
+      if (!m && U.esErrorRed(error)) m = "Sin internet: no se pudo hablar con Hacienda.";
+      throw new Error(m || "No se pudo usar la facturación. ¿Está publicada la función “facturar” en Supabase?");
+    }
+    if (!data?.ok) throw new Error(data?.error || "No se pudo completar.");
+    return data;
+  }
+  function feVigente() {
+    return (V.fe || []).find((d) => ["01", "04"].includes(d.tipo) && d.estado !== "rechazado" && !d.anulado && d.ambiente === FE?.ambiente);
+  }
+  function pintarFEVenta() {
+    const docs = (V.fe || []).filter((d) => d.ambiente === FE?.ambiente);
+    $("#feDocs").innerHTML = docs.map((d) => {
+      const [txt, cls] = FE_ESTADO[d.estado] || [d.estado, ""];
+      const acc = [];
+      if (["firmado", "error"].includes(d.estado)) acc.push(`<button type="button" class="btn btn--sm btn--negro" data-fe="enviar" data-id="${d.id}">Enviar de nuevo</button>`);
+      if (["enviado", "procesando"].includes(d.estado)) acc.push(`<button type="button" class="btn btn--sm btn--linea" data-fe="consultar" data-id="${d.id}">Consultar</button>`);
+      if (d.estado === "aceptado" && d.tipo !== "03" && !d.anulado) acc.push(`<button type="button" class="enlace enlace--peligro" data-fe="anular" data-id="${d.id}">Anular con nota de crédito</button>`);
+      acc.push(`<button type="button" class="enlace" data-fe="xml" data-id="${d.id}">XML</button>`);
+      return `<li class="pago fe-doc ${d.anulado ? "pago--anulado" : ""}">
+        <div class="pago__monto">${fmt(d.total)}<small>${FE_TIPO[d.tipo] || d.tipo}</small></div>
+        <div class="pago__datos">
+          <span>N.º <b>${U.esc(d.consecutivo.slice(-10).replace(/^0+/, ""))}</b> · ${fechaCR(d.fecha_emision, { dateStyle: "short", timeStyle: "short" })}</span>
+          <span><span class="etq ${cls}">${txt}</span>${d.anulado ? ' <span class="etq">Anulado</span>' : ""}${d.ambiente === "pruebas" ? ' <span class="etq">Pruebas</span>' : ""}</span>
+          ${d.detalle ? `<span>${U.esc(d.detalle)}</span>` : ""}
+          <span class="fe-doc__clave">Clave ${U.esc(d.clave)}</span>
+        </div>
+        <div class="pago__acc">${acc.join("")}</div>
+      </li>`;
+    }).join("") || `<li class="vacio-adm">Esta venta todavía no tiene comprobante electrónico.</li>`;
+    const vig = feVigente(), anulada = V.pedido?.estado === "anulada";
+    $("#feEmitir").hidden = !!vig || anulada;
+    $("#btnFEFactura").disabled = !V.factura;
+    $("#btnFEFactura").title = V.factura ? "" : "Primero anote los datos del cliente en “El cliente pide factura”.";
+  }
+  async function accionFE(cuerpo, espera) {
+    if (V.dirty) { $("#feMsg").className = "msg msg--error"; $("#feMsg").textContent = "Primero guarde los cambios de la venta."; return; }
+    V.fe = V.fe || [];
+    const msg = $("#feMsg"), botones = $$("#boxFE button");
+    botones.forEach((b) => (b.disabled = true));
+    msg.className = "msg"; msg.textContent = espera;
+    try {
+      const r = await llamarFE(cuerpo);
+      const d = r.documento;
+      const i = V.fe.findIndex((x) => x.id === d.id);
+      if (i >= 0) V.fe[i] = d; else V.fe.push(d);
+      if (d.referencia_id && d.estado === "aceptado") { const o = V.fe.find((x) => x.id === d.referencia_id); if (o) o.anulado = true; }
+      const art = { "01": "la factura", "03": "la nota de crédito", "04": "el tiquete" }[d.tipo] || "el comprobante";
+      msg.textContent = d.estado === "aceptado" ? `Hacienda aceptó ${art}.`
+        : d.estado === "rechazado" ? `Hacienda rechazó ${art}: ${d.detalle || "vea el XML de respuesta."}`
+        : ["enviado", "procesando"].includes(d.estado) ? "Enviado. Hacienda todavía lo está revisando: toque “Consultar” en un rato."
+        : d.detalle || "Guardado, pero no llegó a Hacienda. Toque “Enviar de nuevo”.";
+      if (d.estado === "rechazado" || d.estado === "firmado" || d.estado === "error") msg.className = "msg msg--error";
+    } catch (e) {
+      msg.className = "msg msg--error"; msg.textContent = errTxt(e);
+    } finally {
+      botones.forEach((b) => (b.disabled = false));
+      pintarFEVenta();
+    }
+  }
+  $("#btnFETiquete").addEventListener("click", () => accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "04" }, "Firmando y enviando el tiquete a Hacienda…"));
+  $("#btnFEFactura").addEventListener("click", () => accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "01" }, "Firmando y enviando la factura a Hacienda…"));
+  $("#feDocs").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-fe]"); if (!b) return;
+    const id = Number(b.dataset.id), acc = b.dataset.fe;
+    if (acc === "consultar") return accionFE({ accion: "consultar", documento_id: id }, "Consultando a Hacienda…");
+    if (acc === "enviar") return accionFE({ accion: "enviar", documento_id: id }, "Enviando a Hacienda…");
+    if (acc === "anular") {
+      const motivo = prompt("Motivo de la nota de crédito (lo ve Hacienda):", "Devolución de la mercadería");
+      if (motivo === null) return;
+      if (motivo.trim().length < 3) return toast("Escriba el motivo.", true);
+      if (!confirm("Se emite una nota de crédito por el total y el comprobante queda anulado ante Hacienda. ¿Seguir?")) return;
+      return accionFE({ accion: "anular", documento_id: id, motivo: motivo.trim() }, "Emitiendo la nota de crédito…");
+    }
+    if (acc === "xml") {
+      const { data, error } = await db.from("fe_documentos").select("clave,xml_firmado,respuesta_xml").eq("id", id).single();
+      if (error) return toast(errTxt(error), true);
+      descargar(new Blob([data.xml_firmado], { type: "application/xml" }), `${data.clave}.xml`);
+      if (data.respuesta_xml) setTimeout(() => descargar(new Blob([data.respuesta_xml], { type: "application/xml" }), `${data.clave}-respuesta-hacienda.xml`), 400);
+    }
+  });
+
+  // datos del emisor (Datos del negocio)
+  const CAMPOS_FE = ["tipo_id", "identificacion", "nombre", "nombre_comercial", "actividad", "provincia", "canton", "distrito",
+    "otras_senas", "telefono", "correo", "sucursal", "terminal", "proveedor_sistemas", "cabys_envio", "ambiente"];
+  function pintarConfFE() {
+    const f = $("#formFE"); if (!FE) return;
+    CAMPOS_FE.forEach((k) => (f.elements[k].value = FE[k] ?? ""));
+    f.activo.checked = !!FE.activo;
+  }
+  $("#formFE").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#feConfMsg");
+    const d = { activo: f.activo.checked };
+    CAMPOS_FE.forEach((k) => { const v = String(f.elements[k].value || "").trim(); d[k] = v === "" ? null : v; });
+    ["identificacion", "actividad", "canton", "distrito", "telefono", "sucursal", "terminal", "cabys_envio"].forEach((k) => { if (d[k]) d[k] = U.soloDigitos(d[k]); });
+    if (d.canton) d.canton = d.canton.padStart(2, "0");
+    if (d.distrito) d.distrito = d.distrito.padStart(2, "0");
+    d.sucursal = (d.sucursal || "001").padStart(3, "0"); d.terminal = (d.terminal || "00002").padStart(5, "0");
+    if (d.ambiente === "produccion" && FE?.ambiente !== "produccion" &&
+        !confirm("En producción cada tiquete y factura es real ante Hacienda. ¿Pasar a producción?")) return;
+    msg.className = "msg"; msg.textContent = "Guardando…";
+    const { data, error } = await db.from("fe_emisor").update(d).eq("id", 1).select("*").single();
+    if (error) {
+      msg.className = "msg msg--error";
+      msg.textContent = /check constraint/i.test(error.message || "") ? "Revise los datos: algún campo no tiene el formato correcto (cédula, actividad de 6 dígitos, cantón y distrito de 2, teléfono de 8, CABYS de 13)." : errTxt(error);
+      return;
+    }
+    FE = data; pintarConfFE();
+    msg.textContent = FE.activo ? `Guardado. Facturación encendida en ${FE.ambiente === "produccion" ? "PRODUCCIÓN" : "pruebas"}.` : "Guardado. La facturación está apagada.";
+  });
+  $("#btnProbarFE").addEventListener("click", async () => {
+    const msg = $("#feConfMsg"), b = $("#btnProbarFE");
+    b.disabled = true; msg.className = "msg"; msg.textContent = "Probando la llave y el usuario de Hacienda…";
+    try { const r = await llamarFE({ accion: "probar" }); msg.textContent = r.mensaje; }
+    catch (e) { msg.className = "msg msg--error"; msg.textContent = errTxt(e); }
+    finally { b.disabled = false; }
   });
 
   // ---------- registrar pago ----------
@@ -1474,7 +1616,8 @@
   const LS_RESPALDO = "lc_ultimo_respaldo_v1";
   const TABLAS_RESPALDO = [
     ["categorias", "id"], ["productos", "id"], ["ajustes", "clave"], ["pedidos", "id"], ["pedido_items", "id"],
-    ["pagos", "id"], ["comprobantes_cliente", "id"], ["facturas", "id"], ["consultas", "id"], ["archivos_borrados", "ruta"], ["auditoria", "id"]
+    ["pagos", "id"], ["comprobantes_cliente", "id"], ["facturas", "id"], ["consultas", "id"], ["archivos_borrados", "ruta"], ["auditoria", "id"],
+    ["fe_emisor", "id"], ["fe_consecutivos", "ambiente"], ["fe_documentos", "id"]
   ];
 
   function pintarUltimoRespaldo() {
@@ -1519,7 +1662,16 @@
         try { tablas[t] = sinSecretos(await leerTabla(t, orden)); }
         catch (e) { if (U.esErrorRed(e)) throw e; omitidas.push(t); }
       }
-      for (const [t, filas] of Object.entries(tablas)) archivos.push({ nombre: `tablas/${t}.csv`, datos: aCsv(filas) });
+      for (const [t, filas] of Object.entries(tablas)) {
+        // los XML de Hacienda van como archivos aparte; en el CSV solo los datos
+        const csv = t === "fe_documentos" ? filas.map(({ xml_firmado, respuesta_xml, datos, ...r }) => r) : filas;
+        archivos.push({ nombre: `tablas/${t}.csv`, datos: aCsv(csv) });
+      }
+      for (const d of tablas.fe_documentos || []) {
+        const carpeta = `comprobantes-electronicos/${d.ambiente}/${String(d.fecha_emision).slice(0, 7)}`;
+        archivos.push({ nombre: `${carpeta}/${d.clave}.xml`, datos: d.xml_firmado });
+        if (d.respuesta_xml) archivos.push({ nombre: `${carpeta}/${d.clave}-respuesta.xml`, datos: d.respuesta_xml });
+      }
       archivos.push({ nombre: "respaldo.json", datos: JSON.stringify({ sistema: "Almacén La Campiña", formato: 1, fecha: fecha.toISOString(), tablas }, null, 1) });
 
       let fotosOk = 0, fotosMal = 0;

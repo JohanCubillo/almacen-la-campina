@@ -297,6 +297,12 @@ html:not(.panel-ok) body { visibility: hidden; }
    ============================================================ */
 .sin-v4 .v4 { display: none !important; }
 .sin-v9 .v9 { display: none !important; }
+.sin-v10 .v10 { display: none !important; }
+.tres { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; }
+@media (max-width: 640px) { .tres { grid-template-columns: 1fr; } }
+.fe-doc .pago__monto small { white-space: nowrap; }
+.fe-doc__clave { font-variant-numeric: tabular-nums; font-size: .8rem; color: var(--gris); word-break: break-all; }
+#boxFE { margin-bottom: 1rem; }
 .aviso-v4 { margin: 1.25rem 0 0; padding: .9rem 1.1rem; border-radius: 14px; background: #FFF3C4; box-shadow: inset 4px 0 0 var(--cinta); font-size: .95rem; }
 .pasos-ayuda { margin: 0; padding-left: 1.3rem; display: grid; gap: .35rem; color: var(--texto); font-size: .95rem; }
 .pasos-ayuda .enlace { padding: 0; font-size: inherit; }
@@ -395,3 +401,4 @@ html:not(.panel-ok) body { visibility: hidden; }
 .buscar-item__res small, .buscar-item__det { color: var(--gris); font-size: .85rem; white-space: nowrap; }
 .buscar-item__nada { padding: .6rem; color: var(--gris); }
 .imp__cod { display: block; color: var(--gris); font-size: .8rem; }
+#feEmitir { margin-top: .6rem; }

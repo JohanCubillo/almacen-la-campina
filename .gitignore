@@ -1,6 +1,10 @@
+*.local
+*.p12
+*.pfx
+.DS_Store
 .env
 .env.*
-*.local
-node_modules/
-.DS_Store
 Thumbs.db
+herramientas/prueba-emisor.json
+herramientas/salida/
+node_modules/

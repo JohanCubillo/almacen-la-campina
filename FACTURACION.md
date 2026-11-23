@@ -1,46 +1,137 @@
-# Factura electrónica
+# Facturación electrónica (Hacienda 4.4)
 
-La página **no emite** facturas ante Hacienda. Lo que hace es recoger la solicitud del cliente y llevar el control en el panel. La factura se emite con el sistema de facturación del almacén, a mano o conectado.
+El panel emite **tiquetes**, **facturas** y **notas de crédito** directamente con Hacienda. El trabajo se reparte así:
 
-## Cómo llega una solicitud
+- **Panel (admin.html):** botones en cada venta y los datos del emisor en *Datos del negocio*.
+- **Función de Supabase `facturar`** (`supabase/functions/facturar/`): arma el XML 4.4, lo valida, lo firma con la llave criptográfica, lo envía a Hacienda y guarda la respuesta. Solo la puede usar un administrador con verificación en 2 pasos.
+- **Base de datos:** guarda cada comprobante con su XML firmado y la respuesta de Hacienda en `fe_documentos`, y lleva la numeración en `fe_consecutivos`.
 
-- **Desde la tienda:** en el carrito, el cliente abre “¿Necesita factura electrónica?” y pone el tipo de identificación, el número, el nombre o razón social y el correo. La base de datos valida el número: física 9 dígitos, jurídica 10, DIMEX 11 o 12, NITE 10.
-- **Desde el panel:** en una venta, botón **El cliente pide factura**.
+La parte técnica de Hacienda (XML, firma XAdES-EPES, token y envío) la hace [`@dojocoding/hacienda-sdk`](https://github.com/DojoCodingLabs/hacienda-cr). Es código abierto con licencia MIT y no cobra nada. Está fijada la versión **0.13.0**; solo se cambia cuando Hacienda cambie algo y después de probar.
 
-Los datos quedan en la tabla `facturas`, que solo ve el administrador con su código de 6 dígitos.
+> **La llave criptográfica (.p12), su PIN y el usuario y la contraseña de Hacienda no van en el código, en GitHub, en la base de datos ni en un chat.** Se guardan solo como **secretos de la función** en Supabase.
 
-## Opción A: a mano (para empezar)
+---
 
-1. Abra la venta. En **Factura electrónica** están los datos del cliente.
-2. Emita la factura en su sistema de facturación con esos datos y los renglones de la venta.
-3. En el panel cambie el **Estado** a *Aceptada por Hacienda* y, si quiere, anote el **consecutivo** (20 dígitos) y la **clave** (50 dígitos).
-4. El cliente ve en “Mi pedido”: *Factura electrónica: emitida y enviada a su correo*.
+## 1. Lo que hay que sacar en TRIBU-CR
 
-## Opción B: conectar un sistema de facturación
+Se hace en https://ovitribucr.hacienda.go.cr, con el usuario del dueño del almacén, en la parte de comprobantes electrónicos. Hay dos juegos de credenciales:
 
-Un programa que corra **en un servidor o en la computadora del almacén, nunca en la página** puede:
+| | Pruebas (*sandbox*) | Producción |
+|---|---|---|
+| Usuario de comprobantes | `…@stag.comprobanteselectronicos.go.cr` | `…@prod.comprobanteselectronicos.go.cr` |
+| Contraseña de ese usuario | sí | sí |
+| Llave criptográfica (.p12) y su PIN | la de pruebas | la de producción |
 
-1. Leer las pendientes de la vista `v_facturas_pendientes`. Trae receptor, código de pedido, total y renglones en `lineas` (JSON).
-2. Emitir ante Hacienda.
-3. Actualizar la tabla `facturas`: `estado` (`enviada`, `aceptada`, `rechazada`, `error`), `clave`, `consecutivo` y `mensaje`.
+Primero se trabaja **solo con las de pruebas**.
 
-Ejemplo con la API REST de Supabase:
+También hacen falta estos datos del almacén, tal como están inscritos en Hacienda:
 
-```bash
-# pendientes
-curl "https://osuhkkojtwweepniwxtp.supabase.co/rest/v1/v_facturas_pendientes?select=*" \
-  -H "apikey: $SUPABASE_SECRET" -H "Authorization: Bearer $SUPABASE_SECRET"
+- Cédula y nombre o razón social.
+- Código de actividad económica (6 dígitos).
+- Provincia, cantón y distrito.
+- Dirección y correo.
 
-# marcar como aceptada
-curl -X PATCH "https://osuhkkojtwweepniwxtp.supabase.co/rest/v1/facturas?id=eq.15" \
-  -H "apikey: $SUPABASE_SECRET" -H "Authorization: Bearer $SUPABASE_SECRET" \
-  -H "Content-Type: application/json" \
-  -d '{"estado":"aceptada","clave":"5060…","consecutivo":"0010000101…"}'
+## 2. Probar en la compu (antes de tocar Supabase)
+
+Hace lo mismo que la función: arma un tiquete, lo valida contra el esquema 4.4, lo firma y lo envía al ambiente de **pruebas**. Si aquí sale *ACEPTADO*, la función también sirve.
+
+Requisitos: **Node 22.18 o más nuevo**. En la carpeta del repo, en CMD:
+
+```bat
+npm install
+copy herramientas\prueba-emisor.ejemplo.json herramientas\prueba-emisor.json
+notepad herramientas\prueba-emisor.json
 ```
 
-> ⚠️ `$SUPABASE_SECRET` es la llave **secreta** (`sb_secret_…` / service_role). Solo va en la configuración de ese programa en el servidor. Nunca en `config.js`, nunca en GitHub y nunca en un mensaje. Si se filtra, revóquela en **Project Settings → API keys**.
+En `prueba-emisor.json` ponga los datos del almacén. En `proveedor_sistemas` va la cédula de quien da el sistema (Johan). Este archivo no se sube a GitHub. Después, **en la misma ventana de CMD**:
 
-## Lo que la página no hace (a propósito)
+```bat
+set HACIENDA_USUARIO=cpj-3-101-xxxxxx@stag.comprobanteselectronicos.go.cr
+set HACIENDA_CLAVE=contraseña-de-pruebas
+set HACIENDA_P12=C:\ruta\llave-de-pruebas.p12
+set HACIENDA_PIN=1234
 
-- No guarda la llave criptográfica (.p12) ni el usuario de Hacienda: eso vive solo en el sistema de facturación.
-- No calcula impuestos por renglón. Los precios del catálogo son los que se cobran; el sistema de facturación desglosa el IVA según la actividad del almacén.
+node herramientas\prueba-hacienda.mjs
+node herramientas\prueba-hacienda.mjs --enviar
+node herramientas\prueba-hacienda.mjs --enviar --factura
+node herramientas\prueba-hacienda.mjs --enviar --anular
+```
+
+- **Primer comando:** arma, valida y firma; no envía nada.
+- **`--enviar`:** además lo manda a PRUEBAS y espera la respuesta.
+- **`--enviar --factura`:** lo mismo, pero con una factura; usa el `receptor` del json.
+- **`--enviar --anular`:** emite un tiquete y después una nota de crédito que lo anula.
+
+Los XML (sin firmar, firmado y la respuesta de Hacienda) quedan en `herramientas\salida\`. Esa carpeta tampoco se sube a GitHub. Cuando termine, cierre la ventana de CMD para que se borren las variables.
+
+## 3. Base de datos
+
+En Supabase, abra **SQL Editor**, pegue `supabase/v10_facturacion.sql` y dele **Run**. Hace falta que `v9_inventario.sql` ya esté corrido, porque los productos necesitan el **CABYS** que trae el inventario de Moriah.
+
+## 4. Publicar la función `facturar`
+
+Con la terminal, en la carpeta del repo. Se usa `npx`, así que no hay que instalar nada:
+
+```bat
+npx supabase login
+npx supabase functions deploy facturar --project-ref osuhkkojtwweepniwxtp --use-api
+```
+
+## 5. Poner los secretos
+
+Primero pase la llave .p12 a texto (base64). En **PowerShell**:
+
+```powershell
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\ruta\llave-de-pruebas.p12")) | Set-Clipboard
+```
+
+Eso deja el texto copiado. Después, en Supabase: **Edge Functions → Secrets**. Agregue:
+
+| Nombre | Valor |
+|---|---|
+| `HACIENDA_USUARIO` | el usuario de comprobantes (pruebas) |
+| `HACIENDA_CLAVE` | su contraseña |
+| `HACIENDA_P12_BASE64` | pegar el texto copiado |
+| `HACIENDA_PIN` | el PIN de la llave |
+| `PANEL_ORIGENES` | `https://johancubillo.github.io` (si después hay dominio propio, agréguelo separado por coma) |
+
+Los secretos también se pueden poner con `npx supabase secrets set NOMBRE=valor --project-ref osuhkkojtwweepniwxtp`.
+
+## 6. Encender en el panel
+
+1. **Datos del negocio → Facturación electrónica:** llene los datos del emisor. Mientras Moriah siga facturando, use **otra terminal**, por ejemplo `00002`, para que los consecutivos no choquen. Si hace envíos a domicilio, ponga el **CABYS del envío**.
+2. **Probar conexión con Hacienda.** Abre la llave y entra a Hacienda sin enviar nada.
+3. Marque **Facturar desde el panel** con el ambiente en **Pruebas** y guarde.
+4. Abra una venta y toque **Emitir tiquete**. Para factura, primero **El cliente pide factura** con los datos del cliente y después **Emitir factura**.
+
+## 7. Pasar a producción
+
+1. Cambie los 4 secretos por los de **producción**: usuario `@prod`, su contraseña, la llave de producción y su PIN.
+2. En el panel cambie el ambiente a **Producción** y guarde. El panel pide confirmación.
+3. Toque **Probar conexión con Hacienda**.
+
+La numeración de pruebas y la de producción van aparte, así que lo que se hizo en pruebas no gasta números reales.
+
+---
+
+## Cómo funciona cada comprobante
+
+- **Precios:** se toman como **precio final con IVA**, que es como se cobra en el almacén. Para el XML se separa la base y el impuesto. Los productos que digan *"+ IVA"* en *Se vende por* hay que corregirlos antes de facturar: ponerles el precio con IVA y quitar el "+ IVA".
+- **IVA de cada producto:** por defecto 13 %. Se cambia en **Productos → Editar → IVA del producto**, por ejemplo al 1 % de insumos agropecuarios. Si hay duda, que la confirme el contador.
+- **CABYS:** cada renglón tiene que venir de un producto con CABYS. Los del inventario de Moriah ya lo traen. Un *renglón libre* no se puede facturar, salvo el envío a domicilio.
+- **Medio de pago:** sale de los pagos anotados en la venta: SINPE Móvil 06, efectivo 01, tarjeta 02, transferencia 04. Si no hay pagos, va como efectivo.
+- **Si no llega a Hacienda** porque se cayó el internet o Hacienda no respondió, el comprobante queda **guardado y firmado** con su número. **Enviar de nuevo** manda exactamente el mismo XML, sin hacer otro.
+- **Si Hacienda lo rechaza,** el panel muestra el motivo. Se corrige el dato y se vuelve a emitir; sale con otro número.
+- **Anular con nota de crédito** anula todo el comprobante (código 01). Cuando Hacienda la acepta, la venta se puede volver a facturar.
+- **XML:** cada comprobante tiene su botón para descargar el XML firmado y la respuesta de Hacienda. Hacienda pide guardarlos; el **respaldo** del panel los incluye.
+
+## Lo que todavía no hace
+
+- No envía el PDF y el XML al correo del cliente. Por ahora el cliente recibe el recibo impreso y el XML se descarga desde la venta.
+- **Ventas a crédito** (condición 02 con plazo): la función ya las acepta (`credito_dias`), pero el panel todavía no tiene la pantalla de crédito a clientes.
+- **Contingencia** (facturar sin internet con numeración de contingencia): por ahora, si no hay internet, se espera y se usa *Enviar de nuevo*.
+- **Aceptar o rechazar facturas de proveedores** (mensaje receptor).
+
+## Sin facturación encendida
+
+Si **Facturar desde el panel** está apagado, todo sigue como antes: el cliente pide factura desde la tienda o el panel, los datos quedan en `facturas` y se emite en el sistema que el almacén use, anotando el resultado a mano en la venta.
