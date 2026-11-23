@@ -433,3 +433,22 @@ html:not(.panel-ok) body { visibility: hidden; }
 .vence-tarde { color: var(--peligro); font-weight: 600; }
 .vence-pronto { color: #8a5a00; font-weight: 600; }
 #cliVentas tr.pagada td { color: var(--gris); }
+.sin-v14 .v14 { display: none !important; }
+.turno { margin-bottom: 1.5rem; }
+.turno__cab { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.turno__cab h2 { margin: 0; }
+.turno__estado { margin: 0; color: var(--gris); }
+.turno__estado b { color: var(--negro); }
+.turno__movs { list-style: none; margin: .5rem 0; padding: 0; display: grid; gap: .25rem; font-size: .92rem; }
+.turno__hist { margin-top: 1rem; }
+.turno__hist summary { cursor: pointer; font-weight: 600; }
+.cifras dd.cifra--clave { color: var(--negro); }
+.conteo { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: .5rem; margin: .5rem 0 1rem; }
+.conteo label { font-size: .85rem; }
+.conteo input { text-align: right; }
+.cierre__dif { align-self: end; font-size: 1.05rem; padding-bottom: .6rem; }
+.cierre__dif b { font-family: var(--cond); font-size: 1.5rem; }
+.dif--ok { color: #1d6b39; }
+.dif--mal { color: var(--peligro); }
+.cierre__res { display: grid; gap: .2rem; font-size: .92rem; margin: .25rem 0 .75rem; }
+.cierre__res div { display: flex; justify-content: space-between; gap: 1rem; border-bottom: 1px dashed var(--borde); padding: .15rem 0; }

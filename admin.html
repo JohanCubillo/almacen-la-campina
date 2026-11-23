@@ -101,7 +101,7 @@
     <nav class="pestanas wrap" role="tablist" aria-label="Secciones del panel">
       <button role="tab" class="pestana" aria-selected="true" aria-controls="tVen" id="tabVen">Pedidos y ventas <span class="badge" id="badgeVen" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tPreg" id="tabPreg" hidden>Preguntas <span class="badge" id="badgePreg" hidden></span></button>
-      <button role="tab" class="pestana" aria-selected="false" aria-controls="tCaja" id="tabCaja">Caja SINPE <span class="badge badge--amarillo" id="badgeCaja" hidden></span></button>
+      <button role="tab" class="pestana" aria-selected="false" aria-controls="tCaja" id="tabCaja">Caja <span class="badge badge--amarillo" id="badgeCaja" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCred" id="tabCred" hidden>Crédito <span class="badge badge--amarillo" id="badgeCred" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tComp" id="tabComp" hidden>Comprobantes</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tRep" id="tabRep">Reportes</button>
@@ -148,8 +148,47 @@
 
       <!-- CAJA SINPE -->
       <section id="tCaja" role="tabpanel" aria-labelledby="tabCaja" hidden>
+        <section class="tarjeta turno v14" id="boxTurno" aria-labelledby="turnoTitulo">
+          <div class="turno__cab">
+            <h2 id="turnoTitulo">Caja</h2>
+            <p class="turno__estado" id="turnoEstado"></p>
+          </div>
+          <form class="form-linea" id="formAbrirCaja" novalidate hidden>
+            <label>Fondo inicial (efectivo con que empieza) ₡<input name="fondo" type="number" min="0" step="1000" inputmode="numeric" required /></label>
+            <button type="submit" class="btn btn--negro">Abrir caja</button>
+          </form>
+          <div id="turnoAbierto" hidden>
+            <dl class="cifras cifras--caja" id="turnoCifras"></dl>
+            <ul class="turno__movs" id="turnoMovs"></ul>
+            <details class="registrar" id="boxMovCaja">
+              <summary>Entrada o salida de efectivo</summary>
+              <form class="registrar__form" id="formMovCaja" novalidate>
+                <div class="tres">
+                  <label>Tipo
+                    <select name="tipo">
+                      <option value="salida">Salida (pago, retiro, gasto)</option>
+                      <option value="entrada">Entrada (cambio, aporte)</option>
+                    </select></label>
+                  <label>Monto ₡<input name="monto" type="number" min="1" step="0.01" inputmode="decimal" required /></label>
+                  <label>Motivo<input name="motivo" maxlength="200" required placeholder="Ej: pago al proveedor de arena" /></label>
+                </div>
+                <p class="msg" id="movCajaMsg" role="status"></p>
+                <div class="form-linea__btns"><button type="submit" class="btn btn--negro btn--sm">Guardar</button></div>
+              </form>
+            </details>
+            <div class="form-linea__btns">
+              <button type="button" class="btn btn--linea btn--sm" id="btnActualizarTurno">Actualizar</button>
+              <button type="button" class="btn btn--negro" id="btnCerrarCaja">Cerrar caja</button>
+            </div>
+          </div>
+          <details class="turno__hist" id="boxCierres">
+            <summary>Cierres anteriores</summary>
+            <ul class="filas" id="listaCierres"></ul>
+          </details>
+        </section>
+
         <div class="barra-herr">
-          <h2>Caja SINPE</h2>
+          <h2>Pagos SINPE</h2>
           <div class="barra-herr__der">
             <label class="fecha-caja">Día <input type="date" id="cajaDia" /></label>
             <button type="button" class="btn btn--sm btn--linea" id="btnCsvDia">Descargar día (CSV)</button>
@@ -535,6 +574,26 @@
       <div class="dlg__btns">
         <button type="button" class="btn btn--linea" id="btnCancelarProd">Cancelar</button>
         <button type="submit" class="btn btn--negro" id="btnGuardarProd">Guardar producto</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Cierre de caja -->
+  <dialog id="dlgCierre" class="dlg dlg--ancho" aria-labelledby="cierreTitulo">
+    <form id="formCierre" class="dlg__form" novalidate>
+      <h2 id="cierreTitulo">Cerrar caja</h2>
+      <p class="ayuda">Cuente el efectivo de la gaveta (incluido el fondo). Puede contarlo por billetes y monedas o escribir el total.</p>
+      <div class="conteo" id="conteoBilletes"></div>
+      <div class="dos">
+        <label>Efectivo contado ₡<input name="contado" type="number" min="0" step="5" inputmode="numeric" required /></label>
+        <div class="cierre__dif" id="cierreDif" aria-live="polite"></div>
+      </div>
+      <div class="cierre__res" id="cierreRes"></div>
+      <label>Nota<input name="nota" maxlength="500" placeholder="Opcional (por qué sobró o faltó, depósito hecho…)" /></label>
+      <p class="msg" id="cierreMsg" role="status"></p>
+      <div class="dlg__btns">
+        <button type="button" class="btn btn--linea" id="btnCancelarCierre">Cancelar</button>
+        <button type="submit" class="btn btn--negro">Cerrar caja</button>
       </div>
     </form>
   </dialog>

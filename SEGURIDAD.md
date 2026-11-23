@@ -101,3 +101,8 @@ Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usar
 - `clientes`, `abonos` y los saldos (`v_clientes_credito`) solo los ve el admin con MFA. La tienda no tiene acceso.
 - Una venta pasa a crédito solo con `poner_credito()`: revisa que el cliente esté activo y el **límite**, y calcula el vencimiento. Los abonos solo con `registrar_abono()`: no deja abonar más de lo que debe ni repetir un número de comprobante, ni de otro abono ni de otro pago. Anular y verificar abonos también va por funciones.
 - Las partes de un abono son pagos normales con `abono_id`, así que siguen todas las reglas de pagos: no se editan, se anulan con motivo y un verificado no se puede desmarcar.
+
+## Caja (v14)
+
+- Abrir, mover efectivo y cerrar la caja solo se hace con `abrir_caja`, `mover_caja` y `cerrar_caja` (admin con MFA). El panel solo puede **leer** `caja_turnos` y `caja_movimientos`.
+- Lo que debería haber lo calcula la base (`resumen_caja`) con los pagos del turno, no el navegador. Al cerrar, el resumen y el conteo quedan guardados y ya no cambian.

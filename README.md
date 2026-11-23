@@ -12,7 +12,7 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 
 ## 1. Supabase
 
-1. **SQL Editor → New query** → pegar `supabase/schema.sql` → **Run**. Se puede volver a correr (actualiza sin perder ventas ni productos).
+1. **SQL Editor → New query** → pegar `supabase/schema.sql` → **Run**. **Solo la primera vez** (con la base vacía): después de v4 ya no se vuelve a correr.
 2. **SQL Editor → New query** → pegar `supabase/v4_mejoras.sql` → **Run**. Agrega agotado, ofertas, envío, factura, avisos, Excel y reportes. **Siempre después de `schema.sql`** (si vuelve a correr `schema.sql`, corra también este).
 3. **SQL Editor → New query** → pegar `supabase/productos_iniciales.sql` → **Run**. Carga los productos con fotos de su Facebook y oculta los de ejemplo. (`precios_aproximados.sql` llena los precios que falten.)
 4. **SQL Editor → New query** → pegar `supabase/v4_datos.sql` → **Run**. Activa el envío con los barrios de Cariari y su precio aproximado (se cambian en Datos del negocio).
@@ -24,16 +24,17 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 10. **SQL Editor → New query** → pegar `supabase/v11_precios.sql` → **Run**. Activa *Ajuste de precios* (varios a la vez, con documento y observación) y el historial *Movimientos* de cada cambio de precio.
 11. **SQL Editor → New query** → pegar `supabase/v12_inventario.sql` → **Run**. Las ventas bajan la existencia, las anulaciones la devuelven, y activa la pestaña *Inventario* (entradas de mercadería y movimientos).
 12. **SQL Editor → New query** → pegar `supabase/v13_credito.sql` → **Run**. Activa la pestaña *Crédito* (clientes, límite, plazo, abonos y estado de cuenta) y la opción *Crédito* en las ventas.
-13. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
-14. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
-15. Registrar al administrador:
+13. **SQL Editor → New query** → pegar `supabase/v14_caja.sql` → **Run**. Activa abrir y cerrar caja (fondo, entradas y salidas de efectivo, conteo y cierre impreso) en la pestaña *Caja*.
+14. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
+15. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
+16. Registrar al administrador:
    ```sql
    insert into public.admins (user_id)
    select id from auth.users where email = 'correo-del-admin@ejemplo.com'
    on conflict do nothing;
    ```
-16. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
-17. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
+17. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
+18. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
 
 ## 2. Primer ingreso al panel
 
@@ -111,8 +112,21 @@ Tienda: Agregar productos al carrito  ─►  Enviar pedido (nombre + teléfono)
 | Categorizar | **Categorías** (los productos de Moriah traen la categoría puesta según el nombre) |
 | Ajuste de Precios + Movimientos | **Productos → Ajuste de precios**: se buscan productos, se pone el precio nuevo o un % para todos (redondea a ₡5), N.º de documento y observación. **Movimientos** muestra cada cambio de precio con el anterior, el nuevo y de dónde vino (ajuste, editar producto o importación) |
 | Entradas de mercadería / inventario | **Inventario**: entradas del proveedor (con costo y precio de venta opcionales) y **Movimientos** de existencia por producto y fechas |
+| Cierre de caja | **Caja**: abrir con fondo, entradas/salidas de efectivo, conteo por billetes y monedas, cierre impreso |
 | Crédito / cuentas por cobrar | **Crédito**: clientes con límite y plazo, ventas a crédito, abonos, estado de cuenta y cobro por WhatsApp |
 | Facturas Emitidas | **Comprobantes**: tiquetes, facturas y notas de crédito por fechas, total facturado e IVA, filtro *Con problemas*, enviar de nuevo/consultar, XML y **Descargar en Excel** |
+
+## Cierre de caja
+
+En la pestaña **Caja**, arriba:
+
+1. **Abrir caja** al empezar el día con el **fondo** (el efectivo con que arranca la gaveta). Sugiere lo que se contó en el último cierre.
+2. Durante el día, **Entrada o salida de efectivo** para lo que no es una venta: pago a un proveedor, retiro para depositar, cambio que se trae. Cada una con su motivo.
+3. El panel va mostrando las ventas del turno, lo recibido en efectivo, SINPE (y cuánto falta verificar), tarjeta y **el efectivo que debería haber**: fondo + efectivo + entradas − salidas. Los abonos de crédito en efectivo también cuentan.
+4. **Cerrar caja:** se cuentan los billetes y monedas (o se escribe el total) y el panel dice si **cuadra, sobra o falta**. Avisa si quedan SINPE sin verificar y recuerda comparar la tarjeta con el cierre del datáfono.
+5. Al cerrar, el resumen queda **congelado** (no cambia aunque después se registre algo) y se puede **imprimir** en el mismo papel de los recibos, con línea para firma. En **Cierres anteriores** están los últimos con su sobrante o faltante, y se pueden volver a imprimir.
+
+Solo puede haber una caja abierta. Abrir y cerrar necesita internet.
 
 ## Crédito a clientes
 
@@ -199,7 +213,7 @@ assets/productos/  fotos de productos (WebP 800×800)
 assets/vendor/     supabase-js 2.119.2 (local, sin CDN)
 assets/fonts/      Barlow / Barlow Condensed (OFL)
 assets/img/        logo, íconos de la app, og.jpg (imagen para compartir)
-supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql
+supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql, v14_caja.sql
 supabase/functions/facturar/   función que firma y envía los comprobantes a Hacienda
 herramientas/      prueba de facturación en la compu (prueba-hacienda.mjs)
 sw.js              copia de la página para abrirla sin internet

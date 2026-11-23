@@ -45,6 +45,7 @@
   let V11 = false;         // la base tiene historial de precios (v11_precios.sql)
   let V12 = false;         // la base lleva inventario (v12_inventario.sql)
   let V13 = false;         // la base tiene crédito a clientes (v13_credito.sql)
+  let V14 = false;         // la base tiene cierre de caja (v14_caja.sql)
   let clientes = [];       // clientes de crédito con su saldo (v_clientes_credito)
   const MAX_LISTA_PROD = 150;
   let V5 = true;           // la base tiene registrar_venta_sin_internet
@@ -247,7 +248,11 @@
       try { r13 = await db.from("clientes").select("id").limit(1); } catch (e) { r13 = { error: e }; }
       V13 = !r13.error;
       if (V13) cargarClientes();
+      let r14;
+      try { r14 = await db.from("caja_turnos").select("id").limit(1); } catch (e) { r14 = { error: e }; }
+      V14 = !r14.error;
     }
+    document.documentElement.classList.toggle("sin-v14", !V14);
     document.documentElement.classList.toggle("sin-v13", !V13);
     $("#tabCred").hidden = !V13;
     document.documentElement.classList.toggle("sin-v11", !V11);
@@ -2461,7 +2466,7 @@
     ["categorias", "id"], ["productos", "id"], ["ajustes", "clave"], ["pedidos", "id"], ["pedido_items", "id"],
     ["pagos", "id"], ["comprobantes_cliente", "id"], ["facturas", "id"], ["consultas", "id"], ["archivos_borrados", "ruta"], ["auditoria", "id"],
     ["fe_emisor", "id"], ["fe_consecutivos", "ambiente"], ["fe_documentos", "id"], ["precios_movimientos", "id"],
-    ["clientes", "id"], ["abonos", "id"],
+    ["clientes", "id"], ["abonos", "id"], ["caja_turnos", "id"], ["caja_movimientos", "id"],
     ["entradas", "id"], ["entrada_items", "id"], ["inventario_movimientos", "id"]
   ];
 
@@ -2791,6 +2796,7 @@
   }
 
   async function cargarCaja() {
+    cargarTurno();
     const dia = $("#cajaDia").value || hoyCR();
     $("#cajaDia").value = dia;
     $("#cajaDia").max = hoyCR();
@@ -2913,19 +2919,195 @@
   // espera a que cargue el estilo del papel y el logo antes de mandar a imprimir
   const esperar = (el, ok) => new Promise((res) => { if (ok) return res(); const t = setTimeout(res, 2500); el.addEventListener("load", () => { clearTimeout(t); res(); }, { once: true }); el.addEventListener("error", () => { clearTimeout(t); res(); }, { once: true }); });
 
-  $("#btnImprimir").addEventListener("click", async () => {
-    if (!V || !V.pedido) return;
-    if (V.dirty) { toast("Primero guarde los cambios de la venta.", true); return; }
+  // imprime cualquier recibo (venta o cierre de caja) en el papel escogido
+  async function imprimirHTML(html) {
     const papel = PAPELES[$("#papel").value] ? $("#papel").value : "80";
     const css = $("#papelCss"), cambia = css.getAttribute("href") !== PAPELES[papel];
     const listoCss = esperar(css, !cambia);
     if (cambia) css.setAttribute("href", PAPELES[papel]);
     const r = $("#recibo");
-    r.innerHTML = reciboHTML();
+    r.innerHTML = html;
     const img = r.querySelector("img");
-    await Promise.all([listoCss, esperar(img, img.complete)]);
+    await Promise.all([listoCss, img ? esperar(img, img.complete) : null]);
     window.print();
+  }
+  $("#btnImprimir").addEventListener("click", async () => {
+    if (!V || !V.pedido) return;
+    if (V.dirty) { toast("Primero guarde los cambios de la venta.", true); return; }
+    await imprimirHTML(reciboHTML());
   });
+
+  // ---------- turno y cierre de caja ----------
+  let TURNO = null, TURNO_RES = null, CIERRES = [];
+  const BILLETES = [20000, 10000, 5000, 2000, 1000, 500, 100, 50, 25, 10, 5];
+  const difTxt = (d) => (Math.abs(d) < 0.005 ? "cuadró" : d > 0 ? `sobró ${fmt(d)}` : `faltó ${fmt(-d)}`);
+  const horaCR = (iso) => fechaCR(iso, { timeStyle: "short" });
+  async function cargarTurno() {
+    if (!V14) return;
+    if (SIN_RED || !navigator.onLine) { $("#turnoEstado").textContent = "Sin internet: la caja se abre y se cierra con conexión."; $("#formAbrirCaja").hidden = true; $("#turnoAbierto").hidden = true; return; }
+    const { data, error } = await db.from("caja_turnos").select("*").order("abierta_at", { ascending: false }).limit(31);
+    if (error) return toast(errTxt(error), true);
+    TURNO = data.find((t) => t.estado === "abierta") || null;
+    CIERRES = data.filter((t) => t.estado === "cerrada");
+    const ult = CIERRES[0];
+    if (!TURNO) {
+      $("#turnoEstado").innerHTML = "La caja está <b>cerrada</b>." + (ult ? ` Último cierre: ${fechaCR(ult.cerrada_at, { dateStyle: "medium", timeStyle: "short" })} (${difTxt(Number(ult.diferencia))}).` : "");
+      $("#formAbrirCaja").hidden = false; $("#turnoAbierto").hidden = true;
+      $("#formAbrirCaja").fondo.placeholder = ult ? String(Math.round(Number(ult.efectivo_contado))) : "20000";
+    } else {
+      const hoy = String(TURNO.abierta_at).slice(0, 10) === new Date().toISOString().slice(0, 10);
+      $("#turnoEstado").innerHTML = `Abierta desde <b>${fechaCR(TURNO.abierta_at, hoy ? { timeStyle: "short" } : { dateStyle: "short", timeStyle: "short" })}</b> · fondo ${fmt(TURNO.fondo)}`;
+      $("#formAbrirCaja").hidden = true; $("#turnoAbierto").hidden = false;
+      const { data: r, error: e2 } = await db.rpc("resumen_caja", { p_turno: TURNO.id });
+      if (e2) return toast(errTxt(e2), true);
+      TURNO_RES = r; pintarTurno(r);
+    }
+    pintarCierres();
+  }
+  function pintarTurno(r) {
+    const v = r.ventas, g = r.pagos;
+    $("#turnoCifras").innerHTML = `
+      <div><dt>Ventas</dt><dd>${fmt(v.total)}<small>${v.cantidad} ${v.cantidad === 1 ? "venta" : "ventas"}${Number(v.a_credito) > 0 ? ` · ${fmt(v.a_credito)} a crédito` : ""}${v.anuladas ? ` · ${v.anuladas} ${v.anuladas === 1 ? "anulada" : "anuladas"}` : ""}</small></dd></div>
+      <div><dt>Efectivo recibido</dt><dd>${fmt(g.efectivo)}<small>${Number(g.abonos_credito) > 0 ? `incluye abonos de crédito` : "pagos en efectivo"}</small></dd></div>
+      <div><dt>SINPE Móvil</dt><dd>${fmt(g.sinpe)}<small>${Number(g.sinpe_sin_verificar) > 0 ? `<span class="vence-pronto">${fmt(g.sinpe_sin_verificar)} sin verificar</span>` : "todo verificado"}</small></dd></div>
+      <div><dt>Tarjeta${Number(g.transferencia) > 0 ? " / transferencia" : ""}</dt><dd>${fmt(g.tarjeta)}<small>${Number(g.transferencia) > 0 ? `transferencias ${fmt(g.transferencia)}` : "compare con el datáfono"}</small></dd></div>
+      <div><dt>Efectivo que debería haber</dt><dd class="cifra--clave">${fmt(r.efectivo_esperado)}<small>fondo ${fmt(r.fondo)} + efectivo ${fmt(g.efectivo)}${Number(r.entradas) ? ` + entradas ${fmt(r.entradas)}` : ""}${Number(r.salidas) ? ` − salidas ${fmt(r.salidas)}` : ""}</small></dd></div>`;
+    $("#turnoMovs").innerHTML = (r.movimientos || []).map((m) => `<li>${m.tipo === "salida" ? '<span class="inv-menos">Salida</span>' : '<span class="inv-mas">Entrada</span>'} ${fmt(m.monto)} · ${U.esc(m.motivo)} · ${horaCR(m.fecha)}</li>`).join("");
+  }
+  function pintarCierres() {
+    $("#listaCierres").innerHTML = CIERRES.map((t) => {
+      const d = Number(t.diferencia), r = t.resumen || {};
+      return `<li class="fila fila--pago">
+        <div class="fila__monto"><b>${fmt(t.efectivo_contado)}</b><small>contado</small></div>
+        <div class="fila__txt">
+          <b>${fechaCR(t.abierta_at, { weekday: "short", day: "numeric", month: "short", timeZone: TZ })} · ${horaCR(t.abierta_at)} a ${horaCR(t.cerrada_at)}</b>
+          <small>Ventas ${fmt(r.ventas?.total || 0)} · debía haber ${fmt(t.efectivo_esperado)}${t.nota ? " · " + U.esc(t.nota) : ""}</small>
+          <span class="etiquetas"><span class="etq ${Math.abs(d) < 0.005 ? "etq--pagado" : "etq--error"}">${difTxt(d).replace(/^./, (c) => c.toUpperCase())}</span></span>
+        </div>
+        <div class="fila__acc"><button type="button" class="btn btn--sm btn--linea" data-imprimir-cierre="${t.id}">Imprimir</button></div>
+      </li>`;
+    }).join("") || `<li class="vacio-adm">Todavía no hay cierres.</li>`;
+  }
+  $("#listaCierres").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-imprimir-cierre]"); if (!b) return;
+    const t = CIERRES.find((x) => x.id === Number(b.dataset.imprimirCierre)); if (t) imprimirHTML(cierreHTML(t));
+  });
+  $("#btnActualizarTurno").addEventListener("click", cargarTurno);
+  $("#formAbrirCaja").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, v = f.fondo.value === "" ? Number(f.fondo.placeholder) : Number(f.fondo.value);
+    if (!(v >= 0)) return toast("Escriba el fondo inicial.", true);
+    const { error } = await db.rpc("abrir_caja", { p_fondo: v });
+    if (error) return toast(errTxt(error), true);
+    f.reset(); toast(`Caja abierta con ${fmt(v)} de fondo`);
+    cargarTurno();
+  });
+  $("#formMovCaja").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#movCajaMsg");
+    const monto = Number(f.monto.value), motivo = f.motivo.value.trim();
+    msg.className = "msg msg--error";
+    if (!(monto > 0)) { msg.textContent = "Escriba el monto."; return; }
+    if (motivo.length < 3) { msg.textContent = "Escriba el motivo."; return; }
+    const { error } = await db.rpc("mover_caja", { p_tipo: f.tipo.value, p_monto: monto, p_motivo: motivo });
+    if (error) { msg.textContent = errTxt(error); return; }
+    f.reset(); msg.textContent = ""; $("#boxMovCaja").open = false;
+    toast("Movimiento de caja guardado");
+    cargarTurno();
+  });
+
+  // cierre: conteo de billetes y monedas
+  $("#conteoBilletes").innerHTML = BILLETES.map((b) => `<label>${b >= 1000 ? "Billete" : "Moneda"} ${fmt(b)}<input type="number" min="0" step="1" inputmode="numeric" data-billete="${b}" /></label>`).join("");
+  function totalConteo() { return $$("#conteoBilletes [data-billete]").reduce((t, i) => t + (Number(i.value) || 0) * Number(i.dataset.billete), 0); }
+  function pintarDiferencia() {
+    const f = $("#formCierre"), r = TURNO_RES;
+    if (!r || f.contado.value === "") { $("#cierreDif").innerHTML = ""; return; }
+    const d = Math.round((Number(f.contado.value) - Number(r.efectivo_esperado)) * 100) / 100;
+    $("#cierreDif").innerHTML = Math.abs(d) < 0.005 ? `<span class="dif--ok"><b>Cuadra</b></span>`
+      : `<span class="dif--mal">${d > 0 ? "Sobran" : "Faltan"} <b>${fmt(Math.abs(d))}</b></span>`;
+  }
+  $("#conteoBilletes").addEventListener("input", () => { $("#formCierre").contado.value = totalConteo() || ""; pintarDiferencia(); });
+  $("#formCierre").contado.addEventListener("input", pintarDiferencia);
+  $("#btnCerrarCaja").addEventListener("click", async () => {
+    await cargarTurno();
+    if (!TURNO || !TURNO_RES) return toast("No hay una caja abierta.", true);
+    const f = $("#formCierre"), r = TURNO_RES, g = r.pagos;
+    f.reset(); $("#cierreMsg").textContent = "";
+    $$("#conteoBilletes [data-billete]").forEach((i) => (i.value = ""));
+    const lin = (a, b) => `<div><span>${a}</span><b>${b}</b></div>`;
+    $("#cierreRes").innerHTML = lin("Fondo inicial", fmt(r.fondo)) + lin("Efectivo recibido", fmt(g.efectivo)) +
+      (Number(r.entradas) ? lin("Entradas de efectivo", fmt(r.entradas)) : "") + (Number(r.salidas) ? lin("Salidas de efectivo", "−" + fmt(r.salidas)) : "") +
+      lin("Efectivo que debería haber", fmt(r.efectivo_esperado)) +
+      (Number(g.sinpe_sin_verificar) > 0 ? `<div class="cred-alerta"><span>SINPE sin verificar</span><b>${fmt(g.sinpe_sin_verificar)}</b></div>` : "") +
+      (Number(g.tarjeta) > 0 ? lin("Tarjeta (compare con el cierre del datáfono)", fmt(g.tarjeta)) : "");
+    pintarDiferencia();
+    $("#dlgCierre").showModal();
+    $("#conteoBilletes input").focus();
+  });
+  $("#btnCancelarCierre").addEventListener("click", () => $("#dlgCierre").close());
+  $("#formCierre").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#cierreMsg");
+    if (f.contado.value === "" || !(Number(f.contado.value) >= 0)) { msg.className = "msg msg--error"; msg.textContent = "Escriba el efectivo contado."; return; }
+    const contado = Math.round(Number(f.contado.value) * 100) / 100;
+    const d = Math.round((contado - Number(TURNO_RES.efectivo_esperado)) * 100) / 100;
+    if (Math.abs(d) >= 0.005 && !confirm(`${d > 0 ? "Sobran" : "Faltan"} ${fmt(Math.abs(d))}. ¿Cerrar la caja así?`)) return;
+    if (Number(TURNO_RES.pagos.sinpe_sin_verificar) > 0 && !confirm(`Hay ${fmt(TURNO_RES.pagos.sinpe_sin_verificar)} en SINPE sin verificar. ¿Cerrar de todos modos?`)) return;
+    const conteo = {};
+    $$("#conteoBilletes [data-billete]").forEach((i) => { if (Number(i.value) > 0) conteo[i.dataset.billete] = Math.round(Number(i.value)); });
+    msg.className = "msg"; msg.textContent = "Cerrando…";
+    const { error } = await db.rpc("cerrar_caja", { p_turno: TURNO.id, p_contado: contado, p_conteo: Object.keys(conteo).length ? conteo : null, p_nota: f.nota.value.trim() || null });
+    if (error) { msg.className = "msg msg--error"; msg.textContent = errTxt(error); return; }
+    $("#dlgCierre").close();
+    toast(`Caja cerrada: ${difTxt(d)}`);
+    await cargarTurno();
+    const t = CIERRES[0];
+    if (t && confirm("¿Imprimir el cierre de caja?")) imprimirHTML(cierreHTML(t));
+  });
+  function cierreHTML(t) {
+    const r = t.resumen || {}, v = r.ventas || {}, g = r.pagos || {}, aj = ajustesCache;
+    const fila = (a, b) => `<div class="r-fila"><span>${a}</span><span>${b}</span></div>`;
+    const d = Number(t.diferencia);
+    const conteo = t.conteo ? BILLETES.filter((b) => t.conteo[b]).map((b) => fila(`${t.conteo[b]} × ${fmt(b)}`, fmt(t.conteo[b] * b))).join("") : "";
+    return `
+      <div class="r-cab">
+        <img class="r-logo" src="assets/img/marca.png" alt="" />
+        <b class="r-neg">${U.esc(C.NEGOCIO)}</b>
+        <span class="r-peq">${U.esc(aj.direccion || C.DIRECCION)}</span>
+      </div>
+      <div class="r-lin"></div>
+      <div class="r-tit">CIERRE DE CAJA</div>
+      ${fila("Abrió", fechaCR(t.abierta_at, { dateStyle: "short", timeStyle: "short" }))}
+      ${fila("Cerró", fechaCR(t.cerrada_at, { dateStyle: "short", timeStyle: "short" }))}
+      <div class="r-lin"></div>
+      <div class="r-tit">Ventas</div>
+      ${fila(`${v.cantidad || 0} ventas`, fmt(v.total))}
+      ${Number(v.a_credito) > 0 ? fila("De contado", fmt(v.de_contado)) + fila("A crédito", fmt(v.a_credito)) : ""}
+      ${v.anuladas ? fila("Anuladas", v.anuladas) : ""}
+      <div class="r-lin"></div>
+      <div class="r-tit">Pagos recibidos</div>
+      ${fila("Efectivo", fmt(g.efectivo))}
+      ${fila("SINPE Móvil", fmt(g.sinpe))}
+      ${Number(g.sinpe_sin_verificar) > 0 ? `<div class="r-peq">SINPE sin verificar: ${fmt(g.sinpe_sin_verificar)}</div>` : ""}
+      ${fila("Tarjeta", fmt(g.tarjeta))}
+      ${Number(g.transferencia) > 0 ? fila("Transferencia", fmt(g.transferencia)) : ""}
+      ${Number(g.abonos_credito) > 0 ? `<div class="r-peq">Incluye abonos de crédito: ${fmt(g.abonos_credito)}</div>` : ""}
+      <div class="r-lin"></div>
+      <div class="r-tit">Efectivo</div>
+      ${fila("Fondo inicial", fmt(r.fondo))}
+      ${fila("+ Efectivo recibido", fmt(g.efectivo))}
+      ${Number(r.entradas) ? fila("+ Entradas", fmt(r.entradas)) : ""}
+      ${Number(r.salidas) ? fila("− Salidas", fmt(r.salidas)) : ""}
+      ${(r.movimientos || []).map((m) => `<div class="r-peq">${m.tipo === "salida" ? "Salida" : "Entrada"} ${fmt(m.monto)}: ${U.esc(m.motivo)}</div>`).join("")}
+      <div class="r-fila r-total"><span>Debía haber</span><span>${fmt(t.efectivo_esperado)}</span></div>
+      ${fila("<b>Contado</b>", `<b>${fmt(t.efectivo_contado)}</b>`)}
+      ${conteo ? `<div class="r-peq">Conteo:</div>${conteo}` : ""}
+      ${fila(Math.abs(d) < 0.005 ? "Diferencia" : d > 0 ? "<b>Sobrante</b>" : "<b>Faltante</b>", Math.abs(d) < 0.005 ? "Cuadró" : `<b>${fmt(Math.abs(d))}</b>`)}
+      ${t.nota ? `<div class="r-lin"></div><div class="r-peq">Nota: ${U.esc(t.nota)}</div>` : ""}
+      <div class="r-lin"></div>
+      <div class="r-centro r-peq">Firma: ______________________</div>
+      <div class="r-centro r-peq">Impreso ${fechaCR(new Date().toISOString(), { dateStyle: "short", timeStyle: "short" })}</div>`;
+  }
 
   // CSV (con protección contra fórmulas maliciosas al abrir en Excel)
   function csvCelda(v) {
