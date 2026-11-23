@@ -121,6 +121,7 @@ La numeración de pruebas y la de producción van aparte, así que lo que se hiz
 - **Precios:** se toman como **precio final con IVA**, que es como se cobra en el almacén. Para el XML se separa la base y el impuesto. Los productos que digan *"+ IVA"* en *Se vende por* hay que corregirlos antes de facturar: ponerles el precio con IVA y quitar el "+ IVA".
 - **IVA de cada producto:** por defecto 13 %. Se cambia en **Productos → Editar → IVA del producto**, por ejemplo al 1 % de insumos agropecuarios. Si hay duda, que la confirme el contador.
 - **CABYS:** cada renglón tiene que venir de un producto con CABYS. Los del inventario de Moriah ya lo traen. Un *renglón libre* no se puede facturar, salvo el envío a domicilio.
+- **Ventas a crédito** (pestaña Crédito, v13): el comprobante sale con condición 02 y el plazo en días hasta el vencimiento de la venta, sin medio de pago.
 - **Medio de pago:** sale de los pagos anotados en la venta: SINPE Móvil 06, efectivo 01, tarjeta 02, transferencia 04. Si no hay pagos, va como efectivo.
 - **Si no llega a Hacienda** porque se cayó el internet o Hacienda no respondió, el comprobante queda **guardado y firmado** con su número. **Enviar de nuevo** manda exactamente el mismo XML, sin hacer otro.
 - **Si Hacienda lo rechaza,** el panel muestra el motivo. Se corrige el dato y se vuelve a emitir; sale con otro número.
@@ -130,7 +131,6 @@ La numeración de pruebas y la de producción van aparte, así que lo que se hiz
 ## Lo que todavía no hace
 
 - No envía el PDF y el XML al correo del cliente. Por ahora el cliente recibe el recibo impreso y el XML se descarga desde la venta.
-- **Ventas a crédito** (condición 02 con plazo): la función ya las acepta (`credito_dias`), pero el panel todavía no tiene la pantalla de crédito a clientes.
 - **Contingencia** (facturar sin internet con numeración de contingencia): por ahora, si no hay internet, se espera y se usa *Enviar de nuevo*.
 - **Aceptar o rechazar facturas de proveedores** (mensaje receptor).
 

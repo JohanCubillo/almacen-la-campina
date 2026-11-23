@@ -95,3 +95,9 @@ Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usar
 - La existencia la mueven **disparadores de la base**: las ventas, anulaciones y borrados, y las funciones `registrar_entrada` y `anular_entrada` (admin con MFA, máximo 500 productos por entrada). Cada cambio queda en `inventario_movimientos`, que el panel solo puede **leer**.
 - **Costo** y **existencia** no son públicos: la tienda no los puede pedir, porque v9 le dejó solo las columnas públicas de productos.
 - Al borrar una venta entera, la devolución se hace una sola vez, aunque los renglones se borren en cascada.
+
+## Crédito (v13)
+
+- `clientes`, `abonos` y los saldos (`v_clientes_credito`) solo los ve el admin con MFA. La tienda no tiene acceso.
+- Una venta pasa a crédito solo con `poner_credito()`: revisa que el cliente esté activo y el **límite**, y calcula el vencimiento. Los abonos solo con `registrar_abono()`: no deja abonar más de lo que debe ni repetir un número de comprobante, ni de otro abono ni de otro pago. Anular y verificar abonos también va por funciones.
+- Las partes de un abono son pagos normales con `abono_id`, así que siguen todas las reglas de pagos: no se editan, se anulan con motivo y un verificado no se puede desmarcar.

@@ -23,16 +23,17 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 9. **SQL Editor → New query** → pegar `supabase/v9_inventario.sql` → **Run**. Agrega código, existencia y CABYS a los productos y permite importar el inventario de Moriah.
 10. **SQL Editor → New query** → pegar `supabase/v11_precios.sql` → **Run**. Activa *Ajuste de precios* (varios a la vez, con documento y observación) y el historial *Movimientos* de cada cambio de precio.
 11. **SQL Editor → New query** → pegar `supabase/v12_inventario.sql` → **Run**. Las ventas bajan la existencia, las anulaciones la devuelven, y activa la pestaña *Inventario* (entradas de mercadería y movimientos).
-12. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
-13. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
-14. Registrar al administrador:
+12. **SQL Editor → New query** → pegar `supabase/v13_credito.sql` → **Run**. Activa la pestaña *Crédito* (clientes, límite, plazo, abonos y estado de cuenta) y la opción *Crédito* en las ventas.
+13. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
+14. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
+15. Registrar al administrador:
    ```sql
    insert into public.admins (user_id)
    select id from auth.users where email = 'correo-del-admin@ejemplo.com'
    on conflict do nothing;
    ```
-15. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
-16. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
+16. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
+17. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
 
 ## 2. Primer ingreso al panel
 
@@ -110,7 +111,18 @@ Tienda: Agregar productos al carrito  ─►  Enviar pedido (nombre + teléfono)
 | Categorizar | **Categorías** (los productos de Moriah traen la categoría puesta según el nombre) |
 | Ajuste de Precios + Movimientos | **Productos → Ajuste de precios**: se buscan productos, se pone el precio nuevo o un % para todos (redondea a ₡5), N.º de documento y observación. **Movimientos** muestra cada cambio de precio con el anterior, el nuevo y de dónde vino (ajuste, editar producto o importación) |
 | Entradas de mercadería / inventario | **Inventario**: entradas del proveedor (con costo y precio de venta opcionales) y **Movimientos** de existencia por producto y fechas |
+| Crédito / cuentas por cobrar | **Crédito**: clientes con límite y plazo, ventas a crédito, abonos, estado de cuenta y cobro por WhatsApp |
 | Facturas Emitidas | **Comprobantes**: tiquetes, facturas y notas de crédito por fechas, total facturado e IVA, filtro *Con problemas*, enviar de nuevo/consultar, XML y **Descargar en Excel** |
+
+## Crédito a clientes
+
+- **Crédito → Nuevo cliente:** nombre, teléfono, cédula (opcional), **límite** (vacío = sin límite) y **plazo** en días (30 si no se cambia). Se puede desactivar el crédito de un cliente sin borrarlo.
+- **Venta a crédito:** en la venta, **Crédito** y escoger el cliente (por nombre, cédula o teléfono). El panel muestra cuánto debe, el límite y cuándo vence esa venta (fecha de la venta + plazo). **No deja guardar si pasa el límite** y avisa si el cliente tiene algo vencido. La base lo revisa otra vez al guardar.
+- **Abonos:** en el cliente, **Registrar abono**. Se reparte solo: primero se paga la venta que vence primero. Cada parte queda como un pago de esa venta, así el saldo, la Caja SINPE y los reportes funcionan igual. Si es SINPE pide el comprobante y queda *Por verificar* hasta tocar **Ya lo vi en el banco**. Un abono mal registrado se **anula** y vuelve a quedar como deuda.
+- **Estado de cuenta:** ventas pendientes con saldo y vencimiento (en rojo las vencidas, en amarillo las que vencen en 5 días o menos). **Cobrar por WhatsApp** manda el saldo, el detalle y el número SINPE.
+- La pestaña **Crédito** muestra lo que hay por cobrar, lo vencido y cuántos clientes están atrasados (número en la pestaña).
+- Con la facturación electrónica encendida, el tiquete o la factura de una venta a crédito sale con condición *crédito* y el plazo hasta el vencimiento.
+- Las ventas a crédito necesitan internet. Sin internet se puede vender de contado como siempre.
 
 ## Inventario (existencias)
 
@@ -187,7 +199,7 @@ assets/productos/  fotos de productos (WebP 800×800)
 assets/vendor/     supabase-js 2.119.2 (local, sin CDN)
 assets/fonts/      Barlow / Barlow Condensed (OFL)
 assets/img/        logo, íconos de la app, og.jpg (imagen para compartir)
-supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql
+supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql
 supabase/functions/facturar/   función que firma y envía los comprobantes a Hacienda
 herramientas/      prueba de facturación en la compu (prueba-hacienda.mjs)
 sw.js              copia de la página para abrirla sin internet

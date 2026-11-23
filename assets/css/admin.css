@@ -423,3 +423,13 @@ html:not(.panel-ok) body { visibility: hidden; }
 .stock-nota:empty { display: none; }
 .stock-bajo { color: #8a5a00; font-weight: 600; }
 .stock-sin { color: var(--peligro); font-weight: 700; }
+.sin-v13 .v13 { display: none !important; }
+.venta__credito { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin: .25rem 0 .75rem; }
+.venta__credito .buscar-item { flex: 1 1 18rem; }
+.venta__credinfo { flex-basis: 100%; margin: 0; font-size: .92rem; }
+.venta__credinfo b { font-variant-numeric: tabular-nums; }
+.cred-alerta { color: var(--peligro); font-weight: 600; }
+.cuenta__cab { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.vence-tarde { color: var(--peligro); font-weight: 600; }
+.vence-pronto { color: #8a5a00; font-weight: 600; }
+#cliVentas tr.pagada td { color: var(--gris); }

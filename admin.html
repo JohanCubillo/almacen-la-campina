@@ -102,6 +102,7 @@
       <button role="tab" class="pestana" aria-selected="true" aria-controls="tVen" id="tabVen">Pedidos y ventas <span class="badge" id="badgeVen" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tPreg" id="tabPreg" hidden>Preguntas <span class="badge" id="badgePreg" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCaja" id="tabCaja">Caja SINPE <span class="badge badge--amarillo" id="badgeCaja" hidden></span></button>
+      <button role="tab" class="pestana" aria-selected="false" aria-controls="tCred" id="tabCred" hidden>Crédito <span class="badge badge--amarillo" id="badgeCred" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tComp" id="tabComp" hidden>Comprobantes</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tRep" id="tabRep">Reportes</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tProd" id="tabProd">Productos</button>
@@ -160,6 +161,25 @@
         <ul id="listaPorVerificar" class="filas"></ul>
         <h3 class="subt">Pagos del día</h3>
         <ul id="listaPagosDia" class="filas"></ul>
+      </section>
+
+      <!-- CRÉDITO -->
+      <section id="tCred" role="tabpanel" aria-labelledby="tabCred" hidden>
+        <div class="barra-herr">
+          <h2>Crédito a clientes</h2>
+          <div class="barra-herr__der">
+            <input id="credBuscar" type="search" placeholder="Nombre, cédula o teléfono…" maxlength="60" aria-label="Buscar cliente" />
+            <button type="button" class="btn btn--negro btn--sm" id="btnNuevoCliente">Nuevo cliente</button>
+          </div>
+        </div>
+        <div class="segmentos segmentos--sm" role="radiogroup" aria-label="Filtrar clientes" id="credFiltro">
+          <button type="button" role="radio" aria-checked="true" data-cf="saldo">Con saldo</button>
+          <button type="button" role="radio" aria-checked="false" data-cf="vencidos">Vencidos</button>
+          <button type="button" role="radio" aria-checked="false" data-cf="todos">Todos</button>
+          <button type="button" role="radio" aria-checked="false" data-cf="inactivos">Desactivados</button>
+        </div>
+        <dl class="cifras" id="credCifras"></dl>
+        <ul id="listaClientes" class="filas"></ul>
       </section>
 
       <!-- COMPROBANTES EMITIDOS -->
@@ -519,6 +539,94 @@
     </form>
   </dialog>
 
+  <!-- Cliente de crédito -->
+  <dialog id="dlgCliente" class="dlg dlg--ancho" aria-labelledby="cliTitulo">
+    <div class="dlg__form">
+      <div class="dlg__cab">
+        <h2 id="cliTitulo">Cliente de crédito</h2>
+        <button type="button" class="cerrar-x" data-cerrar-cliente aria-label="Cerrar">✕</button>
+      </div>
+      <dl class="cifras cifras--caja" id="cliCifras" hidden></dl>
+      <details id="boxCliDatos" class="tarjeta registrar">
+        <summary>Datos del cliente</summary>
+        <form id="formCliente" class="registrar__form" novalidate>
+          <input type="hidden" name="id" />
+          <div class="dos">
+            <label>Nombre o razón social<input name="nombre" maxlength="100" required /></label>
+            <label>Teléfono<input name="telefono" inputmode="tel" maxlength="20" /></label>
+          </div>
+          <div class="tres">
+            <label>Identificación
+              <select name="tipo_id">
+                <option value="">Sin cédula</option>
+                <option value="fisica">Cédula física</option>
+                <option value="juridica">Cédula jurídica</option>
+                <option value="dimex">DIMEX</option>
+                <option value="nite">NITE</option>
+              </select></label>
+            <label>Número<input name="identificacion" inputmode="numeric" maxlength="12" autocomplete="off" /></label>
+            <label>Correo<input name="correo" type="email" maxlength="120" /></label>
+          </div>
+          <div class="tres">
+            <label>Límite de crédito ₡<input name="limite" type="number" min="0" step="1000" placeholder="Vacío = sin límite" /></label>
+            <label>Plazo (días)<input name="plazo_dias" type="number" min="1" max="365" step="1" /></label>
+            <label class="check"><input type="checkbox" name="activo" checked /> Crédito activo</label>
+          </div>
+          <label>Nota<input name="nota" maxlength="500" placeholder="Opcional" /></label>
+          <p class="msg" id="cliMsg" role="status"></p>
+          <div class="form-linea__btns"><button type="submit" class="btn btn--negro">Guardar cliente</button></div>
+        </form>
+      </details>
+
+      <div id="boxCliCuenta">
+        <div class="cuenta__cab">
+          <h3 class="subt">Estado de cuenta</h3>
+          <label class="check"><input type="checkbox" id="cliSoloSaldo" checked /> Solo lo pendiente</label>
+        </div>
+        <div class="items-wrap">
+          <table class="items">
+            <thead><tr><th>Fecha</th><th>Venta</th><th class="num">Total</th><th class="num">Abonado</th><th class="num">Saldo</th><th>Vence</th></tr></thead>
+            <tbody id="cliVentas"></tbody>
+          </table>
+        </div>
+
+        <details class="tarjeta registrar" id="boxAbono">
+          <summary>Registrar abono</summary>
+          <form id="formAbono" class="registrar__form" novalidate>
+            <div class="tres">
+              <label>Monto ₡<input name="monto" type="number" min="1" step="0.01" inputmode="decimal" required /></label>
+              <label>Método
+                <select name="metodo">
+                  <option value="efectivo">Efectivo</option>
+                  <option value="sinpe">SINPE Móvil</option>
+                  <option value="transferencia">Transferencia</option>
+                  <option value="tarjeta">Tarjeta</option>
+                </select></label>
+              <label>N.º de comprobante<input name="referencia" maxlength="40" autocomplete="off" /></label>
+            </div>
+            <div class="dos">
+              <label>Fecha y hora<input name="fecha" type="datetime-local" /></label>
+              <label>Nota<input name="nota" maxlength="300" placeholder="Opcional" /></label>
+            </div>
+            <label class="check"><input type="checkbox" name="verificado" checked /> Ya está recibido (el efectivo en caja o el SINPE visto en el banco)</label>
+            <p class="ayuda">El abono se reparte solo: primero se paga la venta que vence primero.</p>
+            <p class="msg" id="abonoMsg" role="status"></p>
+            <div class="form-linea__btns">
+              <button type="button" class="btn btn--linea btn--sm" id="btnAbonoTodo">Todo lo que debe</button>
+              <button type="submit" class="btn btn--negro">Registrar abono</button>
+            </div>
+          </form>
+        </details>
+
+        <h3 class="subt">Abonos</h3>
+        <ul class="pagos" id="cliAbonos"></ul>
+        <div class="form-linea__btns">
+          <button type="button" class="btn btn--linea btn--sm" id="btnCobrarCredito">Cobrar por WhatsApp</button>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Entrada de mercadería -->
   <dialog id="dlgEntrada" class="dlg dlg--ancho" aria-labelledby="entTitulo">
     <form id="formEntrada" class="dlg__form" novalidate>
@@ -643,6 +751,18 @@
         <label>Teléfono<input name="cliente_telefono" inputmode="tel" maxlength="20" /></label>
         <label class="crece">Nota<input name="nota" maxlength="500" /></label>
       </form>
+
+      <div class="venta__credito v13" id="boxCondicion" hidden>
+        <div class="segmentos segmentos--sm" role="radiogroup" aria-label="Condición de pago" id="ventaCondicion">
+          <button type="button" role="radio" aria-checked="true" data-cond="contado">Contado</button>
+          <button type="button" role="radio" aria-checked="false" data-cond="credito">Crédito</button>
+        </div>
+        <div class="buscar-item" id="boxCliCredito" hidden>
+          <input id="cliCreditoQ" type="search" placeholder="Cliente de crédito: nombre, cédula o teléfono…" maxlength="60" autocomplete="off" aria-label="Cliente de crédito" />
+          <ul id="cliCreditoRes" class="buscar-item__res" hidden></ul>
+        </div>
+        <p class="venta__credinfo" id="cliCreditoInfo" hidden></p>
+      </div>
 
       <h3 class="subt">Productos</h3>
       <div class="items-wrap">

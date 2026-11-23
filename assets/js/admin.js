@@ -44,6 +44,8 @@
   let FE = null;           // datos del emisor (fe_emisor)
   let V11 = false;         // la base tiene historial de precios (v11_precios.sql)
   let V12 = false;         // la base lleva inventario (v12_inventario.sql)
+  let V13 = false;         // la base tiene crédito a clientes (v13_credito.sql)
+  let clientes = [];       // clientes de crédito con su saldo (v_clientes_credito)
   const MAX_LISTA_PROD = 150;
   let V5 = true;           // la base tiene registrar_venta_sin_internet
 
@@ -241,7 +243,13 @@
       let r12;
       try { r12 = await db.from("entradas").select("id").limit(1); } catch (e) { r12 = { error: e }; }
       V12 = !r12.error;
+      let r13;
+      try { r13 = await db.from("clientes").select("id").limit(1); } catch (e) { r13 = { error: e }; }
+      V13 = !r13.error;
+      if (V13) cargarClientes();
     }
+    document.documentElement.classList.toggle("sin-v13", !V13);
+    $("#tabCred").hidden = !V13;
     document.documentElement.classList.toggle("sin-v11", !V11);
     document.documentElement.classList.toggle("sin-v12", !V12);
     $("#tabInv").hidden = !V12;
@@ -313,6 +321,7 @@
     if (tab.id === "tabRep") cargarReportes();
     if (tab.id === "tabComp") cargarComprobantes();
     if (tab.id === "tabInv") cargarInventario();
+    if (tab.id === "tabCred") cargarClientes().then(pintarClientes);
   }));
   $(".pestanas").addEventListener("keydown", (e) => {
     if (!["ArrowRight", "ArrowLeft"].includes(e.key)) return;
@@ -729,7 +738,7 @@
   // ---------- lista de ventas ----------
   async function cargarVentas() {
     const { data, error, deCopia } = await consulta("ventas", db.from("pedidos")
-      .select("id,codigo,origen,revisado,cliente_nombre,cliente_telefono,estado,estado_pago,total,pagado_registrado,pagado_verificado,created_at")
+      .select("id,codigo,origen,revisado,cliente_nombre,cliente_telefono,estado,estado_pago,total,pagado_registrado,pagado_verificado,created_at" + (V13 ? ",credito,vence" : ""))
       .order("created_at", { ascending: false }).limit(500));
     if (error) { pintarVentas(); return toast(errTxt(error), true); }
     ventas = data;
@@ -800,6 +809,8 @@
             ${compNuevos.has(v.id) ? '<span class="etq etq--por_verificar">Comprobante nuevo</span>' : ""}
             ${v.estado === "anulada" ? '<span class="etq">Anulada</span>' : `<span class="etq etq--${v.estado_pago}">${ETQ_PAGO[v.estado_pago]}</span>`}
             ${v.estado === "entregada" ? '<span class="etq etq--ok">Entregada</span>' : ""}
+            ${v.credito ? `<span class="etq">Crédito${v.vence ? " · vence " + U.esc(fechaCorta(v.vence)) : ""}</span>` : ""}
+            ${v.credito && v.estado !== "anulada" && v.total - v.pagado_registrado > 0 && v.vence < hoyCR() ? '<span class="etq etq--error">Vencida</span>' : ""}
           </span>
         </div>
         <div class="fila__monto"><b>${fmt(v.total)}</b>${v.estado !== "anulada" && saldo > 0 ? `<small>Falta ${fmt(saldo)}</small>` : ""}</div>
@@ -824,7 +835,7 @@
 
   // ---------- abrir / borrador ----------
   function abrirBorrador(b) {
-    V = { pedido: null, items: b.items, pagos: [], comps: [], dirty: true, uuid: crypto.randomUUID() };
+    V = { pedido: null, items: b.items, pagos: [], comps: [], dirty: true, uuid: crypto.randomUUID(), cond: "contado", credCli: null };
     const f = $("#formVenta");
     f.cliente_nombre.value = b.cliente_nombre || "";
     f.cliente_telefono.value = b.cliente_telefono || "";
@@ -865,6 +876,9 @@
     let fe = { data: [] };
     if (V10 && FE?.activo) { try { fe = await db.from("v_fe_documentos").select("*").eq("pedido_id", id).order("id"); } catch { fe = { data: [] }; } }
     V = { pedido: p.data, items: it.data.map((i) => ({ ...i })), pagos: pg.data, comps: cc.data, factura: fac.data || null, fe: fe.data || [], dirty: false };
+    V.cond = p.data.credito ? "credito" : "contado";
+    V.credCli = null;
+    if (V13 && p.data.cliente_id) { if (!clientes.length) await cargarClientes(); V.credCli = clientes.find((c) => c.id === p.data.cliente_id) || null; }
     // lo que esta venta ya descontó del inventario (cuenta como disponible al editarla)
     V.orig = new Map();
     if (p.data.estado !== "anulada") for (const i of it.data) if (i.producto_id) V.orig.set(i.producto_id, (V.orig.get(i.producto_id) || 0) + Number(i.cantidad));
@@ -999,6 +1013,7 @@
     actualizarTotal();
     $("#itemsAcc").hidden = !edit;
     $("#itemsBloqueo").hidden = edit;
+    pintarCondicion();
 
     const cerrada = p && p.estado !== "abierta";
     $("#btnGuardarVenta").hidden = !!(p && p.estado === "anulada") || !!V.soloLectura;
@@ -1230,6 +1245,8 @@
     if (items.some((i) => i.precio_unit === 0) && !confirm("Hay renglones con precio ₡0. ¿Guardar así?")) return false;
 
     if (V.soloLectura) return false;
+    const errCredito = revisarCredito(items);
+    if (errCredito) { msg.textContent = errCredito; return false; }
     if (V12 && !SIN_RED && navigator.onLine) await refrescarExistencias(items.map((i) => i.producto_id));
     const pasados = [...new Set(items.filter((i) => i.producto_id).map((i) => i.producto_id))]
       .filter((id) => usadoEnVenta(id) > disponible(id));
@@ -1255,7 +1272,7 @@
         if (r.error && U.esErrorRed(r.error)) return guardarLocal(d, items);
         if (r.error && r.error.code === "PGRST202") V5 = false;        // base sin v5: se guarda como antes
         else if (r.error) throw r.error;
-        else { toast("Venta guardada"); await abrirVenta(r.data.id); cargarVentas(); return true; }
+        else { await despuesDeGuardar(r.data.id, null); return true; }
       }
       let id = V.pedido?.id;
       if (!id) {
@@ -1271,10 +1288,7 @@
         const ins = await db.from("pedido_items").insert(items.map((i) => ({ ...i, pedido_id: id })));
         if (ins.error) throw ins.error;
       }
-      toast("Venta guardada");
-      refrescarExistencias(V.items.map((i) => i.producto_id));
-      await abrirVenta(id);
-      cargarVentas();
+      await despuesDeGuardar(id, V.pedido);
       return true;
     } catch (err) {
       msg.textContent = errTxt(err);
@@ -1374,6 +1388,340 @@
     await abrirVenta(V.pedido.id);
   });
 
+  // ---------- crédito dentro de la venta ----------
+  const fechaCorta = (d) => new Date(String(d).slice(0, 10) + "T12:00:00-06:00").toLocaleDateString("es-CR", { day: "numeric", month: "short", timeZone: TZ });
+  const diasEntre = (a, b) => Math.round((new Date(b + "T12:00:00-06:00") - new Date(a + "T12:00:00-06:00")) / 864e5);
+  const sumarDias = (d, n) => new Date(new Date(d + "T12:00:00-06:00").getTime() + n * 864e5).toISOString().slice(0, 10);
+  // lo que el cliente debe sin contar esta venta
+  function deudaSinEsta(c) {
+    const p = V.pedido;
+    const propia = p && p.credito && p.cliente_id === c.id && p.estado !== "anulada" ? Math.max(0, p.total - p.pagado_registrado) : 0;
+    return Math.max(0, Number(c.saldo) - propia);
+  }
+  const totalPendienteVenta = () => Math.max(0, actualizarTotal() - (V.pedido ? Number(V.pedido.pagado_registrado) : 0));
+  function revisarCredito() {
+    if (!V13 || V.cond !== "credito") return "";
+    if (V.local || SIN_RED || !navigator.onLine) return "Las ventas a crédito necesitan internet.";
+    const c = V.credCli;
+    if (!c) return "Escoja el cliente de crédito (o cambie a Contado).";
+    if (!c.activo) return `El crédito de ${c.nombre} está desactivado.`;
+    if (c.limite != null && deudaSinEsta(c) + totalPendienteVenta() > Number(c.limite))
+      return `Pasa el límite de crédito de ${c.nombre}: ya debe ${fmt(deudaSinEsta(c))}, esta venta es de ${fmt(totalPendienteVenta())} y el límite es ${fmt(c.limite)}.`;
+    return "";
+  }
+  async function despuesDeGuardar(id, antes) {
+    let aviso = "";
+    if (V13) {
+      const quiere = V.cond === "credito" && V.credCli ? V.credCli.id : null;
+      const tenia = antes?.credito ? antes.cliente_id : null;
+      if (quiere || tenia) {
+        const { error } = await db.rpc("poner_credito", { p_pedido: id, p_cliente: quiere });
+        if (error) aviso = `La venta se guardó, pero ${quiere ? "no quedó a crédito" : "sigue a crédito"}: ${errTxt(error)}`;
+        cargarClientes();
+      }
+    }
+    toast(aviso || "Venta guardada", !!aviso);
+    refrescarExistencias(V.items.map((i) => i.producto_id));
+    await abrirVenta(id);
+    if (aviso) $("#ventaMsg").textContent = aviso;
+    cargarVentas();
+  }
+  function pintarCondicion() {
+    const p = V.pedido, edit = itemsEditables() && !V.local;
+    const online = !SIN_RED && navigator.onLine;
+    const ver = V13 && !V.local && !V.soloLectura && (p ? p.estado !== "anulada" || p.credito : true) && (online || p?.credito);
+    $("#boxCondicion").hidden = !ver;
+    if (!ver) return;
+    const cred = V.cond === "credito";
+    $$("#ventaCondicion [data-cond]").forEach((b) => { b.setAttribute("aria-checked", String(b.dataset.cond === V.cond)); b.disabled = !edit || !online; });
+    $("#boxCliCredito").hidden = !cred || !edit || !online;
+    const info = $("#cliCreditoInfo");
+    info.hidden = !cred;
+    if (!cred) return;
+    const c = V.credCli;
+    if (!c) { info.innerHTML = "Escoja el cliente de crédito."; return; }
+    const debe = deudaSinEsta(c), esta = totalPendienteVenta();
+    const desde = p ? String(p.created_at).slice(0, 10) : hoyCR();
+    const vence = p?.credito && p.vence ? p.vence : sumarDias(desde, c.plazo_dias);
+    const partes = [`<b>${U.esc(c.nombre)}</b>`, `debe ${fmt(debe)} sin esta venta`];
+    if (c.limite != null) partes.push(`límite ${fmt(c.limite)}`);
+    partes.push(`esta venta vence el ${U.esc(fechaCorta(vence))} (${c.plazo_dias} días)`);
+    let alerta = "";
+    if (!c.activo) alerta = "El crédito de este cliente está desactivado.";
+    else if (c.limite != null && debe + esta > Number(c.limite)) alerta = `Con esta venta pasa el límite por ${fmt(debe + esta - c.limite)}.`;
+    if (Number(c.vencido) > 0) alerta += `${alerta ? " " : ""}Tiene ${fmt(c.vencido)} vencido.`;
+    info.innerHTML = partes.join(" · ") + (alerta ? ` <span class="cred-alerta">${U.esc(alerta)}</span>` : "");
+  }
+  $("#ventaCondicion").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-cond]"); if (!b || b.disabled) return;
+    if (V.cond === b.dataset.cond) return;
+    V.cond = b.dataset.cond; V.dirty = true;
+    $("#ventaMsg").textContent = "";
+    pintarCondicion();
+    if (V.cond === "credito" && !V.credCli) $("#cliCreditoQ").focus();
+  });
+  // al cambiar cantidades o productos, el aviso de límite se actualiza
+  $("#itemsVenta").addEventListener("input", () => { if (V?.cond === "credito") pintarCondicion(); });
+
+  // buscador de clientes de crédito
+  function buscadorClientes(input, res, alElegir) {
+    const caja = input.closest(".buscar-item");
+    function buscar() {
+      const q = norm(input.value), qd = U.soloDigitos(input.value);
+      if (q.length < 2) { res.hidden = true; res.innerHTML = ""; return; }
+      const lista = clientes.filter((c) => norm(c.nombre).includes(q) || (qd.length >= 4 && (U.soloDigitos(c.identificacion).includes(qd) || U.soloDigitos(c.telefono).includes(qd)))).slice(0, 10);
+      res.innerHTML = lista.map((c) => `<li><button type="button" data-cli-id="${c.id}">
+          <span>${U.esc(c.nombre)}${c.activo ? "" : " <small>· desactivado</small>"}</span>
+          <span class="buscar-item__det">debe ${fmt(c.saldo)}${Number(c.vencido) > 0 ? ` · vencido ${fmt(c.vencido)}` : ""}</span>
+        </button></li>`).join("") || `<li class="buscar-item__nada">No hay un cliente de crédito con ese nombre. Créelo en la pestaña Crédito.</li>`;
+      res.hidden = false;
+    }
+    input.addEventListener("input", buscar);
+    input.addEventListener("focus", () => { if (input.value.trim().length >= 2) buscar(); });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); const b = res.querySelector("button"); if (b) b.click(); }
+      if (e.key === "Escape" && !res.hidden) { e.preventDefault(); e.stopPropagation(); res.hidden = true; }
+    });
+    caja.addEventListener("focusout", (e) => {
+      if (!e.relatedTarget || !caja.contains(e.relatedTarget)) setTimeout(() => { if (!caja.contains(document.activeElement)) res.hidden = true; }, 150);
+    });
+    res.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-cli-id]"); if (!b) return;
+      const c = clientes.find((x) => x.id == b.dataset.cliId); if (!c) return;
+      input.value = ""; res.hidden = true;
+      alElegir(c);
+    });
+  }
+  buscadorClientes($("#cliCreditoQ"), $("#cliCreditoRes"), (c) => {
+    V.credCli = c; V.dirty = true;
+    $("#ventaMsg").textContent = "";
+    const f = $("#formVenta");
+    f.cliente_nombre.value = c.nombre.slice(0, 80);
+    if (c.telefono) f.cliente_telefono.value = c.telefono;
+    pintarCondicion();
+  });
+
+  // ---------- pestaña Crédito: clientes, estado de cuenta y abonos ----------
+  let credFiltro = "saldo", CLI = null;
+  async function cargarClientes() {
+    if (!V13) return clientes;
+    const { data, error } = await db.from("v_clientes_credito").select("*").order("nombre");
+    if (error) { toast(errTxt(error), true); return clientes; }
+    clientes = data || [];
+    const vencidos = clientes.filter((c) => Number(c.vencido) > 0).length;
+    $("#badgeCred").hidden = !vencidos; $("#badgeCred").textContent = vencidos;
+    return clientes;
+  }
+  function pintarClientes() {
+    const q = norm($("#credBuscar").value), qd = U.soloDigitos($("#credBuscar").value);
+    const pasa = { saldo: (c) => c.activo && Number(c.saldo) > 0, vencidos: (c) => Number(c.vencido) > 0, todos: (c) => c.activo, inactivos: (c) => !c.activo }[credFiltro];
+    const lista = clientes.filter(pasa).filter((c) => !q || norm(c.nombre).includes(q) || (qd.length >= 4 && (U.soloDigitos(c.identificacion).includes(qd) || U.soloDigitos(c.telefono).includes(qd))))
+      .sort((a, b) => Number(b.vencido) - Number(a.vencido) || Number(b.saldo) - Number(a.saldo) || a.nombre.localeCompare(b.nombre, "es"));
+    const suma = (k) => clientes.reduce((t, c) => t + Number(c[k] || 0), 0);
+    const conSaldo = clientes.filter((c) => Number(c.saldo) > 0).length, vencidos = clientes.filter((c) => Number(c.vencido) > 0).length;
+    $("#credCifras").innerHTML = `
+      <div><dt>Por cobrar</dt><dd>${fmt(suma("saldo"))}<small>${conSaldo} ${conSaldo === 1 ? "cliente" : "clientes"} con saldo</small></dd></div>
+      <div><dt>Vencido</dt><dd>${fmt(suma("vencido"))}<small>${vencidos} ${vencidos === 1 ? "cliente" : "clientes"}</small></dd></div>
+      <div><dt>Clientes de crédito</dt><dd>${clientes.filter((c) => c.activo).length}<small>activos</small></dd></div>`;
+    $("#listaClientes").innerHTML = lista.map((c) => `<li class="fila fila--pago ${c.activo ? "" : "fila--oculta"}">
+        <div class="fila__monto"><b>${fmt(c.saldo)}</b><small>${Number(c.vencido) > 0 ? `<span class="vence-tarde">${fmt(c.vencido)} vencido</span>` : c.abiertas ? `${c.abiertas} ${c.abiertas === 1 ? "venta" : "ventas"}` : "al día"}</small></div>
+        <div class="fila__txt">
+          <b>${U.esc(c.nombre)}</b>
+          <small>${[c.telefono, c.identificacion, c.limite != null ? `límite ${fmt(c.limite)} · disponible ${fmt(c.disponible)}` : "sin límite", `${c.plazo_dias} días`].filter(Boolean).map(U.esc).join(" · ")}</small>
+          ${c.vence_primero && Number(c.saldo) > 0 ? `<span class="etiquetas"><span class="etq ${c.vence_primero < hoyCR() ? "etq--error" : ""}">${c.vence_primero < hoyCR() ? `Vencida desde ${U.esc(fechaCorta(c.vence_primero))}` : `Próximo vencimiento ${U.esc(fechaCorta(c.vence_primero))}`}</span></span>` : ""}
+        </div>
+        <div class="fila__acc"><button type="button" class="btn btn--sm btn--linea" data-ver-cliente="${c.id}">Abrir</button></div>
+      </li>`).join("") || `<li class="vacio-adm">${clientes.length ? "Ningún cliente en este grupo." : "Todavía no hay clientes de crédito. Toque <b>Nuevo cliente</b>."}</li>`;
+  }
+  $("#credBuscar").addEventListener("input", pintarClientes);
+  $("#credFiltro").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-cf]"); if (!b) return;
+    credFiltro = b.dataset.cf;
+    $$("#credFiltro [data-cf]").forEach((x) => x.setAttribute("aria-checked", String(x === b)));
+    pintarClientes();
+  });
+  $("#listaClientes").addEventListener("click", (e) => { const b = e.target.closest("[data-ver-cliente]"); if (b) abrirCliente(Number(b.dataset.verCliente)); });
+  $("#btnNuevoCliente").addEventListener("click", () => abrirCliente(null));
+  $$("[data-cerrar-cliente]").forEach((b) => b.addEventListener("click", () => $("#dlgCliente").close()));
+
+  let cliVentas = [], cliAbonos = [];
+  async function abrirCliente(id) {
+    CLI = id ? clientes.find((c) => c.id === id) : null;
+    const f = $("#formCliente");
+    f.reset(); $("#cliMsg").textContent = ""; $("#cliMsg").className = "msg";
+    f.id.value = CLI?.id || "";
+    ["nombre", "tipo_id", "identificacion", "telefono", "correo", "limite", "nota"].forEach((k) => (f.elements[k].value = CLI?.[k] ?? ""));
+    f.plazo_dias.value = CLI?.plazo_dias ?? 30;
+    f.activo.checked = CLI ? !!CLI.activo : true;
+    $("#cliTitulo").textContent = CLI ? CLI.nombre : "Nuevo cliente de crédito";
+    $("#boxCliDatos").open = !CLI;
+    $("#boxCliCuenta").hidden = !CLI;
+    $("#cliCifras").hidden = !CLI;
+    $("#boxAbono").open = false;
+    if (!$("#dlgCliente").open) $("#dlgCliente").showModal();
+    if (!CLI) { f.nombre.focus(); return; }
+    pintarCifrasCliente();
+    await cargarCuentaCliente();
+  }
+  function pintarCifrasCliente() {
+    const c = CLI;
+    $("#cliCifras").innerHTML = `
+      <div><dt>Debe</dt><dd>${fmt(c.saldo)}<small>${c.abiertas} ${c.abiertas === 1 ? "venta pendiente" : "ventas pendientes"}</small></dd></div>
+      <div><dt>Vencido</dt><dd class="${Number(c.vencido) > 0 ? "vence-tarde" : ""}">${fmt(c.vencido)}</dd></div>
+      <div><dt>Disponible</dt><dd>${c.limite != null ? fmt(c.disponible) : "Sin límite"}<small>${c.limite != null ? `de ${fmt(c.limite)}` : ""}</small></dd></div>
+      <div><dt>Plazo</dt><dd>${c.plazo_dias} días<small>${c.activo ? "crédito activo" : "crédito desactivado"}</small></dd></div>`;
+  }
+  async function cargarCuentaCliente() {
+    const [v, a] = await Promise.all([
+      db.from("pedidos").select("id,codigo,created_at,total,pagado_registrado,vence,estado").eq("cliente_id", CLI.id).eq("credito", true).neq("estado", "anulada").order("created_at", { ascending: false }).limit(300),
+      db.from("abonos").select("*").eq("cliente_id", CLI.id).order("fecha", { ascending: false }).limit(100)
+    ]);
+    if (v.error || a.error) return toast(errTxt(v.error || a.error), true);
+    cliVentas = v.data; cliAbonos = a.data;
+    let partes = [];
+    if (cliAbonos.length) {
+      const r = await db.from("pagos").select("abono_id,monto,verificado,anulado,pedidos(codigo)").in("abono_id", cliAbonos.map((x) => x.id));
+      partes = r.data || [];
+    }
+    for (const ab of cliAbonos) ab.partes = partes.filter((x) => x.abono_id === ab.id);
+    pintarCuentaCliente();
+  }
+  function pintarCuentaCliente() {
+    const hoy = hoyCR(), solo = $("#cliSoloSaldo").checked;
+    const filas = cliVentas.filter((p) => !solo || p.total - p.pagado_registrado > 0);
+    $("#cliVentas").innerHTML = filas.map((p) => {
+      const saldo = Math.max(0, p.total - p.pagado_registrado), dias = p.vence ? diasEntre(hoy, p.vence) : null;
+      const vence = !p.vence ? "" : saldo <= 0 ? U.esc(fechaCorta(p.vence))
+        : dias < 0 ? `<span class="vence-tarde">${U.esc(fechaCorta(p.vence))} · hace ${-dias} ${dias === -1 ? "día" : "días"}</span>`
+        : dias <= 5 ? `<span class="vence-pronto">${U.esc(fechaCorta(p.vence))} · ${dias === 0 ? "hoy" : `en ${dias} ${dias === 1 ? "día" : "días"}`}</span>`
+        : U.esc(fechaCorta(p.vence));
+      return `<tr class="${saldo <= 0 ? "pagada" : ""}">
+        <td>${fechaCR(p.created_at, { dateStyle: "short" })}</td>
+        <td><button type="button" class="enlace" data-cli-venta="${p.id}">${U.esc(p.codigo)}</button></td>
+        <td class="num">${fmt(p.total)}</td><td class="num">${fmt(p.pagado_registrado)}</td><td class="num"><b>${fmt(saldo)}</b></td>
+        <td>${saldo <= 0 ? "Pagada" : vence}</td></tr>`;
+    }).join("") || `<tr><td colspan="6" class="vacio-adm">${cliVentas.length ? "No debe nada." : "Todavía no tiene ventas a crédito."}</td></tr>`;
+    $("#cliAbonos").innerHTML = cliAbonos.map((ab) => {
+      const sinVer = ab.partes.some((x) => !x.verificado && !x.anulado);
+      return `<li class="pago ${ab.anulado ? "pago--anulado" : ""}">
+        <div class="pago__monto">${fmt(ab.monto)}<small>${ETQ_METODO[ab.metodo] || U.esc(ab.metodo)}</small></div>
+        <div class="pago__datos">
+          <span>${fechaCR(ab.fecha)}</span>
+          ${ab.referencia ? `<span>Comprobante <b>${U.esc(ab.referencia)}</b></span>` : ""}
+          <span>Abono ${ab.id}: ${ab.partes.map((x) => `${U.esc(x.pedidos?.codigo || "")} ${fmt(x.monto)}`).join(" · ")}</span>
+          ${ab.anulado ? `<span><span class="etq">Anulado</span> ${U.esc(ab.motivo_anulacion || "")}</span>` : sinVer ? '<span class="etq etq--por_verificar">Por verificar</span>' : '<span class="etq etq--pagado">Recibido</span>'}
+          ${ab.nota ? `<span>${U.esc(ab.nota)}</span>` : ""}
+        </div>
+        <div class="pago__acc">${ab.anulado ? "" : `${sinVer ? `<button type="button" class="btn btn--sm btn--negro" data-verificar-abono="${ab.id}">Ya lo vi en el banco</button>` : ""}<button type="button" class="enlace enlace--peligro" data-anular-abono="${ab.id}">Anular</button>`}</div>
+      </li>`;
+    }).join("") || `<li class="vacio-adm">Todavía no hay abonos.</li>`;
+    const fa = $("#formAbono");
+    fa.monto.max = CLI.saldo || "";
+    $("#btnAbonoTodo").textContent = `Todo lo que debe (${fmt(CLI.saldo)})`;
+    $("#btnAbonoTodo").disabled = !(Number(CLI.saldo) > 0);
+    $("#boxAbono").hidden = !(Number(CLI.saldo) > 0);
+  }
+  $("#cliSoloSaldo").addEventListener("change", pintarCuentaCliente);
+  $("#cliVentas").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-cli-venta]"); if (!b) return;
+    $("#dlgCliente").close(); abrirVenta(Number(b.dataset.cliVenta));
+  });
+  async function recargarCliente() {
+    await cargarClientes();
+    CLI = clientes.find((c) => c.id === CLI?.id) || CLI;
+    if (CLI) { $("#cliTitulo").textContent = CLI.nombre; pintarCifrasCliente(); await cargarCuentaCliente(); }
+    pintarClientes();
+  }
+  $("#formCliente").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#cliMsg");
+    const d = {
+      nombre: f.nombre.value.trim(), tipo_id: f.tipo_id.value || null, identificacion: U.soloDigitos(f.identificacion.value) || null,
+      telefono: f.telefono.value.trim() || null, correo: f.correo.value.trim().toLowerCase() || null,
+      limite: f.limite.value === "" ? null : Math.max(0, Number(f.limite.value)), plazo_dias: Math.round(Number(f.plazo_dias.value) || 30),
+      activo: f.activo.checked, nota: f.nota.value.trim() || null
+    };
+    msg.className = "msg msg--error";
+    if (d.nombre.length < 2) { msg.textContent = "Escriba el nombre."; return; }
+    if (!!d.tipo_id !== !!d.identificacion) { msg.textContent = "Ponga el tipo de identificación y el número (o deje los dos vacíos)."; return; }
+    const RE = { fisica: /^[1-9][0-9]{8}$/, juridica: /^[0-9]{10}$/, dimex: /^[0-9]{11,12}$/, nite: /^[0-9]{10}$/ };
+    if (d.tipo_id && !RE[d.tipo_id].test(d.identificacion)) { msg.textContent = "Revise la identificación: física 9 dígitos, jurídica 10, DIMEX 11 o 12, NITE 10."; return; }
+    if (d.telefono && !/^[0-9 +()-]{8,20}$/.test(d.telefono)) { msg.textContent = "Revise el teléfono."; return; }
+    if (d.correo && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.correo)) { msg.textContent = "Revise el correo."; return; }
+    if (!(d.plazo_dias >= 1 && d.plazo_dias <= 365)) { msg.textContent = "El plazo es de 1 a 365 días."; return; }
+    msg.className = "msg"; msg.textContent = "Guardando…";
+    const id = f.id.value;
+    const r = id ? await db.from("clientes").update(d).eq("id", id).select("id").single() : await db.from("clientes").insert(d).select("id").single();
+    if (r.error) { msg.className = "msg msg--error"; msg.textContent = r.error.code === "23505" ? "Ya hay un cliente con esa cédula." : errTxt(r.error); return; }
+    msg.textContent = "Guardado.";
+    toast(id ? "Cliente actualizado" : "Cliente creado");
+    await cargarClientes(); pintarClientes();
+    abrirCliente(r.data.id);
+  });
+  $("#btnAbonoTodo").addEventListener("click", () => { $("#formAbono").monto.value = CLI.saldo; $("#formAbono").monto.focus(); });
+  $("#formAbono").metodo.addEventListener("change", (e) => {
+    // el efectivo está en la caja; un SINPE hay que verlo en el banco
+    $("#formAbono").verificado.checked = e.target.value === "efectivo" || e.target.value === "tarjeta";
+  });
+  $("#boxAbono").addEventListener("toggle", () => {
+    if (!$("#boxAbono").open) return;
+    const fa = $("#formAbono"); fa.reset(); $("#abonoMsg").textContent = "";
+    fa.fecha.value = ahoraLocalCR(); fa.fecha.max = ahoraLocalCR();
+    fa.monto.focus();
+  });
+  $("#formAbono").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#abonoMsg");
+    const monto = Number(f.monto.value), ref = f.referencia.value.trim();
+    msg.className = "msg msg--error";
+    if (!(monto > 0)) { msg.textContent = "Escriba el monto."; return; }
+    if (monto > Number(CLI.saldo) + 0.001) { msg.textContent = `Debe ${fmt(CLI.saldo)}: el abono no puede ser mayor.`; return; }
+    if (["sinpe", "transferencia"].includes(f.metodo.value) && !ref) { msg.textContent = "Ponga el número de comprobante."; return; }
+    const fecha = f.fecha.value ? new Date(f.fecha.value + ":00-06:00").toISOString() : null;
+    msg.className = "msg"; msg.textContent = "Registrando…";
+    const { data, error } = await db.rpc("registrar_abono", { p: {
+      cliente_id: CLI.id, monto: String(Math.round(monto * 100) / 100), metodo: f.metodo.value, referencia: ref, fecha, nota: f.nota.value.trim(), verificado: f.verificado.checked
+    } });
+    if (error) { msg.className = "msg msg--error"; msg.textContent = errTxt(error); return; }
+    $("#boxAbono").open = false;
+    toast(`Abono registrado. Se aplicó a ${data.aplicado.map((x) => `${x.codigo} (${fmt(x.monto)})`).join(", ")}. Ahora debe ${fmt(data.saldo_despues)}.`);
+    await recargarCliente();
+    cargarVentas();
+  });
+  $("#cliAbonos").addEventListener("click", async (e) => {
+    const v = e.target.closest("[data-verificar-abono]"), a = e.target.closest("[data-anular-abono]");
+    if (v) {
+      const { error } = await db.rpc("verificar_abono", { p_id: Number(v.dataset.verificarAbono) });
+      if (error) return toast(errTxt(error), true);
+      toast("Abono marcado como recibido"); await recargarCliente(); contarPorVerificar();
+    }
+    if (a) {
+      const motivo = prompt("¿Por qué se anula este abono? (vuelve a quedar como deuda)", "");
+      if (motivo === null) return;
+      if (motivo.trim().length < 5) return toast("Escriba el motivo (al menos 5 letras).", true);
+      const { error } = await db.rpc("anular_abono", { p_id: Number(a.dataset.anularAbono), p_motivo: motivo.trim() });
+      if (error) return toast(errTxt(error), true);
+      toast("Abono anulado"); await recargarCliente(); cargarVentas();
+    }
+  });
+  $("#btnCobrarCredito").addEventListener("click", () => {
+    const c = CLI, tel = U.soloDigitos(c.telefono), num = U.soloDigitos(ajustesCache.sinpe_numero);
+    if (tel.length < 8) return toast("El cliente no tiene teléfono.", true);
+    if (!(Number(c.saldo) > 0)) return toast("Este cliente no debe nada.", true);
+    const pend = cliVentas.filter((p) => p.total - p.pagado_registrado > 0).sort((a, b) => String(a.vence).localeCompare(String(b.vence)));
+    const msg = [
+      `¡Hola, ${c.nombre}! Le saludamos de ${C.NEGOCIO}.`,
+      `Su saldo de crédito es de ${fmt(c.saldo)}${Number(c.vencido) > 0 ? `, de los cuales ${fmt(c.vencido)} ya están vencidos` : ""}.`,
+      "",
+      ...pend.map((p) => `• ${p.codigo} — ${fmt(p.total - p.pagado_registrado)} (vence ${fechaCorta(p.vence)})`),
+      num.length === 8 ? "" : null,
+      num.length === 8 ? `Puede abonar por SINPE Móvil al ${num.slice(0, 4)}-${num.slice(4)}${ajustesCache.sinpe_titular ? ` a nombre de ${ajustesCache.sinpe_titular}` : ""} y enviarnos el comprobante por aquí.` : null,
+      "¡Muchas gracias!"
+    ].filter((l) => l !== null).join("\n");
+    const w = window.open(`https://wa.me/${tel.length === 8 ? "506" + tel : tel}?text=${encodeURIComponent(msg)}`, "_blank");
+    if (w) w.opener = null;
+  });
+
   // ---------- facturación electrónica (función "facturar") ----------
   const FE_TIPO = { "01": "Factura electrónica", "03": "Nota de crédito", "04": "Tiquete electrónico" };
   const FE_ESTADO = {
@@ -1444,8 +1792,10 @@
       pintarFEVenta();
     }
   }
-  $("#btnFETiquete").addEventListener("click", () => accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "04" }, "Firmando y enviando el tiquete a Hacienda…"));
-  $("#btnFEFactura").addEventListener("click", () => accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "01" }, "Firmando y enviando la factura a Hacienda…"));
+  // venta a crédito: el comprobante sale con condición crédito y el plazo hasta el vencimiento
+  const plazoFE = () => (V.pedido?.credito && V.pedido.vence ? { credito_dias: Math.max(1, diasEntre(String(V.pedido.created_at).slice(0, 10), V.pedido.vence)) } : {});
+  $("#btnFETiquete").addEventListener("click", () => accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "04", ...plazoFE() }, "Firmando y enviando el tiquete a Hacienda…"));
+  $("#btnFEFactura").addEventListener("click", () => accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "01", ...plazoFE() }, "Firmando y enviando la factura a Hacienda…"));
   $("#feDocs").addEventListener("click", async (e) => {
     const b = e.target.closest("[data-fe]"); if (!b) return;
     const id = Number(b.dataset.id), acc = b.dataset.fe;
@@ -2111,6 +2461,7 @@
     ["categorias", "id"], ["productos", "id"], ["ajustes", "clave"], ["pedidos", "id"], ["pedido_items", "id"],
     ["pagos", "id"], ["comprobantes_cliente", "id"], ["facturas", "id"], ["consultas", "id"], ["archivos_borrados", "ruta"], ["auditoria", "id"],
     ["fe_emisor", "id"], ["fe_consecutivos", "ambiente"], ["fe_documentos", "id"], ["precios_movimientos", "id"],
+    ["clientes", "id"], ["abonos", "id"],
     ["entradas", "id"], ["entrada_items", "id"], ["inventario_movimientos", "id"]
   ];
 
@@ -2468,7 +2819,7 @@
     const fila = (g) => `<li class="fila fila--pago ${g.anulado ? "fila--oculta" : ""}">
       <div class="fila__monto"><b>${fmt(g.monto)}</b><small>${ETQ_METODO[g.metodo]}</small></div>
       <div class="fila__txt">
-        <b>${g.referencia ? "Comp. " + U.esc(g.referencia) : "Sin comprobante"}</b>
+        <b>${g.referencia ? "Comp. " + U.esc(g.referencia) : g.abono_id ? U.esc(g.nota || "Abono " + g.abono_id) : "Sin comprobante"}</b>
         <small>${fechaCR(g.fecha)} · ${U.esc(g.nombre_origen || "")} ${U.esc(g.telefono_origen || "")}</small>
         <span class="etiquetas"><span class="codigo codigo--sm">${U.esc(g.pedidos?.codigo || "")}</span> ${U.esc(g.pedidos?.cliente_nombre || "")}
           ${g.anulado ? '<span class="etq">Anulado</span>' : g.verificado ? '<span class="etq etq--pagado">Verificado</span>' : '<span class="etq etq--por_verificar">Por verificar</span>'}</span>
