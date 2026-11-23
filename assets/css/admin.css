@@ -296,6 +296,7 @@ html:not(.panel-ok) body { visibility: hidden; }
    Mejoras v4
    ============================================================ */
 .sin-v4 .v4 { display: none !important; }
+.sin-v9 .v9 { display: none !important; }
 .aviso-v4 { margin: 1.25rem 0 0; padding: .9rem 1.1rem; border-radius: 14px; background: #FFF3C4; box-shadow: inset 4px 0 0 var(--cinta); font-size: .95rem; }
 .pasos-ayuda { margin: 0; padding-left: 1.3rem; display: grid; gap: .35rem; color: var(--texto); font-size: .95rem; }
 .pasos-ayuda .enlace { padding: 0; font-size: inherit; }

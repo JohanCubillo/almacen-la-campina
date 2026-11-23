@@ -84,6 +84,7 @@ Tienda: Agregar productos al carrito  ─►  Enviar pedido (nombre + teléfono)
 
 ## Inventario desde Moriah
 
+0. **Solo la primera vez:** a los productos que ya están en la página con foto, ponerles el código que tienen en Moriah (**Productos → Editar → Código**). Así la importación los actualiza en vez de crear otro igual sin foto. Si ya se importó y quedó repetido: borrar el que vino de Moriah y poner su código en el que tiene foto.
 1. En Moriah, exportar el inventario a Excel (el archivo trae *Tip-Cod*, *Codigo*, *Codigo Cabys*, el nombre, *Unidad*, *Precio* y *Exist 1*).
 2. Panel → **Productos → Importar de Excel** → escoger ese archivo tal cual, sin arreglarlo. El panel lo reconoce solo y muestra una vista previa antes de importar.
 3. **Productos nuevos:** se crean con su código, precio y existencia. Como Moriah no usa categorías, se les pone una según el nombre (Electricidad, Fontanería, Pesca…). Se puede cambiar después en cada producto.

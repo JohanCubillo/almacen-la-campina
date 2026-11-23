@@ -230,6 +230,7 @@
       if (!r9.error || !U.esErrorRed(r9.error)) copia.poner("v9", V9);
     }
     document.documentElement.classList.toggle("sin-v4", !V4);
+    document.documentElement.classList.toggle("sin-v9", !V9);
     $("#avisoV4").hidden = V4;
     await cargarCategorias();
     await Promise.all([cargarProductos(), cargarAjustes(), contarPorVerificar(), V4 && !sinRed ? cargarAvisos() : null]);
@@ -332,6 +333,7 @@
     if (error || !data) return toast(errTxt(error || { message: "Failed to fetch" }), true);
     productos = data;
     V9 = V9 || productos.some((p) => "codigo" in p) || !!copia.leer().v9;
+    document.documentElement.classList.toggle("sin-v9", !V9);
     if (!SIN_RED && !error) copia.poner("v9", V9);
     pintarProductos();
   }
@@ -388,6 +390,8 @@
     fp.destacado.checked = !!p?.destacado;
     fp.activo.checked = p ? !!p.activo : true;
     fp.agotado.checked = !!p?.agotado;
+    fp.codigo.value = p?.codigo || "";
+    fp.existencia.value = p?.existencia ?? "";
     fp.precio_oferta.value = p?.precio_oferta ?? "";
     fp.oferta_hasta.value = p?.oferta_hasta || "";
     fp.oferta_hasta.min = hoyCRp();
@@ -495,9 +499,22 @@
         if (po != null && d.precio != null && po >= d.precio) throw new Error("El precio de oferta debe ser menor que el precio normal.");
         d.precio_oferta = po; d.oferta_hasta = hasta;
       }
+      if (V9) {
+        const cod = fp.codigo.value.replace(/[\s'"]/g, "");
+        if (cod.length > 40) throw new Error("El código es muy largo (máximo 40 caracteres).");
+        d.codigo = cod || null;
+        d.existencia = fp.existencia.value === "" ? null : Math.round(Number(fp.existencia.value) * 100) / 100;
+        if (d.existencia != null && !Number.isFinite(d.existencia)) throw new Error("La existencia debe ser un número.");
+        // si viene de Moriah sin existencia, se marca agotado (lo mismo que hace la importación)
+        if (d.existencia != null && d.existencia <= 0 && String(anterior?.existencia ?? "") !== String(d.existencia)) d.agotado = true;
+        if (d.codigo) {
+          const otro = productos.find((x) => x.codigo && String(x.codigo) === d.codigo && x.id != id);
+          if (otro) throw new Error(`Ese código ya lo tiene “${otro.nombre}”. Si es el mismo producto, borre uno de los dos (o quítele el código) y vuelva a intentar.`);
+        }
+      }
       if (fp.foto.files[0]) { btn.textContent = "Subiendo foto…"; nuevaFoto = await subirFoto(fp.foto.files[0]); d.imagen_url = nuevaFoto; }
       const { error } = id ? await db.from("productos").update(d).eq("id", id) : await db.from("productos").insert(d);
-      if (error) throw error;
+      if (error) throw error.code === "23505" ? new Error("Ese código ya lo tiene otro producto.") : error;
       if (nuevaFoto && anterior?.imagen_url) await borrarFoto(anterior.imagen_url);
       dlg.close();
       toast(id ? "Producto actualizado" : "Producto guardado");

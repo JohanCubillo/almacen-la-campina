@@ -202,7 +202,7 @@
         <div class="barra-herr">
           <h2>Productos</h2>
           <div class="barra-herr__der">
-            <input id="aBuscar" type="search" placeholder="Buscar…" maxlength="60" aria-label="Buscar producto" />
+            <input id="aBuscar" type="search" placeholder="Nombre o código…" maxlength="60" aria-label="Buscar producto" />
             <button type="button" class="btn btn--linea btn--sm v4" id="btnImportar">Importar de Excel</button>
             <button type="button" class="btn btn--linea btn--sm" id="btnExportar">Descargar en Excel</button>
             <button type="button" class="btn btn--negro btn--sm" id="btnNuevoProd">Nuevo producto</button>
@@ -360,6 +360,11 @@
         <label>Se vende por<input name="unidad" maxlength="30" placeholder="saco, unidad, metro…" /></label>
       </div>
       <label>Categoría<select name="categoria_id"></select></label>
+      <div class="dos v9">
+        <label>Código (el mismo de Moriah)<input name="codigo" maxlength="40" autocomplete="off" spellcheck="false" placeholder="Ej: 7441024800215" /></label>
+        <label>Existencia<input name="existencia" type="number" step="0.01" placeholder="Se pone sola al importar" /></label>
+      </div>
+      <p class="ayuda v9">Con el código, al importar el inventario de Moriah este producto se actualiza solo (precio y existencia) en vez de crearse otro igual.</p>
       <fieldset class="oferta v4">
         <legend>Oferta (opcional)</legend>
         <div class="dos">
