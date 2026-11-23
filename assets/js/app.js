@@ -383,7 +383,7 @@
         : p.destacado ? '<span class="tarjeta-prod__rec">Recomendado</span>' : "";
       return `<li class="tarjeta-prod${p.agotado ? " es-agotado" : ""}" data-id="${p.id}">
         <div class="tarjeta-prod__foto">
-          <button type="button" data-ficha="${p.id}" tabindex="-1" aria-hidden="true">${url ? `<img src="${U.esc(url)}" alt="" loading="lazy" />` : SIN_FOTO}</button>
+          <button type="button" data-ficha="${p.id}" tabindex="-1" aria-hidden="true">${url ? `<img ${U.srcMini(url)} alt="" loading="lazy" />` : SIN_FOTO}</button>
           ${etiqueta}${p.agotado ? '<span class="tarjeta-prod__agotado">Agotado</span>' : ""}
         </div>
         <div class="tarjeta-prod__cuerpo">

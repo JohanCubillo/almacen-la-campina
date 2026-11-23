@@ -133,6 +133,15 @@ window.U = {
   },
 
   // ---------- imágenes ----------
+  // Fotos de productos: se suben en dos tamaños, "…__800.webp" (ficha)
+  // y "…__400.webp" (listas). Las fotos viejas tienen un solo tamaño y se usan tal cual.
+  fotoMini(url) { return String(url || "").replace(/__800\.(webp|jpg)(?=$|[?#])/, "__400.$1"); },
+  // src de la versión chica + la grande de respaldo por si la chica no existe
+  srcMini(url) {
+    const m = U.fotoMini(url);
+    return m === url ? `src="${U.esc(url)}"` : `src="${U.esc(m)}" data-full="${U.esc(url)}"`;
+  },
+
   // Reescala y re-codifica (también elimina datos EXIF/GPS). Devuelve un Blob.
   // Comprobante: casi todo es letra, así que 1200 px en WebP se lee perfecto y pesa poco (≈60–120 KB).
   // Si el navegador no sabe hacer WebP (iPhone viejo), JPG un poco más comprimido.
@@ -211,3 +220,12 @@ window.U = {
     catch (e) { return e && e.name === "AbortError" ? false : null; }
   }
 };
+
+// Si la foto chica de una lista no existe (foto vieja o respaldo restaurado), se muestra la grande
+document.addEventListener("error", (e) => {
+  const i = e.target;
+  if (!(i instanceof HTMLImageElement) || !i.dataset.full) return;
+  const grande = i.dataset.full;
+  delete i.dataset.full;
+  i.src = grande;
+}, true);

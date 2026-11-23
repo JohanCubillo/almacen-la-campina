@@ -28,5 +28,7 @@
 .r-peq { font-size: .88em; }
 .r-centro { text-align: center; }
 .r-clave { word-break: break-all; font-size: .85em; }
+.r-sep { margin: 2mm 0; }
+.r-firma { margin-top: 9mm; border-top: 1px solid #000; padding-top: .5mm; text-align: center; font-size: .88em; break-inside: avoid; }
 .r-anulada { border: 2px solid #000; text-align: center; font-weight: 700; font-size: 1.3em; padding: 1mm; margin: 2mm 0; letter-spacing: .1em; }
 .imprimir[hidden] { display: none; }

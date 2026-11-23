@@ -71,7 +71,7 @@ Tienda: Agregar productos al carrito  ─►  Enviar pedido (nombre + teléfono)
 4. El pago queda **Por verificar** hasta que lo vea en la app del banco → **Ya lo vi en el banco** → venta **Pagada** → entregar.
 5. **Avisar que está listo**: abre WhatsApp con el mensaje para el cliente y en "Mi pedido" le sale *listo para recoger*.
 6. **Factura electrónica**: el panel emite tiquetes, facturas y notas de crédito con Hacienda. Ver **FACTURACION.md**.
-7. **Imprimir recibo**: escoja el papel (térmica 80 mm, 58 mm u hoja carta; queda guardado) y se abre la ventana de imprimir. Sirve con cualquier impresora instalada en la compu o el celular. Es un comprobante de venta, no la factura de Hacienda.
+7. **Imprimir recibo**: escoja el papel (térmica 80 mm, 58 mm u hoja carta; queda guardado) y se abre la ventana de imprimir. Sirve con cualquier impresora instalada en la compu o el celular. Si la venta ya tiene **tiquete o factura electrónica**, el recibo lo trae: tipo, número, consecutivo, clave, IVA incluido, condición (contado o crédito) y cómo va con Hacienda, más la cédula del negocio arriba (si está en pruebas lo dice abajo). Si es **a crédito**, trae el cliente, la fecha de vencimiento, el saldo total de su cuenta en ese momento y una línea para que firme. Sin comprobante electrónico dice que es un comprobante de venta, no la factura de Hacienda.
 
 **Productos en Excel:** *Descargar en Excel* → editar → *Importar de Excel* (actualiza por nombre, crea lo nuevo y las categorías que falten; muestra antes qué va a pasar con cada fila). También acepta CSV.
 
@@ -177,6 +177,7 @@ En la tienda, la sección **¿Tiene una pregunta?** (y el enlace *Dejar una preg
 ## Espacio de fotos
 
 - Las fotos no van en la base de datos sino en el almacenamiento de archivos (1 GB en el plan gratis). Cada comprobante se achica antes de subirse (1200 px, WebP): pesa unos 100–150 KB.
+- **Fotos de productos:** el panel las sube en dos tamaños, 800 px para la ficha del producto y 400 px para las listas (tienda y panel), en WebP. Juntas pesan unos 60–120 KB, así la tienda carga rápido con datos móviles y caben miles de productos con foto. Al cambiar o borrar la foto se borran las dos. Las fotos subidas antes siguen sirviendo igual (un solo tamaño); si se quieren más livianas, basta con volver a subirlas.
 - **Datos del negocio → Espacio de fotos** muestra cuánto se ha usado; se pone rojo al pasar del 80 %.
 - **Limpiar comprobantes viejos:** escoja de hace cuántos meses → *Buscar fotos viejas* → **1. Descargar ZIP** (guárdelo) → **2. Borrar del sistema**. Solo se pueden borrar fotos de ventas ya pagadas, entregadas o anuladas de hace más de 3 meses; el pago queda registrado con monto, número de comprobante y fecha.
 

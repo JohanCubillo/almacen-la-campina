@@ -423,7 +423,7 @@
       const c = cat(p.categoria_id);
       const url = p.imagen_url ? U.safeUrl(p.imagen_url, "") : "";
       return `<li class="fila ${p.activo ? "" : "fila--oculta"}">
-        <span class="fila__img">${url ? `<img src="${U.esc(url)}" alt="" loading="lazy" />` : SIN_FOTO}</span>
+        <span class="fila__img">${url ? `<img ${U.srcMini(url)} alt="" loading="lazy" />` : SIN_FOTO}</span>
         <div class="fila__txt">
           <b>${U.esc(p.nombre)}</b>
           <small>${p.codigo ? `Cód. ${U.esc(p.codigo)} · ` : ""}${U.esc(c?.nombre || "Sin categoría")} · ${U.colones(p.precio) ? U.esc(U.colones(p.precio)) + (p.unidad ? " por " + U.esc(p.unidad) : "") : "Precio a consultar"}${p.existencia != null ? ` · Existencia: ${Number(p.existencia).toLocaleString("es-CR")}` : ""}</small>
@@ -508,41 +508,66 @@
     }
   });
 
-  // Reescala a máx. 1200 px y re-codifica (también elimina datos EXIF/GPS de la foto)
-  function comprimir(file, max = 1200) {
+  // Foto de producto en dos tamaños: 800 px para la ficha y 400 px para las listas.
+  // Se re-codifica en WebP (JPG si el navegador no sabe), lo que también borra los datos EXIF/GPS.
+  const FOTO_GRANDE = 800, FOTO_MINI = 400;
+  function abrirImagen(file) {
     return new Promise((res, rej) => {
       const img = new Image(), src = URL.createObjectURL(file);
-      img.onload = () => {
-        const k = Math.min(1, max / Math.max(img.width, img.height));
-        const cv = document.createElement("canvas");
-        cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
-        cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
-        URL.revokeObjectURL(src);
-        cv.toBlob((b) => {
-          if (b && b.type === "image/webp") return res(b);
-          cv.toBlob((j) => (j ? res(j) : rej(new Error("No se pudo procesar la foto."))), "image/jpeg", 0.85);
-        }, "image/webp", 0.82);
-      };
-      img.onerror = () => rej(new Error("El archivo no es una imagen válida."));
+      img.onload = () => { URL.revokeObjectURL(src); res(img); };
+      img.onerror = () => { URL.revokeObjectURL(src); rej(new Error("El archivo no es una imagen válida.")); };
       img.src = src;
     });
   }
-
-  async function subirFoto(file) {
-    const blob = await comprimir(file);
-    if (blob.size > 2 * 1024 * 1024) throw new Error("La foto sigue pesando más de 2 MB.");
-    const ext = blob.type === "image/webp" ? "webp" : "jpg";
-    const ruta = `${crypto.randomUUID()}.${ext}`;
-    const { error } = await db.storage.from(C.BUCKET).upload(ruta, blob, { contentType: blob.type, upsert: false, cacheControl: "31536000" });
-    if (error) throw error;
-    return db.storage.from(C.BUCKET).getPublicUrl(ruta).data.publicUrl;
+  function reescalar(fuente, ancho, alto, max, fondo) {
+    const k = Math.min(1, max / Math.max(ancho, alto));
+    const cv = document.createElement("canvas");
+    cv.width = Math.max(1, Math.round(ancho * k)); cv.height = Math.max(1, Math.round(alto * k));
+    const ctx = cv.getContext("2d");
+    ctx.imageSmoothingQuality = "high";
+    if (fondo) { ctx.fillStyle = fondo; ctx.fillRect(0, 0, cv.width, cv.height); }
+    ctx.drawImage(fuente, 0, 0, cv.width, cv.height);
+    return cv;
+  }
+  const comoBlob = (cv, tipo, calidad) => new Promise((res) => cv.toBlob(res, tipo, calidad));
+  async function codificar(cv, calidad) {
+    const w = await comoBlob(cv, "image/webp", calidad);
+    if (w && w.type === "image/webp") return w;
+    // JPG no tiene transparencia: fondo blanco para que un PNG recortado no quede negro
+    const j = await comoBlob(reescalar(cv, cv.width, cv.height, Infinity, "#fff"), "image/jpeg", calidad + 0.05);
+    if (!j) throw new Error("No se pudo procesar la foto.");
+    return j;
+  }
+  async function fotoEnDosTamanos(file) {
+    const img = await abrirImagen(file);
+    const grande = reescalar(img, img.naturalWidth, img.naturalHeight, FOTO_GRANDE);
+    const mini = reescalar(grande, grande.width, grande.height, FOTO_MINI);
+    return [await codificar(grande, 0.8), await codificar(mini, 0.74)];
   }
 
+  async function subirFoto(file) {
+    const [grande, mini] = await fotoEnDosTamanos(file);
+    if (grande.size > 2 * 1024 * 1024) throw new Error("La foto sigue pesando más de 2 MB.");
+    const ext = grande.type === "image/webp" ? "webp" : "jpg", base = crypto.randomUUID();
+    const rutas = [`${base}__${FOTO_GRANDE}.${ext}`, `${base}__${FOTO_MINI}.${ext}`];
+    const sto = db.storage.from(C.BUCKET), op = { upsert: false, cacheControl: "31536000" };
+    const r = await Promise.all([
+      sto.upload(rutas[0], grande, { ...op, contentType: grande.type }),
+      sto.upload(rutas[1], mini, { ...op, contentType: mini.type })
+    ]);
+    const fallo = r.find((x) => x.error);
+    if (fallo) { try { await sto.remove(rutas); } catch { /* no quedó nada que borrar */ } throw fallo.error; }
+    return sto.getPublicUrl(rutas[0]).data.publicUrl;
+  }
+
+  // borra la foto y, si la tiene, su versión chica
   async function borrarFoto(url) {
     if (!url) return;
     const marca = `/object/public/${C.BUCKET}/`, i = url.indexOf(marca);
     if (i === -1) return;
-    await db.storage.from(C.BUCKET).remove([decodeURIComponent(url.slice(i + marca.length))]);
+    const ruta = decodeURIComponent(url.slice(i + marca.length).split(/[?#]/)[0]);
+    const mini = U.fotoMini(ruta);
+    await db.storage.from(C.BUCKET).remove(mini === ruta ? [ruta] : [ruta, mini]);
   }
 
   fp.addEventListener("submit", async (e) => {
@@ -2540,10 +2565,14 @@
             } catch { fotosMal++; }
           }
         }
-        const fotosProd = (tablas.productos || []).map((p) => p.imagen_url).filter((u) => u && /\/storage\/v1\/object\/public\/productos\//.test(u));
-        for (const u of fotosProd) {
+        // cada foto con su versión chica (si la tiene; si falta, no cuenta como error)
+        const fotosProd = (tablas.productos || []).map((p) => p.imagen_url).filter((u) => u && /\/storage\/v1\/object\/public\/productos\//.test(u))
+          .flatMap((u) => (U.fotoMini(u) === u ? [[u, false]] : [[u, false], [U.fotoMini(u), true]]));
+        for (const [u, esMini] of fotosProd) {
           msg.textContent = "Copiando fotos de productos…";
-          try { const r = await fetch(u); if (r.ok) { archivos.push({ nombre: `fotos/productos/${u.split("/").pop()}`, datos: new Uint8Array(await r.arrayBuffer()) }); fotosOk++; } else fotosMal++; } catch { fotosMal++; }
+          let ok = false;
+          try { const r = await fetch(u); if (r.ok) { archivos.push({ nombre: `fotos/productos/${u.split("/").pop()}`, datos: new Uint8Array(await r.arrayBuffer()) }); ok = true; } } catch { /* abajo */ }
+          if (ok) fotosOk++; else if (!esMini) fotosMal++;
         }
       }
 
@@ -2853,7 +2882,8 @@
 
   // ---------- imprimir recibo ----------
   const PAPELES = { "80": "assets/css/papel-80.css", "58": "assets/css/papel-58.css", carta: "assets/css/papel-carta.css" };
-  const TIPO_ID = { fisica: "Cédula física", juridica: "Cédula jurídica", dimex: "DIMEX", nite: "NITE" };
+  // las facturas y clientes usan palabras; el emisor usa los códigos de Hacienda
+  const TIPO_ID = { fisica: "Cédula física", juridica: "Cédula jurídica", dimex: "DIMEX", nite: "NITE", "01": "Cédula física", "02": "Cédula jurídica", "03": "DIMEX", "04": "NITE" };
   (function () {
     let guardado = null;
     try { guardado = localStorage.getItem("lc_papel"); } catch { /* sin almacenamiento */ }
@@ -2861,7 +2891,7 @@
   })();
   $("#papel").addEventListener("change", (e) => { try { localStorage.setItem("lc_papel", e.target.value); } catch { /* sin almacenamiento */ } });
 
-  function reciboHTML() {
+  function reciboHTML(extra = {}) {
     const p = V.pedido, aj = ajustesCache, fac = V.factura;
     const fila = (a, b) => `<div class="r-fila"><span>${a}</span><span>${b}</span></div>`;
     const tels = [aj.telefono || C.TELEFONO, aj.telefono2 || C.TELEFONO2].filter(Boolean).map(U.esc).join(" / ");
@@ -2874,8 +2904,36 @@
     let entrega = "";
     if (V4 && p.entrega === "envio") entrega = fila("Entrega", `Envío a ${U.esc(p.zona || "domicilio")}`) + (p.direccion ? `<div class="r-peq">${U.esc(p.direccion)}</div>` : "");
     else if (V4) entrega = fila("Entrega", "Retira en el almacén");
+    // comprobantes electrónicos que salieron de esta venta (los rechazados no cuentan)
+    const feDocs = FE ? (V.fe || []).filter((d) => d.ambiente === FE.ambiente && d.estado !== "rechazado") : [];
+    const feFactura = feDocs.some((d) => d.tipo === "01");
+    let electronico = "";
+    if (feDocs.length) {
+      electronico = `<div class="r-lin"></div>` + feDocs.map((d) => {
+        const rec = d.tipo === "01" && d.receptor ? d.receptor : null;
+        return `<div class="r-tit">${U.esc(FE_TIPO[d.tipo] || "Comprobante electrónico")}${d.anulado ? " (anulado)" : ""}</div>
+          ${fila("N.º", `<b>${U.esc(numeroFE(d))}</b>`)}
+          ${fila("Emitido", fechaCR(d.fecha_emision, { dateStyle: "short", timeStyle: "short" }))}
+          ${rec ? `<div>${U.esc(rec.nombre)}</div><div class="r-peq">${U.esc(TIPO_ID[rec.tipo_id] || rec.tipo_id)} ${U.esc(rec.identificacion)}</div>${rec.correo ? `<div class="r-peq">${U.esc(rec.correo)}</div>` : ""}` : ""}
+          ${d.tipo !== "03" ? fila("Condición", p.credito ? `Crédito${p.vence ? ` a ${Math.max(1, diasEntre(String(p.created_at).slice(0, 10), p.vence))} días` : ""}` : "Contado") : ""}
+          ${Number(d.impuesto) > 0 ? fila("IVA incluido", fmt(d.impuesto)) : ""}
+          <div class="r-peq">Consecutivo</div><div class="r-clave">${U.esc(d.consecutivo)}</div>
+          <div class="r-peq">Clave</div><div class="r-clave">${U.esc(d.clave)}</div>
+          <div class="r-peq">${U.esc((FE_ESTADO[d.estado] || [d.estado])[0])}</div>`;
+      }).join(`<div class="r-sep"></div>`);
+    }
+    // venta a crédito: a quién se le fía, cuándo vence y cómo queda su cuenta
+    let credito = "";
+    if (p.credito && p.estado !== "anulada") {
+      const cli = extra.cuenta || V.credCli;
+      credito = `<div class="r-lin"></div><div class="r-tit">Venta a crédito</div>
+        ${cli ? `<div>${U.esc(cli.nombre)}</div>${cli.identificacion ? `<div class="r-peq">${U.esc(TIPO_ID[cli.tipo_id] || cli.tipo_id)} ${U.esc(cli.identificacion)}</div>` : ""}` : ""}
+        ${p.vence ? fila("Vence", `<b>${U.esc(String(p.vence).slice(0, 10).split("-").reverse().join("/"))}</b>`) : ""}
+        ${extra.cuenta ? fila("Saldo total de la cuenta", fmt(extra.cuenta.saldo)) + (Number(extra.cuenta.vencido) > 0 ? fila("<b>Vencido</b>", `<b>${fmt(extra.cuenta.vencido)}</b>`) : "") : ""}
+        <div class="r-firma">Recibí conforme</div>`;
+    }
     let factura = "";
-    if (fac) {
+    if (fac && !feFactura) {
       factura = `<div class="r-lin"></div><div class="r-tit">Datos para factura electrónica</div>
         <div>${U.esc(fac.nombre)}</div>
         <div>${U.esc(TIPO_ID[fac.tipo_id] || fac.tipo_id)} ${U.esc(fac.identificacion)}</div>
@@ -2885,12 +2943,15 @@
         <div class="r-peq">Estado: ${U.esc(ETQ_FAC[fac.estado] || fac.estado)}</div>`;
     }
     const valeFactura = fac && fac.estado === "aceptada";
+    const pie = feDocs.length && FE.ambiente === "pruebas" ? "Ambiente de pruebas: estos comprobantes no tienen validez ante Hacienda."
+      : feDocs.length || valeFactura ? "" : "Comprobante de venta. No es factura electrónica.";
     return `
       <div class="r-cab">
         <img class="r-logo" src="assets/img/marca.png" alt="" />
         <b class="r-neg">${U.esc(C.NEGOCIO)}</b>
         <span class="r-peq">${U.esc(aj.direccion || C.DIRECCION)}</span>
         ${tels ? `<span class="r-peq">Tel. ${tels}</span>` : ""}
+        ${feDocs.length && FE.identificacion ? `<span class="r-peq">${U.esc(FE.nombre)}</span><span class="r-peq">${U.esc(TIPO_ID[FE.tipo_id] || FE.tipo_id)} ${U.esc(FE.identificacion)}</span>` : ""}
       </div>
       <div class="r-lin"></div>
       ${p.estado === "anulada" ? `<div class="r-anulada">ANULADA</div>` : ""}
@@ -2909,9 +2970,11 @@
       ${pagos.length ? `<div class="r-lin"></div><div class="r-tit">Pagos</div>` + pagos.map((g) =>
         fila(`${U.esc(ETQ_METODO[g.metodo] || g.metodo)} ${fechaCR(g.fecha, { dateStyle: "short" })}${g.referencia ? `<br><span class="r-peq">Comp. ${U.esc(g.referencia)}</span>` : ""}`, fmt(g.monto))).join("") : ""}
       ${p.nota ? `<div class="r-lin"></div><div class="r-peq">Nota: ${U.esc(p.nota)}</div>` : ""}
+      ${credito}
+      ${electronico}
       ${factura}
       <div class="r-lin"></div>
-      ${valeFactura ? "" : `<div class="r-centro r-peq">Comprobante de venta. No es factura electrónica.</div>`}
+      ${pie ? `<div class="r-centro r-peq">${pie}</div>` : ""}
       <div class="r-centro"><b>¡Gracias por su compra!</b></div>
       <div class="r-centro r-peq">Impreso ${fechaCR(new Date().toISOString(), { dateStyle: "short", timeStyle: "short" })}</div>`;
   }
@@ -2931,10 +2994,25 @@
     await Promise.all([listoCss, img ? esperar(img, img.complete) : null]);
     window.print();
   }
+  // saldo al día del cliente de crédito, para ponerlo en el recibo (si no hay internet, sale sin él)
+  async function cuentaParaRecibo() {
+    const p = V.pedido;
+    if (!V13 || !p?.credito || !p.cliente_id || V.local || SIN_RED || !navigator.onLine) return null;
+    try {
+      const r = await Promise.race([
+        db.from("v_clientes_credito").select("nombre,tipo_id,identificacion,saldo,vencido").eq("id", p.cliente_id).maybeSingle(),
+        new Promise((res) => setTimeout(() => res({ error: "tiempo" }), 4000))
+      ]);
+      return r.error ? null : r.data;
+    } catch { return null; }
+  }
   $("#btnImprimir").addEventListener("click", async () => {
     if (!V || !V.pedido) return;
     if (V.dirty) { toast("Primero guarde los cambios de la venta.", true); return; }
-    await imprimirHTML(reciboHTML());
+    const b = $("#btnImprimir");
+    b.disabled = true;
+    try { await imprimirHTML(reciboHTML({ cuenta: await cuentaParaRecibo() })); }
+    finally { b.disabled = false; }
   });
 
   // ---------- turno y cierre de caja ----------
