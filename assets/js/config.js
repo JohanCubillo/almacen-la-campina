@@ -83,6 +83,40 @@ window.U = {
     return { dia, min: Number(parts.hour) * 60 + Number(parts.minute) };
   },
 
+  // ---------- sin internet ----------
+  // true si el error es por falta de conexión (no por un dato inválido)
+  esErrorRed(e) {
+    if (!navigator.onLine) return true;
+    const m = String((e && (e.message || e.details)) || e || "");
+    return /failed to fetch|networkerror|load failed|network request failed|fetch failed|internet disconnected|err_network|aborted|timeout/i.test(m);
+  },
+  // copia de la página para abrirla sin internet (sw.js)
+  registrarCopia() {
+    if (!("serviceWorker" in navigator)) return;
+    if (location.protocol !== "https:" && location.hostname !== "localhost") return;
+    navigator.serviceWorker.register("sw.js").catch(() => { /* sin copia, la página sigue igual */ });
+  },
+  // franja de aviso arriba de la página
+  banda(txt, tipo = "sin", boton = null) {
+    let el = document.getElementById("bandaRed");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "bandaRed"; el.className = "banda-red"; el.setAttribute("role", "status");
+      document.body.prepend(el);
+    }
+    el.hidden = !txt;
+    el.dataset.tipo = tipo;
+    el.replaceChildren();
+    if (!txt) return;
+    const sp = document.createElement("span"); sp.textContent = txt; el.append(sp);
+    if (boton) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "banda-red__btn"; b.textContent = boton.texto;
+      b.addEventListener("click", boton.accion);
+      el.append(b);
+    }
+  },
+
   // ---------- pedidos guardados en este aparato ----------
   pedidosLocales() {
     try {

@@ -570,3 +570,12 @@ html.bloqueo { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* ---------- sin internet ---------- */
+.banda-red { position: sticky; top: 0; z-index: 60; display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; justify-content: center;
+  padding: .55rem 1rem; background: var(--negro); color: #fff; font-size: .92rem; font-weight: 600; text-align: center; }
+.banda-red[data-tipo="ok"] { background: var(--cinta); color: var(--negro); }
+.banda-red[hidden] { display: none; }
+.banda-red__btn { font: inherit; font-weight: 700; padding: .3rem .9rem; border-radius: 999px; border: 2px solid currentColor; background: transparent; color: inherit; cursor: pointer; }
+.banda-red__btn:focus-visible { outline: 3px solid var(--cinta); outline-offset: 2px; }
+@media print { .banda-red { display: none !important; } }

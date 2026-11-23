@@ -16,15 +16,16 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 2. **SQL Editor → New query** → pegar `supabase/v4_mejoras.sql` → **Run**. Agrega agotado, ofertas, envío, factura, avisos, Excel y reportes. **Siempre después de `schema.sql`** (si vuelve a correr `schema.sql`, corra también este).
 3. **SQL Editor → New query** → pegar `supabase/productos_iniciales.sql` → **Run**. Carga los productos con fotos de su Facebook y oculta los de ejemplo. (`precios_aproximados.sql` llena los precios que falten.)
 4. **SQL Editor → New query** → pegar `supabase/v4_datos.sql` → **Run**. Activa el envío con los barrios de Cariari y su precio aproximado (se cambian en Datos del negocio).
-5. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
-6. Registrar al administrador:
+5. **SQL Editor → New query** → pegar `supabase/v5_sin_internet.sql` → **Run**. Permite enviar las ventas hechas sin internet sin que se dupliquen.
+6. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
+7. Registrar al administrador:
    ```sql
    insert into public.admins (user_id)
    select id from auth.users where email = 'correo-del-admin@ejemplo.com'
    on conflict do nothing;
    ```
-7. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
-8. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
+8. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
+9. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
 
 ## 2. Primer ingreso al panel
 
@@ -77,6 +78,14 @@ Tienda: Agregar productos al carrito  ─►  Enviar pedido (nombre + teléfono)
 | Spam de pedidos o archivos | Máx. 3 pedidos por teléfono cada 15 min; subidas solo a rutas autorizadas, 5 por pedido al día, 5 MB |
 | Comprobantes expuestos | Bucket privado; solo el admin los ve con enlaces de 2 minutos |
 
+## Sin internet
+
+- **Tienda:** la página y el catálogo abren aunque no haya señal (con los precios de la última visita). Si el cliente envía el pedido sin internet, queda guardado en su teléfono y se manda solo cuando vuelve la conexión; ahí recibe su código.
+- **Panel:** si se va el internet se pueden hacer **ventas nuevas**, anotarles pagos e **imprimir el recibo** (sale con un número temporal `SIN-0001`). Quedan en la lista como *Por enviar* y se mandan solas cuando vuelve la conexión, cada una con su código real. Si una no se puede enviar (por ejemplo, un comprobante repetido) queda marcada en rojo para corregirla.
+- Las ventas que ya existían se pueden **ver** sin internet (las que se abrieron antes en esa compu), pero no cambiar. Verificar pagos, anular, entregar, productos y reportes necesitan internet.
+- Para abrir el panel sin internet, en esa compu se tuvo que entrar con internet (contraseña + código) en las últimas 12 horas. Para mandar las ventas guardadas hay que volver a entrar con internet.
+- **Salir** borra de la compu la copia de ventas y clientes; las ventas sin enviar no se borran.
+
 **Rutina diaria:** Caja SINPE → comparar el total con la app del banco → verificar uno por uno → no entregar lo que esté *Por verificar*. Fin de mes: **Descargar mes (CSV)**.
 
 ---
@@ -102,7 +111,8 @@ assets/productos/  fotos de productos (WebP 800×800)
 assets/vendor/     supabase-js 2.119.2 (local, sin CDN)
 assets/fonts/      Barlow / Barlow Condensed (OFL)
 assets/img/        logo, íconos de la app, og.jpg (imagen para compartir)
-supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql
+supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql
+sw.js              copia de la página para abrirla sin internet
 panel.webmanifest  app instalable del panel
 SEGURIDAD.md, FACTURACION.md, GOOGLE-Y-DOMINIO.md
 ```

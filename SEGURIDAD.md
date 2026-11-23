@@ -58,3 +58,9 @@ Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usar
 - **Factura:** cédula y correo del cliente quedan en `facturas` (solo admin). Para conectar un sistema de facturación se usa la llave secreta **solo en ese servidor** (ver FACTURACION.md).
 - **Reportes:** `reporte_ventas` exige admin con MFA.
 
+## Sin internet (v5)
+
+- **sw.js** solo guarda la página (HTML, estilos, código, letras, íconos) y las fotos públicas de productos. **Nunca** guarda respuestas de la base de datos ni de la sesión.
+- La tienda guarda en el teléfono del cliente solo el catálogo público y su propio pedido pendiente.
+- El panel guarda en la compu una copia de la lista de ventas y de las últimas 60 ventas abiertas (con nombres y teléfonos de clientes) para verlas sin internet. Se borra al tocar **Salir**. Use el panel solo en compus del almacén.
+- Sin internet el panel solo puede anotar ventas nuevas en la compu; no puede cambiar nada en la base de datos. Al volver el internet, las ventas se envían con `registrar_venta_sin_internet`, que exige admin con MFA y revisa cada dato igual que siempre (precios, comprobantes repetidos, fechas). Cada venta lleva un identificador único, así que si el envío se corta y se repite no se duplica.

@@ -3,7 +3,7 @@
   const C = window.APP_CONFIG, db = window.db, U = window.U;
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
-  const LS_CARRITO = "lc_lista_v1", LS_CLIENTE = "lc_cliente_v1";
+  const LS_CARRITO = "lc_lista_v1", LS_CLIENTE = "lc_cliente_v1", LS_CATALOGO = "lc_catalogo_v1", LS_PEND = "lc_pedidos_pend_v1";
 
   // Catálogo de muestra: solo se usa mientras Supabase no está configurado
   const DEMO = {
@@ -145,9 +145,21 @@
       a.data.forEach((r) => { if (r.clave in S.ajustes) S.ajustes[r.clave] = r.valor ?? ""; });
       S.categorias = c.data;
       S.productos = p.data;
+      // copia para ver el catálogo sin internet (solo datos públicos)
+      try { localStorage.setItem(LS_CATALOGO, JSON.stringify({ t: Date.now(), v4: S.v4, ajustes: a.data, categorias: c.data, productos: p.data })); } catch { /* sin espacio */ }
       return "ok";
     } catch (e) {
       console.warn("No se pudo cargar el catálogo:", e?.message || e);
+      try {
+        const k = JSON.parse(localStorage.getItem(LS_CATALOGO) || "null");
+        if (k && Array.isArray(k.productos) && k.productos.length) {
+          S.v4 = !!k.v4;
+          (k.ajustes || []).forEach((r) => { if (r.clave in S.ajustes) S.ajustes[r.clave] = r.valor ?? ""; });
+          S.categorias = k.categorias || [];
+          S.productos = k.productos;
+          return "copia";
+        }
+      } catch { /* copia dañada */ }
       return "error";
     }
   }
@@ -673,12 +685,18 @@
     try {
       const items = S.lista.map((i) => (i.id ? { id: i.id, c: i.cant } : { n: i.nombre, c: i.cant }));
       const base = { p_nombre: d.nombre, p_telefono: d.telefono, p_nota: d.detalle || null, p_items: items };
-      let r = await db.rpc("crear_pedido_web", S.v4
+      const args = S.v4
         ? { ...base, p_entrega: d.envio ? { tipo: "envio", ...d.envio } : { tipo: "retiro" }, p_factura: d.factura || null }
-        : base);
-      // si la base todavía no tiene la versión nueva de la función, se envía sin entrega ni factura
-      if (r.error && r.error.code === "PGRST202" && !d.envio && !d.factura) r = await db.rpc("crear_pedido_web", base);
-      if (r.error) throw new Error(r.error.message && /[áéíóúñ]|\./.test(r.error.message) ? r.error.message : "No se pudo enviar el pedido. Revise su conexión e intente de nuevo.");
+        : base;
+      let r;
+      try { r = await mandarPedido(args, !d.envio && !d.factura); } catch (eRed) { r = { error: eRed }; }
+      if (r.error && U.esErrorRed(r.error)) {
+        guardarPendiente(args, d);
+        mostrarGuardado(d, !!archivo);
+        limpiarTrasEnviar(f);
+        return;
+      }
+      if (r.error) throw new Error(textoError(r.error));
       const ped = r.data;
       U.guardarPedidoLocal(ped.codigo, d.telefono);
 
@@ -693,11 +711,7 @@
       }
       S.ultimo = { ...d, codigo: ped.codigo, total: Number(ped.total), pendientes: !!ped.precios_pendientes, archivo: archivoCompartir, errorComp, resumen: textoWhatsApp(d, ped.codigo, !!archivoCompartir) };
       mostrarListo();
-      S.lista = [];
-      f.detalle.value = ""; f.comprobante.value = ""; f.referencia.value = ""; f.monto.value = "";
-      f.f_id.value = ""; f.f_nombre.value = ""; f.f_correo.value = ""; f.direccion.value = "";
-      $("#pagoYa").open = false; $("#facturaBox").open = false;
-      cambioCarrito();
+      limpiarTrasEnviar(f);
     } catch (e3) {
       err.textContent = e3.message;
     } finally {
@@ -706,8 +720,94 @@
     }
   }
 
+  function limpiarTrasEnviar(f) {
+    S.lista = [];
+    f.detalle.value = ""; f.comprobante.value = ""; f.referencia.value = ""; f.monto.value = "";
+    f.f_id.value = ""; f.f_nombre.value = ""; f.f_correo.value = ""; f.direccion.value = "";
+    $("#pagoYa").open = false; $("#facturaBox").open = false;
+    cambioCarrito();
+  }
+
+  const textoError = (e) => e && e.message && /[áéíóúñ]|\./.test(e.message) ? e.message : "No se pudo enviar el pedido. Intente de nuevo.";
+
+  async function mandarPedido(args, sinExtras) {
+    let r = await db.rpc("crear_pedido_web", args);
+    // si la base todavía no tiene la versión nueva de la función, se envía sin entrega ni factura
+    if (r.error && r.error.code === "PGRST202" && sinExtras && args.p_entrega !== undefined) {
+      const { p_entrega, p_factura, ...base } = args;
+      r = await db.rpc("crear_pedido_web", base);
+    }
+    return r;
+  }
+
+  // ---------- pedidos guardados sin internet ----------
+  const leerPendientes = () => { try { const l = JSON.parse(localStorage.getItem(LS_PEND) || "[]"); return Array.isArray(l) ? l : []; } catch { return []; } };
+  const escribirPendientes = (l) => { try { localStorage.setItem(LS_PEND, JSON.stringify(l.slice(-5))); } catch { /* sin espacio */ } };
+
+  function guardarPendiente(args, d) {
+    const l = leerPendientes();
+    l.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), at: new Date().toISOString(), args, tel: d.telefono, sinExtras: !d.envio && !d.factura, lista: S.lista.map((i) => ({ ...i })) });
+    escribirPendientes(l);
+  }
+
+  function mostrarGuardado(d, conArchivo) {
+    $("#pasoCarrito").hidden = true;
+    $("#pasoListo").hidden = false;
+    $("#listoTitulo").textContent = "Pedido guardado";
+    $("#listoLbl").hidden = $("#listoCodigo").hidden = $("#btnCopiar").hidden = true;
+    $("#btnAvisarWa").hidden = $("#lnkMiPedido").hidden = $("#btnCompartir").hidden = true;
+    $("#listoTexto").textContent = "No hay internet en este momento. Su pedido quedó guardado en este teléfono y se enviará solo apenas vuelva la conexión (con esta página abierta o la próxima vez que la abra). Ahí le aparecerá su código."
+      + (conArchivo ? " El comprobante no se guardó: súbalo después en “Ver mi pedido”." : "");
+    $("#proformaTitulo").textContent = "Guardado";
+    $("#proformaTitulo").focus();
+  }
+
+  let enviando = false;
+  async function enviarPendientes() {
+    if (!db || enviando || !navigator.onLine) return;
+    let l = leerPendientes();
+    if (!l.length) return;
+    enviando = true;
+    try {
+      for (const p of [...l]) {
+        let r;
+        try { r = await mandarPedido(p.args, p.sinExtras); } catch (e) { r = { error: e }; }
+        if (r.error && U.esErrorRed(r.error)) break;          // sigue sin internet: se intenta después
+        l = leerPendientes().filter((x) => x.id !== p.id);
+        escribirPendientes(l);
+        if (r.error) {
+          if (!S.lista.length && Array.isArray(p.lista)) { S.lista = p.lista; cambioCarrito(); }
+          U.banda(`Su pedido guardado no se pudo enviar: ${textoError(r.error)}`, "sin", { texto: "Revisar carrito", accion: () => { U.banda(""); abrirCarrito(true); } });
+          continue;
+        }
+        const cod = r.data.codigo;
+        U.guardarPedidoLocal(cod, p.tel);
+        U.banda(`Su pedido se envió. Código: ${cod}`, "ok", { texto: "Ver mi pedido", accion: () => { location.href = `pedido.html?c=${encodeURIComponent(cod)}`; } });
+        if (!$("#pasoListo").hidden && $("#listoCodigo").hidden) {
+          S.ultimo = { codigo: cod, total: Number(r.data.total), pendientes: !!r.data.precios_pendientes, envio: p.args.p_entrega?.tipo === "envio" ? p.args.p_entrega : null, resumen: `¡Hola, ${C.NEGOCIO}! Hice el pedido ${cod} en la página.` };
+          mostrarListo();
+        }
+      }
+    } finally { enviando = false; }
+  }
+
+  function estadoRed() {
+    if (navigator.onLine) {
+      const b = $("#bandaRed");
+      if (b && b.dataset.tipo === "sin" && !b.querySelector("button")) U.banda("");
+      enviarPendientes();
+    } else {
+      U.banda(leerPendientes().length
+        ? "Sin internet. Su pedido está guardado y se enviará cuando vuelva la conexión."
+        : "Sin internet. Puede ver el catálogo y armar su pedido; se enviará cuando vuelva la conexión.");
+    }
+  }
+
   function mostrarListo() {
     const u = S.ultimo, sn = sinpeNum();
+    $("#listoTitulo").textContent = "Pedido recibido";
+    $("#listoLbl").hidden = $("#listoCodigo").hidden = $("#btnCopiar").hidden = false;
+    $("#btnAvisarWa").hidden = $("#lnkMiPedido").hidden = false;
     $("#pasoCarrito").hidden = true;
     $("#pasoListo").hidden = false;
     $("#listoCodigo").textContent = u.codigo;
@@ -872,8 +972,12 @@
     } catch { /* */ }
     eventos();
     pintarContacto();
+    U.registrarCopia();
     const r = await cargarDatos();
     pintarContacto();
+    addEventListener("online", estadoRed);
+    addEventListener("offline", estadoRed);
+    estadoRed();
     if (r === "error") {
       $("#lista").innerHTML = "";
       $("#lista").setAttribute("aria-busy", "false");

@@ -31,16 +31,80 @@
     clearTimeout(toast.t);
     toast.t = setTimeout(() => (t.hidden = true), 3500);
   }
-  const errTxt = (e) => (e && e.message) || "Algo falló. Intente de nuevo.";
+  const errTxt = (e) => U.esErrorRed(e) ? "Sin internet: esto se puede hacer cuando vuelva la conexión." : (e && e.message) || "Algo falló. Intente de nuevo.";
+
+  // =========================================================
+  //  SIN INTERNET: copia de datos, permiso y ventas por enviar
+  // =========================================================
+  const LS_COLA = "lc_ventas_sin_red_v1", LS_COPIA = "lc_copia_panel_v1", LS_PERMISO = "lc_panel_sin_red_v1", LS_NUM = "lc_sin_red_num_v1";
+  const HORAS_SIN_RED = 12;
+  let SIN_RED = false;     // panel abierto sin conexión (con la copia de la última vez)
+  let V5 = true;           // la base tiene registrar_venta_sin_internet
+
+  const leerLS = (k, def) => { try { const v = JSON.parse(localStorage.getItem(k) || "null"); return v ?? def; } catch { return def; } };
+  const ponerLS = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
+
+  const copia = {
+    leer: () => leerLS(LS_COPIA, {}),
+    poner(k, v) { const c = copia.leer(); c[k] = v; ponerLS(LS_COPIA, c); },
+    detalle(id, d) {
+      const c = copia.leer(), det = c.detalles || {};
+      det[id] = { ...d, t: Date.now() };
+      const ids = Object.keys(det).sort((a, b) => det[b].t - det[a].t);
+      ids.slice(60).forEach((x) => delete det[x]);          // solo las últimas 60 ventas abiertas
+      c.detalles = det; ponerLS(LS_COPIA, c);
+    },
+    borrar() { try { localStorage.removeItem(LS_COPIA); localStorage.removeItem(LS_PERMISO); } catch { /* */ } }
+  };
+
+  const cola = {
+    leer: () => { const l = leerLS(LS_COLA, []); return Array.isArray(l) ? l : []; },
+    escribir: (l) => ponerLS(LS_COLA, l),
+    buscar: (id) => cola.leer().find((r) => r.id === id),
+    guardar(rec) { const l = cola.leer(), i = l.findIndex((r) => r.id === rec.id); if (i >= 0) l[i] = rec; else l.push(rec); return cola.escribir(l); },
+    quitar(id) { cola.escribir(cola.leer().filter((r) => r.id !== id)); }
+  };
+  const numTemporal = () => { const n = (Number(leerLS(LS_NUM, 0)) || 0) + 1; ponerLS(LS_NUM, n); return "SIN-" + String(n).padStart(4, "0"); };
+
+  // consulta con respaldo: si no hay internet, devuelve la copia guardada
+  async function consulta(clave, q) {
+    if (SIN_RED) { const d = copia.leer()[clave]; return d !== undefined ? { data: d, error: null, deCopia: true } : { data: null, error: { message: "Failed to fetch" } }; }
+    let r;
+    try { r = await q; } catch (e) { r = { data: null, error: e }; }
+    if (!r.error) { copia.poner(clave, r.data); return r; }
+    if (U.esErrorRed(r.error)) { const d = copia.leer()[clave]; if (d !== undefined) return { data: d, error: null, deCopia: true }; }
+    return r;
+  }
+
+  function conTiempo(p, ms) {
+    return Promise.race([Promise.resolve(p), new Promise((_, rej) => setTimeout(() => rej({ message: "timeout" }), ms))]);
+  }
+
+  function estadoRedPanel() {
+    const n = cola.leer().filter((r) => !r.error).length;
+    if (!navigator.onLine) {
+      U.banda(`Sin internet. Puede hacer ventas nuevas e imprimirlas: se guardan en esta compu y se envían solas cuando vuelva la conexión.${n ? ` Por enviar: ${n}.` : ""}`);
+    } else if (SIN_RED) {
+      U.banda(`Volvió el internet.${n ? ` Entre de nuevo para enviar ${n === 1 ? "la venta guardada" : `las ${n} ventas guardadas`}.` : ""}`, "ok", { texto: "Entrar", accion: () => location.reload() });
+    } else {
+      const b = $("#bandaRed");
+      if (b && !b.hidden && !b.dataset.fija) U.banda("");
+      enviarCola();
+    }
+  }
 
   // =========================================================
   //  ACCESO: contraseña → (registrar MFA) → código → panel
   // =========================================================
   async function siguientePaso() {
-    const { data: { session } } = await db.auth.getSession();
+    let session = null;
+    try { ({ data: { session } } = await db.auth.getSession()); } catch { /* sin conexión */ }
+    if (!navigator.onLine) return entrarSinRed();
     if (!session) return vista("vLogin");
 
-    const reg = await db.rpc("soy_admin_registrado");
+    let reg;
+    try { reg = await conTiempo(db.rpc("soy_admin_registrado"), 12000); } catch (e) { reg = { error: e }; }
+    if (reg.error && U.esErrorRed(reg.error)) return entrarSinRed();
     if (reg.error || reg.data !== true) return vista("vSinPermiso");
 
     const { data: aal, error: aErr } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
@@ -88,7 +152,20 @@
     siguientePaso();
   }
 
+  // Sin internet solo entra si en este aparato ya se entró con internet (contraseña + código) en las últimas horas
+  function entrarSinRed() {
+    const p = leerLS(LS_PERMISO, null), c = copia.leer();
+    if (p && p.hasta > Date.now() && Array.isArray(c.ventas)) return abrirPanel({ email: p.email }, true);
+    vista("vLogin");
+    $("#loginMsg").textContent = "No hay internet. Para poder usar el panel sin internet, primero entre una vez con internet en esta compu.";
+  }
+
   async function salir(motivo) {
+    if (!motivo) {
+      const n = cola.leer().length;
+      if (n && !confirm(`Hay ${n} venta(s) hechas sin internet que todavía no se han enviado. Quedan guardadas en esta compu y se envían la próxima vez que entre. ¿Salir?`)) return;
+      copia.borrar();      // al salir a propósito se borra la copia de ventas y clientes de esta compu
+    }
     try { await db.auth.signOut(); } catch { /* ya no hay sesión */ }
     location.replace(location.pathname + (motivo ? "?" + motivo : ""));
   }
@@ -130,20 +207,35 @@
   //  PANEL
   // =========================================================
   let panelListo = false;
-  async function abrirPanel(user) {
+  async function abrirPanel(user, sinRed = false) {
+    SIN_RED = sinRed;
     vista("vPanel");
-    $("#userEmail").textContent = user.email;
+    $("#userEmail").textContent = user.email || "";
+    if (!sinRed) ponerLS(LS_PERMISO, { email: user.email, hasta: Date.now() + HORAS_SIN_RED * 3600 * 1000 });
     if (panelListo) return;
     panelListo = true;
     vigilarInactividad();
     pintarDiasHorario();
-    V4 = !(await db.from("avisos").select("id").limit(1)).error;
+    if (sinRed) V4 = !!copia.leer().v4;
+    else {
+      let r;
+      try { r = await db.from("avisos").select("id").limit(1); } catch (e) { r = { error: e }; }
+      V4 = r.error && U.esErrorRed(r.error) ? !!copia.leer().v4 : !r.error;
+      if (!r.error || !U.esErrorRed(r.error)) copia.poner("v4", V4);
+    }
     document.documentElement.classList.toggle("sin-v4", !V4);
     $("#avisoV4").hidden = V4;
     await cargarCategorias();
-    await Promise.all([cargarProductos(), cargarAjustes(), contarPorVerificar(), V4 ? cargarAvisos() : null]);
+    await Promise.all([cargarProductos(), cargarAjustes(), contarPorVerificar(), V4 && !sinRed ? cargarAvisos() : null]);
     await cargarVentas();
-    setInterval(() => { if (!document.hidden && !$("#dlgVenta").open) { cargarVentas(); contarPorVerificar(); } }, 60000);
+    addEventListener("online", estadoRedPanel);
+    addEventListener("offline", estadoRedPanel);
+    estadoRedPanel();
+    setInterval(() => {
+      if (document.hidden) return;
+      enviarCola();
+      if (!SIN_RED && navigator.onLine && !$("#dlgVenta").open) { cargarVentas(); contarPorVerificar(); }
+    }, 60000);
   }
 
   // ---------- pestañas ----------
@@ -164,7 +256,7 @@
 
   // ---------- CATEGORÍAS ----------
   async function cargarCategorias() {
-    const { data, error } = await db.from("categorias").select("*").order("orden");
+    const { data, error } = await consulta("categorias", db.from("categorias").select("*").order("orden"));
     if (error) return toast(errTxt(error), true);
     categorias = data;
     $("#listaCat").innerHTML = categorias.map((c) => `
@@ -219,7 +311,7 @@
 
   // ---------- PRODUCTOS ----------
   async function cargarProductos() {
-    const { data, error } = await db.from("productos").select("*").order("nombre");
+    const { data, error } = await consulta("productos", db.from("productos").select("*").order("nombre"));
     if (error) return toast(errTxt(error), true);
     productos = data;
     pintarProductos();
@@ -420,7 +512,7 @@
   }
 
   async function cargarAjustes() {
-    const { data, error } = await db.from("ajustes").select("*");
+    const { data, error } = await consulta("ajustes", db.from("ajustes").select("*"));
     if (error) return toast(errTxt(error), true);
     const f = $("#formAjustes");
     ajustesCache = Object.fromEntries(data.map((r) => [r.clave, r.valor || ""]));
@@ -538,13 +630,16 @@
 
   // ---------- lista de ventas ----------
   async function cargarVentas() {
-    const { data, error } = await db.from("pedidos")
+    const { data, error, deCopia } = await consulta("ventas", db.from("pedidos")
       .select("id,codigo,origen,revisado,cliente_nombre,cliente_telefono,estado,estado_pago,total,pagado_registrado,pagado_verificado,created_at")
-      .order("created_at", { ascending: false }).limit(500);
-    if (error) return toast(errTxt(error), true);
+      .order("created_at", { ascending: false }).limit(500));
+    if (error) { pintarVentas(); return toast(errTxt(error), true); }
     ventas = data;
-    const cn = await db.from("comprobantes_cliente").select("pedido_id").eq("estado", "nuevo");
-    compNuevos = new Set((cn.data || []).map((r) => r.pedido_id));
+    if (!deCopia) {
+      let cn;
+      try { cn = await db.from("comprobantes_cliente").select("pedido_id").eq("estado", "nuevo"); } catch { cn = {}; }
+      compNuevos = new Set((cn.data || []).map((r) => r.pedido_id));
+    }
     const nuevos = ventas.filter(esNuevo).length;
     $("#badgeVen").hidden = $("#badgeNuevos").hidden = !nuevos;
     $("#badgeVen").textContent = $("#badgeNuevos").textContent = nuevos || "";
@@ -578,7 +673,23 @@
       todas: () => true
     }[filtroVenta];
     const lista = ventas.filter((v) => pasa(v) && (!q || v.codigo.toLowerCase().includes(q) || v.cliente_nombre.toLowerCase().includes(q)));
-    $("#listaVentas").innerHTML = lista.map((v) => {
+    const locales = cola.leer().filter((r) => !q || r.temp.toLowerCase().includes(q) || String(r.venta.cliente_nombre).toLowerCase().includes(q));
+    $("#listaVentas").innerHTML = locales.map((r) => {
+      const t = totalesLocal(r.venta);
+      return `<li class="fila fila--venta fila--local">
+        <span class="codigo">${U.esc(r.temp)}</span>
+        <div class="fila__txt">
+          <b>${U.esc(r.venta.cliente_nombre)}</b>
+          <small>${fechaCR(r.venta.fecha)}${r.venta.cliente_telefono ? " · " + U.esc(r.venta.cliente_telefono) : ""}</small>
+          <span class="etiquetas">
+            ${r.error ? `<span class="etq etq--error">No se pudo enviar: ${U.esc(r.error)}</span>` : '<span class="etq etq--por_verificar">Por enviar</span>'}
+            <span class="etq">Hecha sin internet</span>
+          </span>
+        </div>
+        <div class="fila__monto"><b>${fmt(t.total)}</b>${t.total - t.registrado > 0 ? `<small>Falta ${fmt(t.total - t.registrado)}</small>` : ""}</div>
+        <div class="fila__acc"><button type="button" class="btn btn--sm btn--linea" data-ver-local="${U.esc(r.id)}">Abrir</button></div>
+      </li>`;
+    }).join("") + (lista.map((v) => {
       const saldo = Math.max(0, v.total - v.pagado_verificado);
       return `<li class="fila fila--venta ${v.estado === "anulada" ? "fila--oculta" : ""}">
         <span class="codigo">${U.esc(v.codigo)}</span>
@@ -596,7 +707,7 @@
         <div class="fila__monto"><b>${fmt(v.total)}</b>${v.estado !== "anulada" && saldo > 0 ? `<small>Falta ${fmt(saldo)}</small>` : ""}</div>
         <div class="fila__acc"><button type="button" class="btn btn--sm btn--linea" data-ver-venta="${v.id}">Abrir</button></div>
       </li>`;
-    }).join("") || `<li class="vacio-adm">${filtroVenta === "nuevos" ? "No hay pedidos nuevos. Los pedidos que hagan los clientes en la página aparecen aquí." : filtroVenta === "todas" ? "Todavía no hay ventas." : "No hay ventas en este grupo."}</li>`;
+    }).join("") || (locales.length ? "" : `<li class="vacio-adm">${filtroVenta === "nuevos" ? "No hay pedidos nuevos. Los pedidos que hagan los clientes en la página aparecen aquí." : filtroVenta === "todas" ? "Todavía no hay ventas." : "No hay ventas en este grupo."}</li>`));
   }
 
   $("#filtroVentas").addEventListener("click", (e) => {
@@ -607,12 +718,15 @@
     pintarVentas();
   });
   $("#vBuscar").addEventListener("input", pintarVentas);
-  $("#listaVentas").addEventListener("click", (e) => { const b = e.target.closest("[data-ver-venta]"); if (b) abrirVenta(Number(b.dataset.verVenta)); });
+  $("#listaVentas").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-ver-venta]"); if (b) return abrirVenta(Number(b.dataset.verVenta));
+    const l = e.target.closest("[data-ver-local]"); if (l) abrirLocal(l.dataset.verLocal);
+  });
   $("#btnNuevaVenta").addEventListener("click", () => abrirBorrador({ cliente_nombre: "", cliente_telefono: "", items: [] }));
 
   // ---------- abrir / borrador ----------
   function abrirBorrador(b) {
-    V = { pedido: null, items: b.items, pagos: [], comps: [], dirty: true };
+    V = { pedido: null, items: b.items, pagos: [], comps: [], dirty: true, uuid: crypto.randomUUID() };
     const f = $("#formVenta");
     f.cliente_nombre.value = b.cliente_nombre || "";
     f.cliente_telefono.value = b.cliente_telefono || "";
@@ -622,16 +736,36 @@
     f.cliente_nombre.focus();
   }
 
+  function abrirDeCopia(id) {
+    const det = (copia.leer().detalles || {})[id];
+    if (!det) { toast("Sin internet: esta venta no se ha abierto antes en esta compu. Se podrá ver cuando vuelva la conexión.", true); return; }
+    V = { pedido: det.pedido, items: det.items.map((i) => ({ ...i })), pagos: det.pagos, comps: [], factura: det.factura || null, dirty: false, soloLectura: true };
+    const f = $("#formVenta");
+    f.cliente_nombre.value = det.pedido.cliente_nombre;
+    f.cliente_telefono.value = det.pedido.cliente_telefono || "";
+    f.nota.value = det.pedido.nota || "";
+    pintarVenta();
+    if (!$("#dlgVenta").open) $("#dlgVenta").showModal();
+  }
+
   async function abrirVenta(id) {
-    const [p, it, pg, cc] = await Promise.all([
-      db.from("pedidos").select("*").eq("id", id).single(),
-      db.from("pedido_items").select("*").eq("pedido_id", id).order("id"),
-      db.from("pagos").select("*").eq("pedido_id", id).order("fecha"),
-      db.from("comprobantes_cliente").select("*").eq("pedido_id", id).order("id")
-    ]);
-    if (p.error || it.error || pg.error || cc.error) return toast(errTxt(p.error || it.error || pg.error || cc.error), true);
-    const fac = V4 ? await db.from("facturas").select("*").eq("pedido_id", id).maybeSingle() : { data: null };
+    if (SIN_RED) return abrirDeCopia(id);
+    let p, it, pg, cc;
+    try {
+      [p, it, pg, cc] = await Promise.all([
+        db.from("pedidos").select("*").eq("id", id).single(),
+        db.from("pedido_items").select("*").eq("pedido_id", id).order("id"),
+        db.from("pagos").select("*").eq("pedido_id", id).order("fecha"),
+        db.from("comprobantes_cliente").select("*").eq("pedido_id", id).order("id")
+      ]);
+    } catch (e) { p = { error: e }; }
+    const fallo = p.error || it?.error || pg?.error || cc?.error;
+    if (fallo && U.esErrorRed(fallo)) return abrirDeCopia(id);
+    if (fallo) return toast(errTxt(fallo), true);
+    let fac = { data: null };
+    if (V4) { try { fac = await db.from("facturas").select("*").eq("pedido_id", id).maybeSingle(); } catch { fac = { data: null }; } }
     V = { pedido: p.data, items: it.data.map((i) => ({ ...i })), pagos: pg.data, comps: cc.data, factura: fac.data || null, dirty: false };
+    copia.detalle(id, { pedido: p.data, items: it.data, pagos: pg.data, factura: fac.data || null });
     if (!p.data.revisado) {
       db.from("pedidos").update({ revisado: true }).eq("id", id).then(({ error }) => { if (!error) { const v = ventas.find((x) => x.id === id); if (v) v.revisado = true; } });
     }
@@ -643,13 +777,83 @@
     if (!$("#dlgVenta").open) $("#dlgVenta").showModal();
   }
 
-  const itemsEditables = () => !V.pedido || (V.pedido.estado === "abierta" && Number(V.pedido.pagado_verificado) === 0);
+  const itemsEditables = () => !V.soloLectura && (!V.pedido || !!V.local || (V.pedido.estado === "abierta" && Number(V.pedido.pagado_verificado) === 0));
+
+  // ---------- ventas hechas sin internet (guardadas en esta compu) ----------
+  function totalesLocal(v) {
+    const total = (v.items || []).reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_unit) || 0), 0);
+    const registrado = (v.pagos || []).reduce((a, g) => a + Number(g.monto || 0), 0);
+    const verificado = (v.pagos || []).filter((g) => g.verificado).reduce((a, g) => a + Number(g.monto || 0), 0);
+    return { total, registrado, verificado };
+  }
+  function pedidoLocal(rec) {
+    const t = totalesLocal(rec.venta);
+    const estado_pago = t.registrado <= 0 ? "sin_pago" : t.registrado < t.total ? "parcial"
+      : t.verificado < t.registrado ? "por_verificar" : t.registrado > t.total ? "sobrepago" : "pagado";
+    return { id: null, codigo: rec.temp, estado: "abierta", estado_pago, total: t.total, pagado_registrado: t.registrado, pagado_verificado: t.verificado,
+      cliente_nombre: rec.venta.cliente_nombre, cliente_telefono: rec.venta.cliente_telefono, nota: rec.venta.nota, created_at: rec.venta.fecha, local: true };
+  }
+  function abrirLocal(id) {
+    const rec = cola.buscar(id);
+    if (!rec) { toast("Esa venta ya se envió."); cargarVentas(); return; }
+    V = { local: rec.id, pedido: pedidoLocal(rec), items: rec.venta.items.map((i) => ({ ...i })), pagos: rec.venta.pagos || [], comps: [], factura: null, dirty: false };
+    const f = $("#formVenta");
+    f.cliente_nombre.value = rec.venta.cliente_nombre;
+    f.cliente_telefono.value = rec.venta.cliente_telefono || "";
+    f.nota.value = rec.venta.nota || "";
+    pintarVenta();
+    if (!$("#dlgVenta").open) $("#dlgVenta").showModal();
+  }
+  function guardarLocal(d, items) {
+    const viejo = V.local ? cola.buscar(V.local) : null;
+    const rec = viejo
+      ? { ...viejo, error: null, venta: { ...viejo.venta, ...d, items } }
+      : { id: V.uuid || crypto.randomUUID(), temp: numTemporal(), venta: { ...d, fecha: new Date().toISOString(), items, pagos: [] } };
+    if (!cola.guardar(rec)) { $("#ventaMsg").textContent = "No hay espacio en esta compu para guardar la venta."; return false; }
+    toast(navigator.onLine && !SIN_RED ? "Venta guardada en esta compu. Se enviará en un momento." : "Sin internet: venta guardada en esta compu. Se enviará sola cuando vuelva la conexión.");
+    abrirLocal(rec.id);
+    pintarVentas();
+    estadoRedPanel();
+    return true;
+  }
+
+  let enviandoCola = false;
+  async function enviarCola() {
+    if (SIN_RED || enviandoCola || !navigator.onLine || !V5) return;
+    const l = cola.leer().filter((r) => !r.error);
+    if (!l.length) return;
+    enviandoCola = true;
+    let ok = 0, malas = 0;
+    try {
+      for (const rec of l) {
+        if (V && V.local === rec.id && V.dirty) continue;          // la está editando: se manda después
+        let r;
+        try { r = await conTiempo(db.rpc("registrar_venta_sin_internet", { p_id: rec.id, p_venta: rec.venta }), 20000); } catch (e) { r = { error: e }; }
+        if (r.error && U.esErrorRed(r.error)) break;
+        if (r.error && r.error.code === "PGRST202") {
+          V5 = false;
+          U.banda("Hay ventas hechas sin internet, pero falta correr supabase/v5_sin_internet.sql en Supabase para poder enviarlas.");
+          $("#bandaRed").dataset.fija = "1";
+          break;
+        }
+        if (r.error) { cola.guardar({ ...rec, error: errTxt(r.error) }); malas++; continue; }
+        cola.quitar(rec.id); ok++;
+        if (V && V.local === rec.id && $("#dlgVenta").open) await abrirVenta(r.data.id);
+      }
+    } finally { enviandoCola = false; }
+    if (ok) { toast(ok === 1 ? "Se envió 1 venta hecha sin internet." : `Se enviaron ${ok} ventas hechas sin internet.`); await cargarVentas(); }
+    if (malas) toast(`${malas === 1 ? "Una venta" : malas + " ventas"} sin internet no se pudo enviar. Ábrala en la lista para corregirla.`, true);
+    if (ok || malas) pintarVentas();
+  }
 
   function pintarVenta() {
     const p = V.pedido, edit = itemsEditables();
     $("#ventaTitulo").textContent = p ? p.cliente_nombre : "Nueva venta";
     $("#ventaCodigo").textContent = p ? p.codigo : "";
-    $("#ventaEstado").innerHTML = p
+    $("#ventaEstado").innerHTML = V.local
+      ? `<span class="etq etq--por_verificar">Por enviar</span> <span class="etq">Hecha sin internet</span>${cola.buscar(V.local)?.error ? ` <span class="etq etq--error">${U.esc(cola.buscar(V.local).error)}</span>` : ""}`
+      : V.soloLectura ? `<span class="etq">Sin internet: copia de la última conexión, solo para ver</span>`
+      : p
       ? (p.estado === "anulada" ? `<span class="etq">Anulada</span> ${U.esc(p.motivo_anulacion || "")}`
         : `<span class="etq etq--${p.estado_pago}">${ETQ_PAGO[p.estado_pago]}</span>${p.estado === "entregada" ? ` <span class="etq etq--ok">Entregada ${fechaCR(p.entregada_at, { dateStyle: "short" })}</span>` : ""}`)
       : "Sin guardar";
@@ -669,8 +873,8 @@
       productos.filter((x) => x.activo).map((x) => `<option value="${x.id}">${U.esc(x.nombre)}${x.precio != null ? " — " + fmt(x.precio) : ""}</option>`).join("");
 
     const cerrada = p && p.estado !== "abierta";
-    $("#btnGuardarVenta").hidden = !!(p && p.estado === "anulada");
-    $("#btnCobrarWa").hidden = !p || p.estado === "anulada" || (Number(p.total) > 0 && Number(p.pagado_registrado) >= Number(p.total));
+    $("#btnGuardarVenta").hidden = !!(p && p.estado === "anulada") || !!V.soloLectura;
+    $("#btnCobrarWa").hidden = !p || !!V.local || !!V.soloLectura || p.estado === "anulada" || (Number(p.total) > 0 && Number(p.pagado_registrado) >= Number(p.total));
     $("#ventaMsg").textContent = "";
 
     // comprobantes enviados por el cliente
@@ -693,8 +897,10 @@
 
     // pagos
     $("#ventaSaldo").textContent = p ? `· Total ${fmt(p.total)} · Registrado ${fmt(p.pagado_registrado)} · Verificado ${fmt(p.pagado_verificado)}` : "";
-    $("#pagosVenta").innerHTML = p ? (V.pagos.map(pagoHTML).join("") || `<li class="vacio-adm">Sin pagos registrados.</li>`) : `<li class="vacio-adm">Guarde la venta para registrar pagos.</li>`;
-    $("#boxPago").hidden = !p || p.estado === "anulada";
+    $("#pagosVenta").innerHTML = p ? (V.pagos.map(V.local ? pagoLocalHTML : pagoHTML).join("") || `<li class="vacio-adm">Sin pagos registrados.</li>`) : `<li class="vacio-adm">Guarde la venta para registrar pagos.</li>`;
+    $("#dlgVenta").classList.toggle("solo-ver", !!V.soloLectura);
+    $$("#formVenta input").forEach((i) => (i.disabled = !!V.soloLectura));
+    $("#boxPago").hidden = !p || p.estado === "anulada" || !!V.soloLectura;
     $("#boxPago").open = false;
     const saldoReg = p ? Math.max(0, p.total - p.pagado_registrado) : 0;
     const fp = $("#formPago");
@@ -708,25 +914,50 @@
     fp.comprobante.disabled = false;
     $("#pagoMsg").textContent = "";
 
-    $("#btnEntregar").hidden = !p || cerrada;
+    $("#btnEntregar").hidden = !p || cerrada || !!V.local || !!V.soloLectura;
+    $("#formPago").comprobante.disabled = !!V.local;
 
     // entrega, listo y factura
     const ent = $("#ventaEntrega");
     ent.hidden = !p || !V4;
-    if (p && V4) {
+    if (V.local || V.soloLectura) ent.hidden = true;
+    else if (p && V4) {
       ent.innerHTML = (p.entrega === "envio"
         ? `<b>Envío a ${U.esc(p.zona || "domicilio")}</b>${p.direccion ? ": " + U.esc(p.direccion) : ""}`
         : "<b>Retira en el almacén</b>") +
         (p.listo_at ? ` <span class="etq etq--ok">Listo desde ${fechaCR(p.listo_at, { dateStyle: "short", timeStyle: "short" })}</span>` : "");
     }
-    $("#btnListo").hidden = !p || p.estado !== "abierta" || !V4;
+    $("#btnListo").hidden = !p || p.estado !== "abierta" || !V4 || !!V.local || !!V.soloLectura;
     $("#btnListo").textContent = p?.listo_at ? "Avisar otra vez que está listo" : "Avisar que está listo";
-    $("#boxFactura").hidden = !p || !V4;
-    if (p && V4) pintarFactura();
-    $("#btnAnularVenta").hidden = !p || p.estado === "anulada";
+    $("#boxFactura").hidden = !p || !V4 || !!V.local || !!V.soloLectura;
+    if (p && V4 && !V.local && !V.soloLectura) pintarFactura();
+    $("#btnAnularVenta").hidden = !p || p.estado === "anulada" || !!V.local || !!V.soloLectura;
     $(".imprimir").hidden = !p;
-    $("#btnBorrarVenta").hidden = !p || p.estado !== "abierta" || V.pagos.length > 0;
+    $("#btnBorrarVenta").hidden = V.local ? false : (!p || p.estado !== "abierta" || V.pagos.length > 0 || !!V.soloLectura);
   }
+
+  function pagoLocalHTML(g, n) {
+    return `<li class="pago">
+      <div class="pago__monto">${fmt(g.monto)}<small>${ETQ_METODO[g.metodo] || U.esc(g.metodo)}</small></div>
+      <div class="pago__datos">
+        ${g.referencia ? `<span>Comprobante <b>${U.esc(g.referencia)}</b></span>` : ""}
+        ${g.nombre_origen || g.telefono_origen ? `<span>De ${U.esc(g.nombre_origen || "")} ${U.esc(g.telefono_origen || "")}</span>` : ""}
+        <span>${fechaCR(g.fecha)}</span>
+        <span>${g.verificado ? '<span class="etq etq--pagado">Recibido</span>' : '<span class="etq etq--por_verificar">Por verificar</span>'} <small>se envía con la venta</small></span>
+      </div>
+      <div class="pago__acc"><button type="button" class="enlace enlace--peligro" data-quitar-pago-local="${n}">Quitar</button></div>
+    </li>`;
+  }
+  $("#pagosVenta").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-quitar-pago-local]");
+    if (!b || !V.local) return;
+    e.stopImmediatePropagation();
+    if (!confirm("¿Quitar este pago? La venta todavía no se ha enviado.")) return;
+    const rec = cola.buscar(V.local); if (!rec) return;
+    rec.venta.pagos.splice(Number(b.dataset.quitarPagoLocal), 1);
+    rec.error = null;
+    cola.guardar(rec); abrirLocal(rec.id); pintarVentas();
+  });
 
   function pagoHTML(g) {
     const estado = g.anulado
@@ -800,9 +1031,26 @@
     if (!items.length) { msg.textContent = "Agregue al menos un producto."; return false; }
     if (items.some((i) => i.precio_unit === 0) && !confirm("Hay renglones con precio ₡0. ¿Guardar así?")) return false;
 
+    if (V.soloLectura) return false;
+    // venta hecha sin internet que todavía no se envía: se actualiza en la compu
+    if (V.local) return guardarLocal(d, items);
+    // venta nueva sin conexión: se guarda en la compu
+    if (!V.pedido && (SIN_RED || !navigator.onLine)) return guardarLocal(d, items);
+
     const btn = $("#btnGuardarVenta");
     btn.disabled = true; msg.textContent = "";
     try {
+      // venta nueva: se manda de una sola vez con su identificador; si el internet se cae
+      // a medio camino queda en la compu y al reenviarla no se duplica
+      if (!V.pedido && V5) {
+        const venta = { ...d, fecha: new Date().toISOString(), items, pagos: [] };
+        let r;
+        try { r = await conTiempo(db.rpc("registrar_venta_sin_internet", { p_id: V.uuid, p_venta: venta }), 15000); } catch (e) { r = { error: e }; }
+        if (r.error && U.esErrorRed(r.error)) return guardarLocal(d, items);
+        if (r.error && r.error.code === "PGRST202") V5 = false;        // base sin v5: se guarda como antes
+        else if (r.error) throw r.error;
+        else { toast("Venta guardada"); await abrirVenta(r.data.id); cargarVentas(); return true; }
+      }
       let id = V.pedido?.id;
       if (!id) {
         const r = await db.from("pedidos").insert(d).select("id").single();
@@ -981,6 +1229,21 @@
     if (!d.fecha) { msg.textContent = "Indique la fecha del pago."; return; }
     const saldo = p.total - p.pagado_registrado;
     if (d.monto > saldo + 0.001 && !confirm(`El monto (${fmt(d.monto)}) es mayor que lo que falta (${fmt(Math.max(0, saldo))}). ¿Registrar igual?`)) return;
+    if (V.local) {
+      const rec = cola.buscar(V.local);
+      if (!rec) return;
+      if (V.dirty) { msg.textContent = "Primero guarde los cambios de la venta."; return; }
+      const usada = d.referencia && cola.leer().some((r) => (r.venta.pagos || []).some((g) => g.metodo === d.metodo && String(g.referencia || "").toUpperCase() === d.referencia.toUpperCase()));
+      if (usada) { msg.textContent = "¡Alerta! Ese comprobante ya está en otra venta guardada sin internet."; return; }
+      const { pedido_id, ...pago } = d;
+      rec.venta.pagos = [...(rec.venta.pagos || []), pago];
+      rec.error = null;
+      cola.guardar(rec);
+      f.reset();
+      toast("Pago anotado. Se envía con la venta cuando haya internet.");
+      abrirLocal(rec.id); pintarVentas();
+      return;
+    }
     if (d.verificado && !confirm(`¿Confirma que ve ${fmt(d.monto)} con el comprobante ${d.referencia || "(sin número)"} en la app del banco?`)) return;
 
     const btn = $("#btnGuardarPago");
@@ -1101,6 +1364,14 @@
   });
 
   $("#btnBorrarVenta").addEventListener("click", async () => {
+    if (V.local) {
+      if (!confirm("¿Borrar esta venta hecha sin internet? Todavía no se ha enviado, así que se pierde.")) return;
+      cola.quitar(V.local);
+      $("#dlgVenta").close();
+      toast("Venta borrada");
+      pintarVentas(); estadoRedPanel();
+      return;
+    }
     if (!confirm("¿Borrar esta venta? No tiene pagos.")) return;
     const { error } = await db.from("pedidos").delete().eq("id", V.pedido.id);
     if (error) return toast(errTxt(error), true);
@@ -1111,7 +1382,9 @@
 
   // ---------- caja SINPE ----------
   async function contarPorVerificar() {
-    const { count } = await db.from("pagos").select("id", { count: "exact", head: true }).eq("verificado", false).eq("anulado", false);
+    if (SIN_RED || !navigator.onLine) return;
+    let count = 0;
+    try { ({ count } = await db.from("pagos").select("id", { count: "exact", head: true }).eq("verificado", false).eq("anulado", false)); } catch { return; }
     $("#badgeCaja").hidden = !count;
     $("#badgeCaja").textContent = count || "";
   }
@@ -1214,6 +1487,7 @@
       </div>
       <div class="r-lin"></div>
       ${p.estado === "anulada" ? `<div class="r-anulada">ANULADA</div>` : ""}
+      ${p.local ? `<div class="r-centro r-peq">Venta hecha sin internet. Número temporal: el código final se asigna al enviarla.</div>` : ""}
       ${fila("Pedido", `<b>${U.esc(p.codigo)}</b>`)}
       ${fila("Fecha", fechaCR(p.created_at, { dateStyle: "short", timeStyle: "short" }))}
       ${fila("Cliente", U.esc(p.cliente_nombre))}
@@ -1527,5 +1801,6 @@
     }
   });
 
+  U.registrarCopia();
   initAcceso();
 })();

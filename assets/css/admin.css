@@ -352,3 +352,9 @@ html:not(.panel-ok) body { visibility: hidden; }
   .columnas__ejes { left: 3rem; }
   .columna__mes { font-size: .68rem; transform: rotate(-45deg); transform-origin: top right; right: 50%; bottom: -1.2rem; }
 }
+
+/* ---------- sin internet ---------- */
+.fila--local { background: var(--fondo-2); }
+.etq--error { background: #fff; color: var(--peligro); border-color: var(--peligro); }
+#dlgVenta.solo-ver .pago__acc,
+#dlgVenta.solo-ver #boxCompCliente .pago__acc { display: none; }

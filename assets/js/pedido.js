@@ -82,7 +82,7 @@
     btn.disabled = true;
     const { data, error } = await db.rpc("consultar_pedido", { p_codigo: codigo, p_telefono: tel });
     btn.disabled = false;
-    if (error) { err.textContent = "No se pudo consultar. Revise su conexión e intente de nuevo."; return; }
+    if (error) { err.textContent = U.esErrorRed(error) ? "No hay internet. Su pedido se puede consultar cuando vuelva la conexión." : "No se pudo consultar. Intente de nuevo."; return; }
     if (!data.ok) { err.textContent = data.error; $("#resultado").hidden = true; return; }
     actual = { codigo, tel, datos: data };
     U.guardarPedidoLocal(codigo, tel);
@@ -128,7 +128,10 @@
     const locales = U.pedidosLocales();
     pintarRecientes();
 
-    if (db) {
+    U.registrarCopia();
+    const red = () => U.banda(navigator.onLine ? "" : "Sin internet. Su pedido se puede consultar cuando vuelva la conexión.");
+    addEventListener("online", red); addEventListener("offline", red); red();
+    if (db && navigator.onLine) {
       const a = await db.from("ajustes").select("clave,valor").in("clave", ["whatsapp"]);
       const w = a.data?.find((r) => r.clave === "whatsapp")?.valor;
       if (w) waNum = w;
