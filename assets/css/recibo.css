@@ -1,0 +1,32 @@
+/* Recibo para imprimir (solo aparece al imprimir una venta) */
+.recibo { display: none; }
+
+.imprimir { display: inline-flex; gap: .4rem; align-items: center; }
+.imprimir select { width: auto; min-height: 2.6rem; padding: .3rem .6rem; }
+
+@media print {
+  body:has(#recibo:not(:empty)) > *:not(#recibo),
+  body:has(#recibo:not(:empty)) dialog { display: none !important; }
+  body:has(#recibo:not(:empty)) { background: #fff !important; margin: 0 !important; padding: 0 !important; }
+  .recibo:not(:empty) { display: block; }
+  dialog::backdrop { display: none; }
+}
+
+.recibo { color: #000; background: #fff; font-family: "Barlow", Arial, Helvetica, sans-serif; line-height: 1.35; }
+.recibo * { color: #000 !important; }
+.recibo b { font-weight: 700; }
+.r-cab { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.r-logo { width: 18mm; height: 18mm; filter: grayscale(1) contrast(1.4); margin-bottom: 1mm; }
+.r-neg { font-family: "Barlow Condensed", "Arial Narrow", Arial, sans-serif; font-size: 1.45em; letter-spacing: .01em; line-height: 1.1; }
+.r-lin { border-top: 1px dashed #000; margin: 2mm 0; }
+.r-fila { display: flex; justify-content: space-between; gap: 2mm; }
+.r-fila > :last-child { text-align: right; }
+.r-item { margin-bottom: 1.2mm; break-inside: avoid; }
+.r-item__desc { font-weight: 600; }
+.r-total { font-size: 1.35em; font-weight: 700; margin-top: 1mm; }
+.r-tit { font-weight: 700; margin-bottom: .5mm; }
+.r-peq { font-size: .88em; }
+.r-centro { text-align: center; }
+.r-clave { word-break: break-all; font-size: .85em; }
+.r-anulada { border: 2px solid #000; text-align: center; font-weight: 700; font-size: 1.3em; padding: 1mm; margin: 2mm 0; letter-spacing: .1em; }
+.imprimir[hidden] { display: none; }

@@ -1,0 +1,4 @@
+/* Impresora normal, hoja carta */
+@page { size: letter; margin: 15mm; }
+.recibo { width: auto; max-width: 150mm; margin: 0 auto; font-size: 13px; }
+.recibo .r-logo { width: 22mm; height: 22mm; }

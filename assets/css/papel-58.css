@@ -1,0 +1,4 @@
+/* Impresora térmica de 58 mm (zona imprimible ~48 mm) */
+@page { margin: 0; }
+.recibo { width: 48mm; padding: 2mm 1mm 6mm; font-size: 10px; }
+.recibo .r-logo { width: 14mm; height: 14mm; }

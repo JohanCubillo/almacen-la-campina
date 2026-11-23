@@ -724,6 +724,7 @@
     $("#boxFactura").hidden = !p || !V4;
     if (p && V4) pintarFactura();
     $("#btnAnularVenta").hidden = !p || p.estado === "anulada";
+    $(".imprimir").hidden = !p;
     $("#btnBorrarVenta").hidden = !p || p.estado !== "abierta" || V.pagos.length > 0;
   }
 
@@ -1168,7 +1169,88 @@
     if (b.dataset.verificar) { if (await verificarPago(b.dataset.verificar, b.dataset.monto, b.dataset.ref)) cargarCaja(); }
     if (b.dataset.verVenta) abrirVenta(Number(b.dataset.verVenta));
   }));
-  $("#dlgVenta").addEventListener("close", () => { if (!$("#tCaja").hidden) cargarCaja(); });
+  $("#dlgVenta").addEventListener("close", () => { if (!$("#tCaja").hidden) cargarCaja(); $("#recibo").replaceChildren(); });
+
+  // ---------- imprimir recibo ----------
+  const PAPELES = { "80": "assets/css/papel-80.css", "58": "assets/css/papel-58.css", carta: "assets/css/papel-carta.css" };
+  const TIPO_ID = { fisica: "Cédula física", juridica: "Cédula jurídica", dimex: "DIMEX", nite: "NITE" };
+  (function () {
+    let guardado = null;
+    try { guardado = localStorage.getItem("lc_papel"); } catch { /* sin almacenamiento */ }
+    $("#papel").value = PAPELES[guardado] ? guardado : "80";
+  })();
+  $("#papel").addEventListener("change", (e) => { try { localStorage.setItem("lc_papel", e.target.value); } catch { /* sin almacenamiento */ } });
+
+  function reciboHTML() {
+    const p = V.pedido, aj = ajustesCache, fac = V.factura;
+    const fila = (a, b) => `<div class="r-fila"><span>${a}</span><span>${b}</span></div>`;
+    const tels = [aj.telefono || C.TELEFONO, aj.telefono2 || C.TELEFONO2].filter(Boolean).map(U.esc).join(" / ");
+    const items = V.items.map((i) => `<div class="r-item">
+        <div class="r-item__desc">${U.esc(i.descripcion)}</div>
+        ${fila(`${Number(i.cantidad).toLocaleString("es-CR")} × ${fmt(i.precio_unit)}`, fmt(i.cantidad * i.precio_unit))}
+      </div>`).join("");
+    const pagos = V.pagos.filter((g) => !g.anulado);
+    const saldo = Math.max(0, Number(p.total) - Number(p.pagado_registrado));
+    let entrega = "";
+    if (V4 && p.entrega === "envio") entrega = fila("Entrega", `Envío a ${U.esc(p.zona || "domicilio")}`) + (p.direccion ? `<div class="r-peq">${U.esc(p.direccion)}</div>` : "");
+    else if (V4) entrega = fila("Entrega", "Retira en el almacén");
+    let factura = "";
+    if (fac) {
+      factura = `<div class="r-lin"></div><div class="r-tit">Datos para factura electrónica</div>
+        <div>${U.esc(fac.nombre)}</div>
+        <div>${U.esc(TIPO_ID[fac.tipo_id] || fac.tipo_id)} ${U.esc(fac.identificacion)}</div>
+        ${fac.correo ? `<div class="r-peq">${U.esc(fac.correo)}</div>` : ""}
+        ${fac.consecutivo ? fila("Consecutivo", U.esc(fac.consecutivo)) : ""}
+        ${fac.clave ? `<div class="r-peq">Clave</div><div class="r-clave">${U.esc(fac.clave)}</div>` : ""}
+        <div class="r-peq">Estado: ${U.esc(ETQ_FAC[fac.estado] || fac.estado)}</div>`;
+    }
+    const valeFactura = fac && fac.estado === "aceptada";
+    return `
+      <div class="r-cab">
+        <img class="r-logo" src="assets/img/emblema-redondo.png" alt="" />
+        <b class="r-neg">${U.esc(C.NEGOCIO)}</b>
+        <span class="r-peq">${U.esc(aj.direccion || C.DIRECCION)}</span>
+        ${tels ? `<span class="r-peq">Tel. ${tels}</span>` : ""}
+      </div>
+      <div class="r-lin"></div>
+      ${p.estado === "anulada" ? `<div class="r-anulada">ANULADA</div>` : ""}
+      ${fila("Pedido", `<b>${U.esc(p.codigo)}</b>`)}
+      ${fila("Fecha", fechaCR(p.created_at, { dateStyle: "short", timeStyle: "short" }))}
+      ${fila("Cliente", U.esc(p.cliente_nombre))}
+      ${p.cliente_telefono ? fila("Teléfono", U.esc(U.fmtTel(p.cliente_telefono))) : ""}
+      ${entrega}
+      <div class="r-lin"></div>
+      ${items || "<div>Sin productos</div>"}
+      <div class="r-lin"></div>
+      <div class="r-fila r-total"><span>Total</span><span>${fmt(p.total)}</span></div>
+      ${pagos.length ? fila("Pagado", fmt(p.pagado_registrado)) : ""}
+      ${p.estado !== "anulada" ? fila(saldo > 0 ? "<b>Saldo pendiente</b>" : "Saldo", saldo > 0 ? `<b>${fmt(saldo)}</b>` : "Cancelado") : ""}
+      ${pagos.length ? `<div class="r-lin"></div><div class="r-tit">Pagos</div>` + pagos.map((g) =>
+        fila(`${U.esc(ETQ_METODO[g.metodo] || g.metodo)} ${fechaCR(g.fecha, { dateStyle: "short" })}${g.referencia ? `<br><span class="r-peq">Comp. ${U.esc(g.referencia)}</span>` : ""}`, fmt(g.monto))).join("") : ""}
+      ${p.nota ? `<div class="r-lin"></div><div class="r-peq">Nota: ${U.esc(p.nota)}</div>` : ""}
+      ${factura}
+      <div class="r-lin"></div>
+      ${valeFactura ? "" : `<div class="r-centro r-peq">Comprobante de venta. No es factura electrónica.</div>`}
+      <div class="r-centro"><b>¡Gracias por su compra!</b></div>
+      <div class="r-centro r-peq">Impreso ${fechaCR(new Date().toISOString(), { dateStyle: "short", timeStyle: "short" })}</div>`;
+  }
+
+  // espera a que cargue el estilo del papel y el logo antes de mandar a imprimir
+  const esperar = (el, ok) => new Promise((res) => { if (ok) return res(); const t = setTimeout(res, 2500); el.addEventListener("load", () => { clearTimeout(t); res(); }, { once: true }); el.addEventListener("error", () => { clearTimeout(t); res(); }, { once: true }); });
+
+  $("#btnImprimir").addEventListener("click", async () => {
+    if (!V || !V.pedido) return;
+    if (V.dirty) { toast("Primero guarde los cambios de la venta.", true); return; }
+    const papel = PAPELES[$("#papel").value] ? $("#papel").value : "80";
+    const css = $("#papelCss"), cambia = css.getAttribute("href") !== PAPELES[papel];
+    const listoCss = esperar(css, !cambia);
+    if (cambia) css.setAttribute("href", PAPELES[papel]);
+    const r = $("#recibo");
+    r.innerHTML = reciboHTML();
+    const img = r.querySelector("img");
+    await Promise.all([listoCss, esperar(img, img.complete)]);
+    window.print();
+  });
 
   // CSV (con protección contra fórmulas maliciosas al abrir en Excel)
   function csvCelda(v) {

@@ -14,6 +14,8 @@
   <meta name="apple-mobile-web-app-title" content="Panel La Campiña" />
   <link rel="stylesheet" href="assets/css/styles.css" />
   <link rel="stylesheet" href="assets/css/admin.css" />
+  <link rel="stylesheet" href="assets/css/recibo.css" />
+  <link rel="stylesheet" href="assets/css/papel-80.css" media="print" id="papelCss" />
 </head>
 <body class="adm">
 
@@ -392,6 +394,15 @@
         <button type="button" class="btn btn--negro" id="btnGuardarVenta">Guardar venta</button>
         <button type="button" class="btn btn--wa" id="btnCobrarWa">Enviar cobro por WhatsApp</button>
         <button type="button" class="btn btn--linea v4" id="btnListo">Avisar que está listo</button>
+        <span class="imprimir">
+          <button type="button" class="btn btn--linea" id="btnImprimir">Imprimir recibo</button>
+          <label class="sr" for="papel">Tamaño del papel</label>
+          <select id="papel">
+            <option value="80">Térmica 80 mm</option>
+            <option value="58">Térmica 58 mm</option>
+            <option value="carta">Hoja carta</option>
+          </select>
+        </span>
       </div>
       <p class="msg msg--error" id="ventaMsg" role="alert"></p>
 
@@ -485,6 +496,8 @@
   </dialog>
 
   <div class="aviso-toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <div id="recibo" class="recibo"></div>
 
   <script src="assets/vendor/supabase-2.119.2.js"></script>
   <script src="assets/js/config.js"></script>

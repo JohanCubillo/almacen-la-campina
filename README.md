@@ -61,6 +61,7 @@ Tienda: Agregar productos al carrito  ─►  Enviar pedido (nombre + teléfono)
 4. El pago queda **Por verificar** hasta que lo vea en la app del banco → **Ya lo vi en el banco** → venta **Pagada** → entregar.
 5. **Avisar que está listo**: abre WhatsApp con el mensaje para el cliente y en "Mi pedido" le sale *listo para recoger*.
 6. **Factura electrónica**: ver **FACTURACION.md**.
+7. **Imprimir recibo**: escoja el papel (térmica 80 mm, 58 mm u hoja carta; queda guardado) y se abre la ventana de imprimir. Sirve con cualquier impresora instalada en la compu o el celular. Es un comprobante de venta, no la factura de Hacienda.
 
 **Productos en Excel:** *Descargar en Excel* → editar → *Importar de Excel* (actualiza por nombre, crea lo nuevo y las categorías que falten; muestra antes qué va a pasar con cada fila). También acepta CSV.
 
