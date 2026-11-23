@@ -22,11 +22,11 @@
   };
 
   // ZIP sin compresión (válido para Excel, LibreOffice y Google Sheets)
-  function zip(archivos) {
+  function zip(archivos, tipo = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") {
     const partes = [], central = [];
     let offset = 0;
     for (const a of archivos) {
-      const nombre = enc.encode(a.nombre), datos = enc.encode(a.datos), crc = crc32(datos);
+      const nombre = enc.encode(a.nombre), datos = a.datos instanceof Uint8Array ? a.datos : enc.encode(a.datos), crc = crc32(datos);
       const lh = new DataView(new ArrayBuffer(30));
       lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true);
       lh.setUint16(8, 0, true); lh.setUint16(10, 0, true); lh.setUint16(12, 0x21, true);
@@ -46,8 +46,7 @@
     const fin = new DataView(new ArrayBuffer(22));
     fin.setUint32(0, 0x06054b50, true); fin.setUint16(8, archivos.length, true); fin.setUint16(10, archivos.length, true);
     fin.setUint32(12, tam, true); fin.setUint32(16, offset, true);
-    return new Blob([...partes, ...central, new Uint8Array(fin.buffer)],
-      { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    return new Blob([...partes, ...central, new Uint8Array(fin.buffer)], { type: tipo });
   }
 
   async function inflar(u8) {
@@ -204,5 +203,5 @@
     ]);
   }
 
-  window.XlsxMini = { leer, escribir };
+  window.XlsxMini = { leer, escribir, zip };
 })();

@@ -134,6 +134,14 @@ window.U = {
 
   // ---------- imágenes ----------
   // Reescala y re-codifica (también elimina datos EXIF/GPS). Devuelve un Blob.
+  // Comprobante: casi todo es letra, así que 1200 px en WebP se lee perfecto y pesa poco (≈60–120 KB).
+  // Si el navegador no sabe hacer WebP (iPhone viejo), JPG un poco más comprimido.
+  async achicarComprobante(file) {
+    const w = await U.comprimirImagen(file, 1200, "image/webp", 0.75);
+    if (w.type === "image/webp") return w;
+    return U.comprimirImagen(file, 1200, "image/jpeg", 0.72);
+  },
+
   // tipo del archivo aunque el teléfono no lo diga (pasa con fotos de iPhone o de la app Archivos)
   tipoArchivo(file) {
     if (file && file.type) return file.type;
@@ -168,20 +176,20 @@ window.U = {
     if (!esPdf && !/^image\//.test(tipo)) throw new Error("Adjunte una foto o un PDF del comprobante.");
     if (file.size > 20 * 1024 * 1024) throw new Error("El archivo es muy pesado.");
     let blob;
-    try { blob = esPdf ? file : await U.comprimirImagen(file); }
+    try { blob = esPdf ? file : await U.achicarComprobante(file); }
     catch {
       throw new Error(/heic|heif/.test(tipo)
         ? "La foto está en formato HEIC del iPhone y no se pudo abrir. Envíe mejor una captura de pantalla del comprobante."
         : "No se pudo abrir la foto. Envíe una captura de pantalla del comprobante.");
     }
     if (blob.size > 5 * 1024 * 1024) throw new Error("El comprobante pesa más de 5 MB. Envíe una foto más liviana.");
-    const ext = esPdf ? "pdf" : "jpg";
+    const ext = esPdf ? "pdf" : blob.type === "image/webp" ? "webp" : "jpg";
 
     const s = await db.rpc("solicitar_subida", { p_codigo: codigo, p_telefono: tel, p_ext: ext });
     if (s.error) throw new Error("No se pudo preparar la subida. Intente de nuevo.");
     if (!s.data?.ok) throw new Error(s.data?.error || "No se pudo preparar la subida.");
 
-    const up = await db.storage.from("comprobantes").upload(s.data.ruta, blob, { contentType: esPdf ? "application/pdf" : "image/jpeg", upsert: false });
+    const up = await db.storage.from("comprobantes").upload(s.data.ruta, blob, { contentType: esPdf ? "application/pdf" : blob.type, upsert: false });
     if (up.error) throw new Error("No se pudo subir el archivo. Revise su conexión e intente de nuevo.");
 
     const monto = Number(extra.monto) > 0 ? Number(extra.monto) : null;

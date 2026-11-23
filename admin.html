@@ -285,6 +285,34 @@
           <p class="msg" id="avisoMsg" role="status"></p>
         </form>
 
+        <section class="tarjeta ajustes" id="boxEspacio" aria-labelledby="titEspacio">
+          <fieldset>
+            <legend id="titEspacio">Espacio de fotos</legend>
+            <p class="ayuda" id="espacioTxt">Cargando…</p>
+            <div class="medidor" id="medidor" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-labelledby="titEspacio"><span id="medidorBarra"></span></div>
+            <ul class="espacio-lista" id="espacioLista"></ul>
+          </fieldset>
+          <fieldset id="boxLimpiar" hidden>
+            <legend>Limpiar comprobantes viejos</legend>
+            <p class="ayuda">Borra solo las fotos de ventas ya pagadas, entregadas o anuladas. El pago sigue registrado con su monto, número de comprobante y fecha. Antes de borrar se descargan en un ZIP para guardarlas.</p>
+            <div class="form-linea">
+              <label>Fotos de hace más de
+                <select id="limpiarMeses">
+                  <option value="3">3 meses</option>
+                  <option value="6" selected>6 meses</option>
+                  <option value="12">1 año</option>
+                  <option value="24">2 años</option>
+                </select></label>
+              <button class="btn btn--linea" type="button" id="btnBuscarViejos">Buscar fotos viejas</button>
+            </div>
+            <p class="msg" id="limpiarMsg" role="status"></p>
+            <div class="form-linea__btns" id="limpiarAcc" hidden>
+              <button class="btn btn--negro" type="button" id="btnZipViejos">1. Descargar ZIP</button>
+              <button class="btn btn--linea btn--borrar" type="button" id="btnBorrarViejos" disabled>2. Borrar del sistema</button>
+            </div>
+          </fieldset>
+        </section>
+
         <details class="tarjeta actividad">
           <summary>Actividad reciente del panel</summary>
           <ul id="listaAuditoria"></ul>

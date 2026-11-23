@@ -367,3 +367,12 @@ html:not(.panel-ok) body { visibility: hidden; }
 .comp-mini:focus-visible { outline: 3px solid var(--cinta); outline-offset: 2px; }
 .pago.pago--foto { grid-template-columns: 76px 8.5rem minmax(0, 1fr) auto; }
 @media (max-width: 760px) { .pago.pago--foto { grid-template-columns: 76px minmax(0, 1fr); } .pago.pago--foto .pago__acc, .pago.pago--foto .pago__datos { grid-column: 1 / -1; } }
+
+/* espacio de fotos */
+.medidor { height: 14px; border-radius: 99px; background: var(--fondo-2); overflow: hidden; border: 1px solid var(--linea); }
+.medidor span { display: block; height: 100%; width: 0; background: var(--negro); border-radius: 0 4px 4px 0; }
+.medidor--alto span { background: var(--peligro); }
+.espacio-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .4rem 1.5rem; font-size: .92rem; color: var(--gris); }
+.espacio-lista b { color: var(--negro); margin-right: .3rem; }
+.btn--borrar { color: var(--peligro); border-color: var(--peligro); }
+.btn--borrar:disabled { opacity: .45; cursor: not-allowed; }

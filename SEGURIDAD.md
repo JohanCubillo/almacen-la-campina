@@ -64,3 +64,10 @@ Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usar
 - La tienda guarda en el teléfono del cliente solo el catálogo público y su propio pedido pendiente.
 - El panel guarda en la compu una copia de la lista de ventas y de las últimas 60 ventas abiertas (con nombres y teléfonos de clientes) para verlas sin internet. Se borra al tocar **Salir**. Use el panel solo en compus del almacén.
 - Sin internet el panel solo puede anotar ventas nuevas en la compu; no puede cambiar nada en la base de datos. Al volver el internet, las ventas se envían con `registrar_venta_sin_internet`, que exige admin con MFA y revisa cada dato igual que siempre (precios, comprobantes repetidos, fechas). Cada venta lleva un identificador único, así que si el envío se corta y se repite no se duplica.
+
+## Limpieza de fotos (v6)
+
+- Las fotos de comprobantes solo se pueden borrar con la regla `comprobantes_borrar_viejos`: admin con MFA, venta pagada/entregada/anulada y de hace más de 3 meses. Los comprobantes nuevos sin revisar y las ventas abiertas no se pueden borrar.
+- Se borra solo la imagen; el pago (monto, comprobante, fecha) queda. Cada borrado se anota en `archivos_borrados` con quién y cuándo.
+- Antes de borrar, el panel obliga a descargar el ZIP con las fotos.
+

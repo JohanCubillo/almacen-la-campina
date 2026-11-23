@@ -17,15 +17,16 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 3. **SQL Editor → New query** → pegar `supabase/productos_iniciales.sql` → **Run**. Carga los productos con fotos de su Facebook y oculta los de ejemplo. (`precios_aproximados.sql` llena los precios que falten.)
 4. **SQL Editor → New query** → pegar `supabase/v4_datos.sql` → **Run**. Activa el envío con los barrios de Cariari y su precio aproximado (se cambian en Datos del negocio).
 5. **SQL Editor → New query** → pegar `supabase/v5_sin_internet.sql` → **Run**. Permite enviar las ventas hechas sin internet sin que se dupliquen.
-6. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
-7. Registrar al administrador:
+6. **SQL Editor → New query** → pegar `supabase/v6_espacio.sql` → **Run**. Muestra el espacio usado y permite limpiar fotos de comprobantes viejos.
+7. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
+8. Registrar al administrador:
    ```sql
    insert into public.admins (user_id)
    select id from auth.users where email = 'correo-del-admin@ejemplo.com'
    on conflict do nothing;
    ```
-8. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
-9. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
+9. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
+10. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
 
 ## 2. Primer ingreso al panel
 
@@ -78,6 +79,12 @@ Tienda: Agregar productos al carrito  ─►  Enviar pedido (nombre + teléfono)
 | Spam de pedidos o archivos | Máx. 3 pedidos por teléfono cada 15 min; subidas solo a rutas autorizadas, 5 por pedido al día, 5 MB |
 | Comprobantes expuestos | Bucket privado; solo el admin los ve con enlaces de 2 minutos |
 
+## Espacio de fotos
+
+- Las fotos no van en la base de datos sino en el almacenamiento de archivos (1 GB en el plan gratis). Cada comprobante se achica antes de subirse (1200 px, WebP): pesa unos 100–150 KB.
+- **Datos del negocio → Espacio de fotos** muestra cuánto se ha usado; se pone rojo al pasar del 80 %.
+- **Limpiar comprobantes viejos:** escoja de hace cuántos meses → *Buscar fotos viejas* → **1. Descargar ZIP** (guárdelo) → **2. Borrar del sistema**. Solo se pueden borrar fotos de ventas ya pagadas, entregadas o anuladas de hace más de 3 meses; el pago queda registrado con monto, número de comprobante y fecha.
+
 ## Sin internet
 
 - **Tienda:** la página y el catálogo abren aunque no haya señal (con los precios de la última visita). Si el cliente envía el pedido sin internet, queda guardado en su teléfono y se manda solo cuando vuelve la conexión; ahí recibe su código.
@@ -111,7 +118,7 @@ assets/productos/  fotos de productos (WebP 800×800)
 assets/vendor/     supabase-js 2.119.2 (local, sin CDN)
 assets/fonts/      Barlow / Barlow Condensed (OFL)
 assets/img/        logo, íconos de la app, og.jpg (imagen para compartir)
-supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql
+supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql
 sw.js              copia de la página para abrirla sin internet
 panel.webmanifest  app instalable del panel
 SEGURIDAD.md, FACTURACION.md, GOOGLE-Y-DOMINIO.md

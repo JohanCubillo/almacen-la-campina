@@ -242,7 +242,7 @@
   $$(".pestana").forEach((tab) => tab.addEventListener("click", () => {
     $$(".pestana").forEach((t) => t.setAttribute("aria-selected", String(t === tab)));
     $$("[role=tabpanel]").forEach((p) => (p.hidden = p.id !== tab.getAttribute("aria-controls")));
-    if (tab.id === "tabAj") cargarAuditoria();
+    if (tab.id === "tabAj") { cargarAuditoria(); cargarEspacio(); }
     if (tab.id === "tabVen") cargarVentas();
     if (tab.id === "tabCaja") cargarCaja();
     if (tab.id === "tabRep") cargarReportes();
@@ -1203,7 +1203,7 @@
 
   async function subirComprobante(file) {
     let blob = file;
-    if (file.type !== "application/pdf") blob = await comprimir(file, 1600);
+    if (U.tipoArchivo(file) !== "application/pdf") blob = await U.achicarComprobante(file);
     if (blob.size > 5 * 1024 * 1024) throw new Error("El comprobante pesa más de 5 MB.");
     const ext = blob.type === "application/pdf" ? "pdf" : blob.type === "image/webp" ? "webp" : blob.type === "image/png" ? "png" : "jpg";
     const ruta = `${crypto.randomUUID()}.${ext}`;
@@ -1293,6 +1293,112 @@
     return true;
   }
 
+  // ---------- espacio de fotos y limpieza de comprobantes viejos ----------
+  const LIMITE_FOTOS = 1024 ** 3, LIMITE_BASE = 500 * 1024 ** 2;
+  const MB = (b) => (Number(b || 0) / 1048576).toLocaleString("es-CR", { maximumFractionDigits: b < 10 * 1048576 ? 1 : 0 }) + " MB";
+  let viejos = null, enZip = [];
+
+  async function cargarEspacio() {
+    const txt = $("#espacioTxt");
+    if (SIN_RED || !navigator.onLine) { txt.textContent = "Sin internet: el espacio se puede ver cuando vuelva la conexión."; return; }
+    let r;
+    try { r = await db.rpc("espacio_archivos"); } catch (e) { r = { error: e }; }
+    if (r.error) {
+      const falta = r.error.code === "PGRST202";
+      txt.textContent = falta ? "Para ver el espacio y limpiar fotos viejas, corra supabase/v6_espacio.sql en Supabase." : errTxt(r.error);
+      $("#boxLimpiar").hidden = falta;
+      return;
+    }
+    $("#boxLimpiar").hidden = false;
+    const b = r.data.buckets || {}, comp = b.comprobantes || {}, prod = b.productos || {};
+    const fotos = Number(comp.bytes || 0) + Number(prod.bytes || 0);
+    const pct = Math.min(100, (fotos / LIMITE_FOTOS) * 100);
+    txt.textContent = `Fotos: ${MB(fotos)} de 1 GB (${pct.toLocaleString("es-CR", { maximumFractionDigits: pct < 10 ? 1 : 0 })} %).${pct >= 80 ? " Ya casi se llena: limpie comprobantes viejos." : ""}`;
+    const m = $("#medidor");
+    m.setAttribute("aria-valuenow", String(Math.round(pct)));
+    m.classList.toggle("medidor--alto", pct >= 80);
+    $("#medidorBarra").style.width = Math.max(pct, fotos > 0 ? 1 : 0) + "%";
+    $("#espacioLista").innerHTML = `
+      <li><b>Comprobantes</b> ${Number(comp.archivos || 0)} fotos · ${MB(comp.bytes)}</li>
+      <li><b>Productos</b> ${Number(prod.archivos || 0)} fotos · ${MB(prod.bytes)}</li>
+      <li><b>Base de datos</b> ${MB(r.data.base_bytes)} de 500 MB</li>`;
+  }
+
+  $("#btnBuscarViejos").addEventListener("click", async () => {
+    const msg = $("#limpiarMsg"), meses = Number($("#limpiarMeses").value);
+    msg.className = "msg"; msg.textContent = "Buscando…";
+    $("#limpiarAcc").hidden = true; viejos = null; enZip = [];
+    const { data, error } = await db.rpc("comprobantes_para_limpiar", { p_meses: meses });
+    if (error) { msg.className = "msg msg--error"; msg.textContent = errTxt(error); return; }
+    if (!data.total) { msg.textContent = `No hay fotos para limpiar de ventas cerradas de hace más de ${$("#limpiarMeses").selectedOptions[0].textContent}.`; return; }
+    viejos = data;
+    const n = data.fotos.length;
+    msg.textContent = `Hay ${data.total} fotos (${MB(data.bytes)}) de ventas cerradas de hace más de ${$("#limpiarMeses").selectedOptions[0].textContent}.`
+      + (data.total > n ? ` Se procesan de ${n} en ${n}: al terminar, busque otra vez para seguir.` : "")
+      + " Primero descargue el ZIP.";
+    $("#btnBorrarViejos").disabled = true;
+    $("#limpiarAcc").hidden = false;
+  });
+
+  $("#btnZipViejos").addEventListener("click", async () => {
+    if (!viejos) return;
+    const msg = $("#limpiarMsg"), btn = $("#btnZipViejos");
+    btn.disabled = true; msg.className = "msg";
+    try {
+      const fotos = viejos.fotos;
+      const { data: urls, error } = await db.storage.from("comprobantes").createSignedUrls(fotos.map((f) => f.ruta), 600);
+      if (error) throw error;
+      const archivos = []; enZip = [];
+      for (let i = 0; i < fotos.length; i++) {
+        msg.textContent = `Descargando fotos… ${i + 1} de ${fotos.length}`;
+        const u = urls[i] && urls[i].signedUrl;
+        if (!u) continue;
+        try {
+          const res = await fetch(u);
+          if (!res.ok) continue;
+          const f = fotos[i], dia = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date(f.fecha));
+          const limpio = String(f.cliente || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-Za-z0-9]+/g, "-").slice(0, 30);
+          archivos.push({ nombre: `${dia}_${f.codigo}_${limpio}_${f.ruta.split("/").pop()}`, datos: new Uint8Array(await res.arrayBuffer()) });
+          enZip.push(f.ruta);
+        } catch { /* esa foto se intenta en la próxima vuelta */ }
+      }
+      if (!archivos.length) throw new Error("No se pudo descargar ninguna foto. Revise la conexión.");
+      const zip = window.XlsxMini.zip(archivos, "application/zip");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(zip);
+      a.download = `comprobantes-viejos-${hoyCR()}.zip`;
+      document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      msg.textContent = `ZIP descargado con ${archivos.length} fotos (${MB(zip.size)}). Ábralo y guárdelo en la compu o en Drive; después toque "Borrar del sistema".`;
+      $("#btnBorrarViejos").disabled = false;
+    } catch (e) {
+      msg.className = "msg msg--error"; msg.textContent = errTxt(e);
+    } finally { btn.disabled = false; }
+  });
+
+  $("#btnBorrarViejos").addEventListener("click", async () => {
+    if (!enZip.length) return;
+    if (!confirm(`¿Borrar del sistema ${enZip.length} fotos de comprobantes? Los pagos quedan registrados; solo se borran las imágenes. Asegúrese de haber guardado el ZIP.`)) return;
+    const msg = $("#limpiarMsg"), btn = $("#btnBorrarViejos");
+    btn.disabled = true; msg.className = "msg"; msg.textContent = "Borrando…";
+    let borradas = 0;
+    try {
+      for (let i = 0; i < enZip.length; i += 100) {
+        const parte = enZip.slice(i, i + 100);
+        const { error } = await db.storage.from("comprobantes").remove(parte);
+        if (error) throw error;
+        const r = await db.rpc("marcar_fotos_borradas", { p_rutas: parte });
+        if (r.error) throw r.error;
+        borradas += Number(r.data) || 0;
+      }
+      msg.textContent = `Listo: se borraron ${borradas} fotos.${borradas < enZip.length ? " Algunas no se pudieron borrar; busque otra vez." : ""}`;
+      $("#limpiarAcc").hidden = true; viejos = null; enZip = [];
+      cargarEspacio();
+    } catch (e) {
+      msg.className = "msg msg--error"; msg.textContent = errTxt(e); btn.disabled = false;
+    }
+  });
+
   // miniaturas de las fotos de comprobantes (enlaces privados que vencen en 10 minutos)
   async function cargarMiniaturas() {
     const imgs = $$("#compCliente img[data-mini]");
@@ -1305,7 +1411,10 @@
 
   async function verComprobante(path) {
     const { data, error } = await db.storage.from("comprobantes").createSignedUrl(path, 120);
-    if (error) return toast(errTxt(error), true);
+    if (error) {
+      const borrada = !U.esErrorRed(error) && /not.?found|no existe|404/i.test(String(error.message) + (error.statusCode || ""));
+      return toast(borrada ? "Esa foto ya no está en el sistema: se borró al limpiar comprobantes viejos. Búsquela en el ZIP que se descargó." : errTxt(error), true);
+    }
     const w = window.open(data.signedUrl, "_blank");
     if (w) w.opener = null;
   }
