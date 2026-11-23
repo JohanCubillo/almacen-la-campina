@@ -21,16 +21,17 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 7. **SQL Editor → New query** → pegar `supabase/v7_monto_completo.sql` → **Run**. El cliente ya no escribe el monto: el comprobante queda por el saldo completo del pedido.
 8. **SQL Editor → New query** → pegar `supabase/v8_consultas.sql` → **Run**. Activa el formulario de preguntas y la pestaña *Preguntas* del panel.
 9. **SQL Editor → New query** → pegar `supabase/v9_inventario.sql` → **Run**. Agrega código, existencia y CABYS a los productos y permite importar el inventario de Moriah.
-10. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
-11. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
-12. Registrar al administrador:
+10. **SQL Editor → New query** → pegar `supabase/v11_precios.sql` → **Run**. Activa *Ajuste de precios* (varios a la vez, con documento y observación) y el historial *Movimientos* de cada cambio de precio.
+11. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
+12. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
+13. Registrar al administrador:
    ```sql
    insert into public.admins (user_id)
    select id from auth.users where email = 'correo-del-admin@ejemplo.com'
    on conflict do nothing;
    ```
-13. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
-14. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
+14. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
+15. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
 
 ## 2. Primer ingreso al panel
 
@@ -100,6 +101,15 @@ Tienda: Agregar productos al carrito  ─►  Enviar pedido (nombre + teléfono)
 "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --app=https://johancubillo.github.io/almacen-la-campina/admin.html --kiosk-printing
 ```
 
+## Pantallas que reemplazan a Moriah
+
+| En Moriah | En el panel |
+|---|---|
+| Consulta Producto | **Productos**: buscador por nombre o código (sirve el lector de barras), con precio y existencia |
+| Categorizar | **Categorías** (los productos de Moriah traen la categoría puesta según el nombre) |
+| Ajuste de Precios + Movimientos | **Productos → Ajuste de precios**: se buscan productos, se pone el precio nuevo o un % para todos (redondea a ₡5), N.º de documento y observación. **Movimientos** muestra cada cambio de precio con el anterior, el nuevo y de dónde vino (ajuste, editar producto o importación) |
+| Facturas Emitidas | **Comprobantes**: tiquetes, facturas y notas de crédito por fechas, total facturado e IVA, filtro *Con problemas*, enviar de nuevo/consultar, XML y **Descargar en Excel** |
+
 ## Inventario desde Moriah
 
 0. **Solo la primera vez:** a los productos que ya están en la página con foto, ponerles el código que tienen en Moriah (**Productos → Editar → Código**). Así la importación los actualiza en vez de crear otro igual sin foto. Si ya se importó y quedó repetido: borrar el que vino de Moriah y poner su código en el que tiene foto.
@@ -161,7 +171,7 @@ assets/productos/  fotos de productos (WebP 800×800)
 assets/vendor/     supabase-js 2.119.2 (local, sin CDN)
 assets/fonts/      Barlow / Barlow Condensed (OFL)
 assets/img/        logo, íconos de la app, og.jpg (imagen para compartir)
-supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql
+supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql
 supabase/functions/facturar/   función que firma y envía los comprobantes a Hacienda
 herramientas/      prueba de facturación en la compu (prueba-hacienda.mjs)
 sw.js              copia de la página para abrirla sin internet

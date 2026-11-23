@@ -102,6 +102,7 @@
       <button role="tab" class="pestana" aria-selected="true" aria-controls="tVen" id="tabVen">Pedidos y ventas <span class="badge" id="badgeVen" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tPreg" id="tabPreg" hidden>Preguntas <span class="badge" id="badgePreg" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCaja" id="tabCaja">Caja SINPE <span class="badge badge--amarillo" id="badgeCaja" hidden></span></button>
+      <button role="tab" class="pestana" aria-selected="false" aria-controls="tComp" id="tabComp" hidden>Comprobantes</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tRep" id="tabRep">Reportes</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tProd" id="tabProd">Productos</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCat" id="tabCat">Categorías</button>
@@ -160,6 +161,28 @@
         <ul id="listaPagosDia" class="filas"></ul>
       </section>
 
+      <!-- COMPROBANTES EMITIDOS -->
+      <section id="tComp" role="tabpanel" aria-labelledby="tabComp" hidden>
+        <div class="barra-herr">
+          <h2>Comprobantes emitidos</h2>
+          <div class="barra-herr__der">
+            <input id="compBuscar" type="search" placeholder="N.º, clave, cliente o venta…" maxlength="60" aria-label="Buscar comprobante" />
+            <label class="fecha-caja">Desde <input type="date" id="compDesde" /></label>
+            <label class="fecha-caja">Hasta <input type="date" id="compHasta" /></label>
+            <button type="button" class="btn btn--sm btn--linea" id="btnCompExcel">Descargar en Excel</button>
+          </div>
+        </div>
+        <div class="segmentos segmentos--sm" role="radiogroup" aria-label="Tipo de comprobante" id="compTipo">
+          <button type="button" role="radio" aria-checked="true" data-ct="todos">Todos</button>
+          <button type="button" role="radio" aria-checked="false" data-ct="04">Tiquetes</button>
+          <button type="button" role="radio" aria-checked="false" data-ct="01">Facturas</button>
+          <button type="button" role="radio" aria-checked="false" data-ct="03">Notas de crédito</button>
+          <button type="button" role="radio" aria-checked="false" data-ct="problemas">Con problemas</button>
+        </div>
+        <dl class="cifras" id="compCifras"></dl>
+        <ul id="listaComp" class="filas"></ul>
+      </section>
+
       <!-- REPORTES -->
       <section id="tRep" role="tabpanel" aria-labelledby="tabRep" hidden>
         <div class="barra-herr">
@@ -205,6 +228,7 @@
           <div class="barra-herr__der">
             <input id="aBuscar" type="search" placeholder="Nombre o código…" maxlength="60" aria-label="Buscar producto" />
             <button type="button" class="btn btn--linea btn--sm v4" id="btnImportar">Importar de Excel</button>
+            <button type="button" class="btn btn--linea btn--sm v11" id="btnAjustePrecios">Ajuste de precios</button>
             <button type="button" class="btn btn--linea btn--sm" id="btnExportar">Descargar en Excel</button>
             <button type="button" class="btn btn--negro btn--sm" id="btnNuevoProd">Nuevo producto</button>
           </div>
@@ -457,6 +481,54 @@
         <button type="submit" class="btn btn--negro" id="btnGuardarProd">Guardar producto</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Ajuste de precios -->
+  <dialog id="dlgAjuste" class="dlg dlg--ancho" aria-labelledby="ajTitulo">
+    <div class="dlg__form">
+      <div class="dlg__cab">
+        <h2 id="ajTitulo">Ajuste de precios</h2>
+        <button type="button" class="btn btn--sm btn--linea" id="btnAjMovs">Movimientos</button>
+      </div>
+      <div id="ajEditar">
+        <div class="buscar-item">
+          <input id="ajBuscar" type="search" placeholder="Buscar producto por nombre o código…" maxlength="60" autocomplete="off" aria-label="Buscar producto para ajustar" />
+          <ul id="ajRes" class="buscar-item__res" hidden></ul>
+        </div>
+        <div class="items-wrap">
+          <table class="items">
+            <thead><tr><th>Código</th><th>Descripción</th><th class="num">Precio actual</th><th class="num">Precio nuevo</th><th><span class="sr">Quitar</span></th></tr></thead>
+            <tbody id="ajFilas"></tbody>
+          </table>
+        </div>
+        <div class="form-linea">
+          <label>Cambiar todos en %<input id="ajPct" type="number" step="0.1" min="-90" max="500" placeholder="5 = subir 5 %" /></label>
+          <button type="button" class="btn btn--linea btn--sm" id="btnAjPct">Aplicar (redondea a ₡5)</button>
+        </div>
+        <div class="dos">
+          <label>N.º de documento o factura<input id="ajDoc" maxlength="40" autocomplete="off" placeholder="Opcional" /></label>
+          <label>Observaciones<input id="ajNota" maxlength="300" placeholder="Opcional" /></label>
+        </div>
+        <p class="msg" id="ajMsg" role="status"></p>
+        <div class="dlg__btns">
+          <button type="button" class="btn btn--linea" data-cerrar-ajuste>Cerrar</button>
+          <button type="button" class="btn btn--negro" id="btnGuardarAjuste" disabled>Actualizar precios</button>
+        </div>
+      </div>
+      <div id="ajMovs" hidden>
+        <input id="ajMovBuscar" type="search" placeholder="Filtrar por producto, documento o nota…" maxlength="60" aria-label="Filtrar movimientos" />
+        <div class="items-wrap">
+          <table class="items">
+            <thead><tr><th>Fecha</th><th>Producto</th><th class="num">Antes</th><th class="num">Nuevo</th><th>Dónde</th><th>Documento / nota</th></tr></thead>
+            <tbody id="ajMovFilas"></tbody>
+          </table>
+        </div>
+        <div class="dlg__btns">
+          <button type="button" class="btn btn--linea" data-cerrar-ajuste>Cerrar</button>
+          <button type="button" class="btn btn--negro" id="btnAjVolver">Volver al ajuste</button>
+        </div>
+      </div>
+    </div>
   </dialog>
 
   <!-- Importar productos -->

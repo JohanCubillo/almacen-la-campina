@@ -42,6 +42,7 @@
   let V9 = false;          // la base tiene código y existencia en productos (v9_inventario.sql)
   let V10 = false;         // la base tiene facturación electrónica (v10_facturacion.sql)
   let FE = null;           // datos del emisor (fe_emisor)
+  let V11 = false;         // la base tiene historial de precios (v11_precios.sql)
   const MAX_LISTA_PROD = 150;
   let V5 = true;           // la base tiene registrar_venta_sin_internet
 
@@ -233,7 +234,12 @@
       let r10;
       try { r10 = await db.from("fe_emisor").select("*").eq("id", 1).maybeSingle(); } catch (e) { r10 = { error: e }; }
       V10 = !r10.error; FE = r10.data || null;
+      let r11;
+      try { r11 = await db.from("precios_movimientos").select("id").limit(1); } catch (e) { r11 = { error: e }; }
+      V11 = !r11.error;
     }
+    document.documentElement.classList.toggle("sin-v11", !V11);
+    $("#tabComp").hidden = !V10;
     document.documentElement.classList.toggle("sin-v10", !V10);
     if (V10) pintarConfFE();
     document.documentElement.classList.toggle("sin-v4", !V4);
@@ -299,6 +305,7 @@
     if (tab.id === "tabCaja") cargarCaja();
     if (tab.id === "tabPreg") cargarPreguntas();
     if (tab.id === "tabRep") cargarReportes();
+    if (tab.id === "tabComp") cargarComprobantes();
   }));
   $(".pestanas").addEventListener("keydown", (e) => {
     if (!["ArrowRight", "ArrowLeft"].includes(e.key)) return;
@@ -1094,51 +1101,62 @@
     V.dirty = true;
     pintarVenta();
   });
-  // buscador para agregar productos a la venta (con miles de productos, una lista desplegable no sirve)
-  function buscarItems() {
-    const q = norm($("#agregarItemQ").value), res = $("#agregarItemRes");
-    if (q.length < 2) { res.hidden = true; res.innerHTML = ""; return; }
-    const hallados = [];
-    for (const x of productos) {
-      if (!x.activo) continue;
-      if (norm(x.nombre).includes(q) || (x.codigo && String(x.codigo).toLowerCase() === q)) hallados.push(x);
-      if (hallados.length >= 12) break;
+  // ---------- buscador de productos (ventas y ajuste de precios) ----------
+  // con miles de productos una lista desplegable no sirve: se escribe parte del nombre o el código
+  // (el lector de código de barras escribe el código y da Enter)
+  function buscadorProductos(input, res, alElegir, opciones = {}) {
+    const caja = input.closest(".buscar-item");
+    function buscar() {
+      const q = norm(input.value);
+      if (q.length < 2) { res.hidden = true; res.innerHTML = ""; return; }
+      const exactos = [], hallados = [];
+      for (const x of productos) {
+        if (!opciones.ocultos && !x.activo) continue;
+        const cod = x.codigo ? String(x.codigo).toLowerCase() : "";
+        if (cod && cod === q) exactos.push(x);
+        else if (norm(x.nombre).includes(q) || (cod && q.length >= 3 && cod.startsWith(q))) hallados.push(x);
+        if (exactos.length + hallados.length >= 40) break;
+      }
+      const lista = exactos.concat(hallados).slice(0, 12);
+      res.innerHTML = lista.map((x) => `<li><button type="button" data-item-id="${x.id}">
+          <span>${U.esc(x.nombre)}${x.codigo ? ` <small>· ${U.esc(x.codigo)}</small>` : ""}</span>
+          <span class="buscar-item__det">${x.precio != null ? fmt(x.precio) : "sin precio"}${x.existencia != null ? ` · hay ${Number(x.existencia).toLocaleString("es-CR")}` : ""}${x.agotado ? " · agotado" : ""}</span>
+        </button></li>`).join("") || `<li class="buscar-item__nada">${U.esc(opciones.nada || "No se encontró.")}</li>`;
+      res.hidden = false;
     }
-    res.innerHTML = hallados.map((x) => `<li><button type="button" data-item-id="${x.id}">
-        <span>${U.esc(x.nombre)}${x.codigo ? ` <small>· ${U.esc(x.codigo)}</small>` : ""}</span>
-        <span class="buscar-item__det">${x.precio != null ? fmt(x.precio) : "sin precio"}${x.existencia != null ? ` · hay ${Number(x.existencia).toLocaleString("es-CR")}` : ""}${x.agotado ? " · agotado" : ""}</span>
-      </button></li>`).join("") || `<li class="buscar-item__nada">No se encontró. Use “Agregar renglón libre”.</li>`;
-    res.hidden = false;
+    input.addEventListener("input", buscar);
+    input.addEventListener("focus", () => { if (input.value.trim().length >= 2) buscar(); });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); const b = res.querySelector("button"); if (b) b.click(); }
+      if (e.key === "Escape" && !res.hidden) { e.preventDefault(); e.stopPropagation(); res.hidden = true; }
+      if (e.key === "ArrowDown") { const b = res.querySelector("button"); if (b) { e.preventDefault(); b.focus(); } }
+    });
+    res.addEventListener("keydown", (e) => {
+      const bs = [...res.querySelectorAll("button")], i = bs.indexOf(document.activeElement);
+      if (e.key === "ArrowDown" && i < bs.length - 1) { e.preventDefault(); bs[i + 1].focus(); }
+      if (e.key === "ArrowUp") { e.preventDefault(); (i > 0 ? bs[i - 1] : input).focus(); }
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); res.hidden = true; input.focus(); }
+    });
+    // si el foco sale del buscador, se cierra la lista (que no tape los botones de abajo)
+    caja.addEventListener("focusout", (e) => {
+      if (!e.relatedTarget || !caja.contains(e.relatedTarget)) setTimeout(() => { if (!caja.contains(document.activeElement)) res.hidden = true; }, 150);
+    });
+    res.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-item-id]"); if (!b) return;
+      const p = productos.find((x) => x.id == b.dataset.itemId);
+      if (!p) return;
+      input.value = ""; res.hidden = true;
+      input.focus();          // alElegir puede mover el foco (p. ej. al precio nuevo)
+      alElegir(p);
+    });
   }
-  $("#agregarItemQ").addEventListener("input", buscarItems);
-  $("#agregarItemQ").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") { e.preventDefault(); const b = $("#agregarItemRes button"); if (b) b.click(); }
-    if (e.key === "Escape") { $("#agregarItemRes").hidden = true; }
-    if (e.key === "ArrowDown") { const b = $("#agregarItemRes button"); if (b) { e.preventDefault(); b.focus(); } }
-  });
-  $("#agregarItemRes").addEventListener("keydown", (e) => {
-    const bs = $$("#agregarItemRes button"), i = bs.indexOf(document.activeElement);
-    if (e.key === "ArrowDown" && i < bs.length - 1) { e.preventDefault(); bs[i + 1].focus(); }
-    if (e.key === "ArrowUp") { e.preventDefault(); (i > 0 ? bs[i - 1] : $("#agregarItemQ")).focus(); }
-    if (e.key === "Escape") { $("#agregarItemRes").hidden = true; $("#agregarItemQ").focus(); }
-  });
-  // si el foco sale del buscador, se cierra la lista (que no tape los botones de abajo)
-  $("#agregarItemQ").closest(".buscar-item").addEventListener("focusout", (e) => {
-    const caja = e.currentTarget;
-    if (!e.relatedTarget || !caja.contains(e.relatedTarget)) setTimeout(() => { if (!caja.contains(document.activeElement)) $("#agregarItemRes").hidden = true; }, 150);
-  });
-  $("#agregarItemQ").addEventListener("focus", () => { if ($("#agregarItemQ").value.trim().length >= 2) buscarItems(); });
-  $("#agregarItemRes").addEventListener("click", (e) => {
-    const b = e.target.closest("[data-item-id]"); if (!b) return;
-    const p = productos.find((x) => x.id == b.dataset.itemId);
-    if (!p) return;
-    $("#agregarItemQ").value = ""; $("#agregarItemRes").hidden = true;
+  buscadorProductos($("#agregarItemQ"), $("#agregarItemRes"), (p) => {
     const ya = V.items.find((i) => i.producto_id === p.id);
     if (ya) ya.cantidad = Number(ya.cantidad) + 1;
     else V.items.push({ producto_id: p.id, descripcion: p.nombre + (p.unidad ? ` (${p.unidad})` : ""), cantidad: 1, precio_unit: p.precio != null ? Number(p.precio) : 0 });
     V.dirty = true;
     pintarVenta();
-  });
+  }, { nada: "No se encontró. Use “Agregar renglón libre”." });
   $("#btnItemLibre").addEventListener("click", () => {
     V.items.push({ producto_id: null, descripcion: "", cantidad: 1, precio_unit: 0 });
     V.dirty = true;
@@ -1377,12 +1395,224 @@
       if (!confirm("Se emite una nota de crédito por el total y el comprobante queda anulado ante Hacienda. ¿Seguir?")) return;
       return accionFE({ accion: "anular", documento_id: id, motivo: motivo.trim() }, "Emitiendo la nota de crédito…");
     }
-    if (acc === "xml") {
-      const { data, error } = await db.from("fe_documentos").select("clave,xml_firmado,respuesta_xml").eq("id", id).single();
-      if (error) return toast(errTxt(error), true);
-      descargar(new Blob([data.xml_firmado], { type: "application/xml" }), `${data.clave}.xml`);
-      if (data.respuesta_xml) setTimeout(() => descargar(new Blob([data.respuesta_xml], { type: "application/xml" }), `${data.clave}-respuesta-hacienda.xml`), 400);
+    if (acc === "xml") return descargarXmlFE(id);
+  });
+  async function descargarXmlFE(id) {
+    const { data, error } = await db.from("fe_documentos").select("clave,xml_firmado,respuesta_xml").eq("id", id).single();
+    if (error) return toast(errTxt(error), true);
+    descargar(new Blob([data.xml_firmado], { type: "application/xml" }), `${data.clave}.xml`);
+    if (data.respuesta_xml) setTimeout(() => descargar(new Blob([data.respuesta_xml], { type: "application/xml" }), `${data.clave}-respuesta-hacienda.xml`), 400);
+  }
+
+  // ---------- comprobantes emitidos (como "Facturas emitidas" de Moriah) ----------
+  let compDocs = [], compTipo = "todos";
+  const PROBLEMA_FE = ["firmado", "error", "rechazado", "enviado", "procesando"];
+  async function cargarComprobantes() {
+    if (!V10 || !FE) {
+      $("#compCifras").innerHTML = "";
+      $("#listaComp").innerHTML = `<li class="vacio-adm">La facturación electrónica no está configurada. Vea Datos del negocio → Facturación electrónica.</li>`;
+      return;
     }
+    const hoy = hoyCR();
+    if (!$("#compHasta").value) $("#compHasta").value = hoy;
+    if (!$("#compDesde").value) $("#compDesde").value = hoy.slice(0, 8) + "01";
+    $("#compDesde").max = $("#compHasta").max = hoy;
+    let desde = $("#compDesde").value, hasta = $("#compHasta").value;
+    if (desde > hasta) { [desde, hasta] = [hasta, desde]; $("#compDesde").value = desde; $("#compHasta").value = hasta; }
+    $("#listaComp").innerHTML = `<li class="vacio-adm">Cargando…</li>`;
+    const { data, error } = await db.from("fe_documentos")
+      .select("id,pedido_id,tipo,ambiente,clave,consecutivo,fecha_emision,receptor,total,impuesto,estado,detalle,referencia_id,anulado,pedidos(codigo,cliente_nombre)")
+      .eq("ambiente", FE.ambiente).gte("fecha_emision", rangoDia(desde)[0]).lt("fecha_emision", rangoDia(hasta)[1])
+      .order("fecha_emision", { ascending: false }).limit(3000);
+    if (error) { $("#listaComp").innerHTML = ""; return toast(errTxt(error), true); }
+    compDocs = data || [];
+    pintarComprobantes();
+  }
+  const clienteFE = (d) => d.receptor?.nombre || d.pedidos?.cliente_nombre || "Cliente de contado";
+  const numeroFE = (d) => String(d.consecutivo).slice(-10).replace(/^0+/, "") || "0";
+  function pintarComprobantes() {
+    const q = norm($("#compBuscar").value);
+    const pasa = (d) => compTipo === "todos" || (compTipo === "problemas" ? PROBLEMA_FE.includes(d.estado) : d.tipo === compTipo);
+    const lista = compDocs.filter(pasa).filter((d) => !q || norm([numeroFE(d), d.consecutivo, d.clave, clienteFE(d), d.pedidos?.codigo].join(" ")).includes(q));
+    const ok = compDocs.filter((d) => d.estado === "aceptado");
+    const suma = (a, k) => a.reduce((t, d) => t + Number(d[k] || 0), 0);
+    const ventas = ok.filter((d) => d.tipo !== "03"), notas = ok.filter((d) => d.tipo === "03");
+    const problemas = compDocs.filter((d) => PROBLEMA_FE.includes(d.estado)).length;
+    $("#compCifras").innerHTML = `
+      <div><dt>Total facturado</dt><dd>${fmt(suma(ventas, "total") - suma(notas, "total"))}<small>${ventas.length} ${ventas.length === 1 ? "comprobante" : "comprobantes"}${notas.length ? ` − ${notas.length} ${notas.length === 1 ? "nota" : "notas"} de crédito` : ""}</small></dd></div>
+      <div><dt>IVA</dt><dd>${fmt(suma(ventas, "impuesto") - suma(notas, "impuesto"))}</dd></div>
+      <div><dt>Con problemas</dt><dd>${problemas}<small>sin enviar, rechazados o en revisión</small></dd></div>
+      ${FE.ambiente === "pruebas" ? `<div><dt>Ambiente</dt><dd>Pruebas<small>no cuentan para Hacienda</small></dd></div>` : ""}`;
+    $("#listaComp").innerHTML = lista.map((d) => {
+      const [txt, cls] = FE_ESTADO[d.estado] || [d.estado, ""];
+      const acc = [];
+      if (["firmado", "error"].includes(d.estado)) acc.push(`<button type="button" class="btn btn--sm btn--negro" data-comp="enviar" data-id="${d.id}">Enviar de nuevo</button>`);
+      if (["enviado", "procesando"].includes(d.estado)) acc.push(`<button type="button" class="btn btn--sm btn--linea" data-comp="consultar" data-id="${d.id}">Consultar</button>`);
+      acc.push(`<button type="button" class="btn btn--sm btn--linea" data-comp="venta" data-id="${d.pedido_id}">Ver venta</button>`);
+      acc.push(`<button type="button" class="enlace" data-comp="xml" data-id="${d.id}">XML</button>`);
+      return `<li class="fila fila--pago ${d.anulado ? "fila--oculta" : ""}">
+        <div class="fila__monto"><b>${d.tipo === "03" ? "−" : ""}${fmt(d.total)}</b><small class="comp-tipo">${FE_TIPO[d.tipo] || d.tipo}</small></div>
+        <div class="fila__txt">
+          <b>N.º ${U.esc(numeroFE(d))} · ${U.esc(clienteFE(d))}</b>
+          <small>${fechaCR(d.fecha_emision)}${d.pedidos?.codigo ? ` · Venta ${U.esc(d.pedidos.codigo)}` : ""}${d.detalle ? ` · ${U.esc(d.detalle)}` : ""}</small>
+          <span class="etiquetas"><span class="etq ${cls}">${txt}</span>${d.anulado ? '<span class="etq">Anulado</span>' : ""}</span>
+        </div>
+        <div class="fila__acc">${acc.join("")}</div>
+      </li>`;
+    }).join("") || `<li class="vacio-adm">${compDocs.length ? "Ningún comprobante con ese filtro." : "No hay comprobantes en esas fechas."}</li>`;
+  }
+  $("#compDesde").addEventListener("change", cargarComprobantes);
+  $("#compHasta").addEventListener("change", cargarComprobantes);
+  $("#compBuscar").addEventListener("input", pintarComprobantes);
+  $("#compTipo").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-ct]"); if (!b) return;
+    compTipo = b.dataset.ct;
+    $$("#compTipo [data-ct]").forEach((x) => x.setAttribute("aria-checked", String(x === b)));
+    pintarComprobantes();
+  });
+  $("#listaComp").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-comp]"); if (!b) return;
+    const id = Number(b.dataset.id), acc = b.dataset.comp;
+    if (acc === "xml") return descargarXmlFE(id);
+    if (acc === "venta") return abrirVenta(id);
+    b.disabled = true;
+    try {
+      const r = await llamarFE({ accion: acc, documento_id: id });
+      const i = compDocs.findIndex((x) => x.id === id);
+      if (i >= 0) compDocs[i] = { ...compDocs[i], ...r.documento };
+      toast(r.documento.estado === "aceptado" ? "Aceptado por Hacienda" : r.documento.estado === "rechazado" ? "Rechazado: " + (r.documento.detalle || "") : "Hacienda todavía lo está revisando");
+    } catch (err) { toast(errTxt(err), true); }
+    pintarComprobantes();
+  });
+  $("#btnCompExcel").addEventListener("click", () => {
+    if (!compDocs.length) return toast("No hay comprobantes en esas fechas.", true);
+    const signo = (d) => (d.tipo === "03" ? -1 : 1);
+    const filas = [["Fecha", "Tipo", "N.º", "Consecutivo", "Clave", "Cliente", "Identificación", "Venta", "Subtotal", "IVA", "Total", "Estado", "Detalle"]]
+      .concat([...compDocs].reverse().map((d) => [
+        fechaCR(d.fecha_emision, { dateStyle: "short", timeStyle: "short" }), FE_TIPO[d.tipo] || d.tipo, Number(numeroFE(d)), d.consecutivo, d.clave,
+        clienteFE(d), d.receptor?.identificacion || "", d.pedidos?.codigo || "",
+        signo(d) * Math.round((Number(d.total) - Number(d.impuesto)) * 100) / 100, signo(d) * Math.round(Number(d.impuesto) * 100) / 100,
+        signo(d) * Math.round(Number(d.total) * 100) / 100, (FE_ESTADO[d.estado] || [d.estado])[0] + (d.anulado ? " (anulado)" : ""), d.detalle || ""]));
+    descargar(XlsxMini.escribir(filas, { hoja: "Comprobantes", anchos: [16, 20, 10, 24, 54, 30, 14, 12, 14, 12, 14, 24, 40] }),
+      `comprobantes-${$("#compDesde").value}-a-${$("#compHasta").value}.xlsx`);
+  });
+
+  // ---------- ajuste de precios (como "Ajuste de Precios" de Moriah) ----------
+  const AJ = new Map();     // id → { p, nuevo }
+  const cambiaAJ = ({ p, nuevo }) => nuevo !== "" && Number(nuevo) >= 0 && Number(nuevo) !== (p.precio == null ? -1 : Number(p.precio));
+  const difAJ = ({ p, nuevo }) => {
+    if (nuevo === "" || p.precio == null || !cambiaAJ({ p, nuevo })) return "";
+    const d = Math.round((Number(nuevo) - Number(p.precio)) * 100) / 100;
+    return `<small class="${d > 0 ? "aj-sube" : "aj-baja"}">${d > 0 ? "+" : "−"}${fmt(Math.abs(d))}</small>`;
+  };
+  function botonAjuste() {
+    const n = [...AJ.values()].filter(cambiaAJ).length;
+    $("#btnGuardarAjuste").disabled = !n;
+    $("#btnGuardarAjuste").textContent = n ? `Actualizar ${n} ${n === 1 ? "precio" : "precios"}` : "Actualizar precios";
+  }
+  function pintarAjuste() {
+    $("#ajFilas").innerHTML = [...AJ.values()].map((f) => `<tr>
+        <td>${U.esc(f.p.codigo || "")}</td>
+        <td>${U.esc(f.p.nombre)}</td>
+        <td class="num">${f.p.precio != null ? fmt(f.p.precio) : "a consultar"}</td>
+        <td class="num"><input type="number" min="0" step="0.01" inputmode="decimal" value="${U.esc(String(f.nuevo))}" data-aj-precio="${f.p.id}" aria-label="Precio nuevo de ${U.esc(f.p.nombre)}" /> <span data-aj-dif="${f.p.id}">${difAJ(f)}</span></td>
+        <td><button type="button" class="enlace enlace--peligro" data-aj-quitar="${f.p.id}">Quitar</button></td>
+      </tr>`).join("") || `<tr><td colspan="5" class="vacio-adm">Busque arriba los productos que quiere cambiar (nombre, código o lector de barras).</td></tr>`;
+    botonAjuste();
+  }
+  buscadorProductos($("#ajBuscar"), $("#ajRes"), (p) => {
+    if (!AJ.has(p.id)) AJ.set(p.id, { p, nuevo: p.precio != null ? Number(p.precio) : "" });
+    pintarAjuste();
+    const inp = $(`[data-aj-precio="${p.id}"]`);
+    if (inp) { inp.focus(); inp.select(); }
+  }, { ocultos: true, nada: "No se encontró ese producto." });
+  $("#ajFilas").addEventListener("input", (e) => {
+    const inp = e.target.closest("[data-aj-precio]"); if (!inp) return;
+    const f = AJ.get(Number(inp.dataset.ajPrecio)); if (!f) return;
+    f.nuevo = inp.value.trim();
+    $(`[data-aj-dif="${f.p.id}"]`).innerHTML = difAJ(f);
+    botonAjuste();
+  });
+  $("#ajFilas").addEventListener("keydown", (e) => {
+    // Enter en el precio vuelve al buscador para seguir agregando (como en Moriah)
+    if (e.key === "Enter" && e.target.closest("[data-aj-precio]")) { e.preventDefault(); $("#ajBuscar").focus(); }
+  });
+  $("#ajFilas").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-aj-quitar]"); if (!b) return;
+    AJ.delete(Number(b.dataset.ajQuitar)); pintarAjuste();
+  });
+  $("#btnAjPct").addEventListener("click", () => {
+    const pct = Number($("#ajPct").value);
+    if (!pct || pct <= -90 || pct > 500) return toast("Escriba el porcentaje (por ejemplo 5 para subir 5 %, -10 para bajar 10 %).", true);
+    let n = 0;
+    for (const f of AJ.values()) {
+      if (f.p.precio == null) continue;
+      f.nuevo = Math.max(5, Math.round(Number(f.p.precio) * (1 + pct / 100) / 5) * 5); n++;
+    }
+    if (!n) return toast("Primero agregue productos que tengan precio.", true);
+    pintarAjuste();
+  });
+  $("#btnAjustePrecios").addEventListener("click", () => {
+    AJ.clear(); pintarAjuste();
+    $("#ajPct").value = ""; $("#ajDoc").value = ""; $("#ajNota").value = "";
+    $("#ajMsg").textContent = ""; $("#ajMsg").className = "msg";
+    $("#ajEditar").hidden = false; $("#ajMovs").hidden = true; $("#btnAjMovs").hidden = false;
+    $("#dlgAjuste").showModal();
+    $("#ajBuscar").focus();
+  });
+  $("#dlgAjuste").addEventListener("click", (e) => {
+    if (!e.target.closest("[data-cerrar-ajuste]")) return;
+    if ([...AJ.values()].some(cambiaAJ) && !confirm("Hay precios sin guardar. ¿Cerrar de todos modos?")) return;
+    $("#dlgAjuste").close();
+  });
+  $("#btnGuardarAjuste").addEventListener("click", async () => {
+    const cambios = [...AJ.values()].filter(cambiaAJ);
+    for (const f of cambios) {
+      if (!/^[0-9]{1,10}(\.[0-9]{1,2})?$/.test(String(Number(f.nuevo)))) return toast(`Revise el precio de ${f.p.nombre}.`, true);
+    }
+    const sube = cambios.filter((f) => f.p.precio != null && Number(f.nuevo) > Number(f.p.precio)).length;
+    if (!confirm(`¿Cambiar ${cambios.length} ${cambios.length === 1 ? "precio" : "precios"}${sube ? ` (${sube} suben)` : ""}? Queda anotado en Movimientos.`)) return;
+    const b = $("#btnGuardarAjuste"), msg = $("#ajMsg");
+    b.disabled = true; msg.className = "msg"; msg.textContent = "Guardando…";
+    const { data, error } = await db.rpc("ajustar_precios", {
+      p_cambios: cambios.map((f) => ({ id: f.p.id, precio: String(Number(f.nuevo)) })),
+      p_documento: $("#ajDoc").value.trim() || null, p_nota: $("#ajNota").value.trim() || null
+    });
+    if (error) { msg.className = "msg msg--error"; msg.textContent = errTxt(error); b.disabled = false; return; }
+    msg.textContent = `Listo: ${data} ${data === 1 ? "precio actualizado" : "precios actualizados"}.`;
+    AJ.clear(); $("#ajDoc").value = ""; $("#ajNota").value = ""; $("#ajPct").value = "";
+    await cargarProductos();
+    pintarAjuste();
+    toast("Precios actualizados");
+  });
+  // historial de cambios de precio
+  let movs = [];
+  const ORIGEN_MOV = { ajuste: "Ajuste de precios", producto: "Editar producto", importacion: "Importación" };
+  function pintarMovs() {
+    const q = norm($("#ajMovBuscar").value);
+    const lista = movs.filter((m) => !q || norm([m.productos?.nombre, m.productos?.codigo, m.documento, m.nota].join(" ")).includes(q));
+    $("#ajMovFilas").innerHTML = lista.map((m) => `<tr>
+        <td>${fechaCR(m.created_at, { dateStyle: "short", timeStyle: "short" })}</td>
+        <td>${U.esc(m.productos?.nombre || "(borrado)")}${m.productos?.codigo ? `<small class="imp__cod">${U.esc(m.productos.codigo)}</small>` : ""}</td>
+        <td class="num">${m.precio_antes != null ? fmt(m.precio_antes) : "—"}</td>
+        <td class="num">${m.precio_nuevo != null ? fmt(m.precio_nuevo) : "a consultar"}</td>
+        <td>${ORIGEN_MOV[m.origen] || U.esc(m.origen)}</td>
+        <td>${U.esc([m.documento, m.nota].filter(Boolean).join(" · "))}</td>
+      </tr>`).join("") || `<tr><td colspan="6" class="vacio-adm">${movs.length ? "Nada con ese filtro." : "Todavía no hay cambios de precio anotados."}</td></tr>`;
+  }
+  $("#btnAjMovs").addEventListener("click", async () => {
+    $("#ajEditar").hidden = true; $("#ajMovs").hidden = false; $("#btnAjMovs").hidden = true;
+    $("#ajMovFilas").innerHTML = `<tr><td colspan="6" class="vacio-adm">Cargando…</td></tr>`;
+    const { data, error } = await db.from("precios_movimientos")
+      .select("id,producto_id,precio_antes,precio_nuevo,origen,documento,nota,created_at,productos(nombre,codigo)")
+      .order("created_at", { ascending: false }).limit(500);
+    if (error) { $("#ajMovFilas").innerHTML = ""; return toast(errTxt(error), true); }
+    movs = data || []; pintarMovs();
+    $("#ajMovBuscar").focus();
+  });
+  $("#ajMovBuscar").addEventListener("input", pintarMovs);
+  $("#btnAjVolver").addEventListener("click", () => {
+    $("#ajEditar").hidden = false; $("#ajMovs").hidden = true; $("#btnAjMovs").hidden = false; $("#ajBuscar").focus();
   });
 
   // datos del emisor (Datos del negocio)
@@ -1617,7 +1847,7 @@
   const TABLAS_RESPALDO = [
     ["categorias", "id"], ["productos", "id"], ["ajustes", "clave"], ["pedidos", "id"], ["pedido_items", "id"],
     ["pagos", "id"], ["comprobantes_cliente", "id"], ["facturas", "id"], ["consultas", "id"], ["archivos_borrados", "ruta"], ["auditoria", "id"],
-    ["fe_emisor", "id"], ["fe_consecutivos", "ambiente"], ["fe_documentos", "id"]
+    ["fe_emisor", "id"], ["fe_consecutivos", "ambiente"], ["fe_documentos", "id"], ["precios_movimientos", "id"]
   ];
 
   function pintarUltimoRespaldo() {

@@ -84,3 +84,8 @@ Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usar
 - Escribir comprobantes y reservar consecutivos lo hace **solo la función** con la llave de servicio que Supabase le da por dentro; el panel solo puede **leer** `fe_documentos` y `fe_consecutivos`. Así nadie puede marcar a mano un comprobante como "aceptado".
 - Cada comprobante se guarda **firmado antes de enviarlo**. Si el envío falla, se reenvía el mismo XML con la misma clave, sin duplicar ni gastar otro número.
 - La numeración de pruebas y la de producción van separadas. Pasar a producción pide confirmación en el panel.
+
+## Historial de precios (v11)
+
+- Cada cambio de precio queda en `precios_movimientos` por un disparador de la base: no importa si se hizo con *Ajuste de precios*, editando el producto o importando el Excel. El panel solo puede **leer** ese historial; nadie lo puede editar ni borrar desde la página.
+- `ajustar_precios` exige admin con MFA y acepta máximo 500 productos por vez.

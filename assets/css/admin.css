@@ -402,3 +402,11 @@ html:not(.panel-ok) body { visibility: hidden; }
 .buscar-item__nada { padding: .6rem; color: var(--gris); }
 .imp__cod { display: block; color: var(--gris); font-size: .8rem; }
 #feEmitir { margin-top: .6rem; }
+.sin-v11 .v11 { display: none !important; }
+.dlg__cab { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.dlg__cab h2 { margin: 0; }
+#ajFilas input { width: 8.5rem; text-align: right; }
+.aj-sube { color: var(--peligro); }
+.aj-baja { color: #1d6b39; }
+#ajMovBuscar { width: 100%; margin-bottom: .6rem; }
+.fila__monto small.comp-tipo { white-space: nowrap; }
