@@ -250,6 +250,11 @@
   let panelListo = false;
   async function abrirPanel(user, sinRed = false) {
     SIN_RED = sinRed;
+    // las pestañas no se muestran hasta saber cuáles le tocan (si no, se ven un momento las de otros)
+    if (!panelListo) {
+      document.documentElement.classList.add("panel-cargando");
+      setTimeout(() => document.documentElement.classList.remove("panel-cargando"), 10000);
+    }
     vista("vPanel");
     $("#userEmail").textContent = ACCESO?.nombre || ACCESO?.usuario || user.email || "";
     if (!sinRed) ponerLS(LS_PERMISO, { email: user.email, acceso: ACCESO, hasta: Date.now() + HORAS_SIN_RED * 3600 * 1000 });
@@ -350,6 +355,7 @@
       if (primera) primera.click();
       else $("#tVen").innerHTML = `<p class="msg msg--error">Su usuario todavía no tiene permisos. Pídale al administrador que se los dé.</p>`;
     }
+    document.documentElement.classList.remove("panel-cargando");
   }
 
   // ---------- como programa (app instalada) ----------

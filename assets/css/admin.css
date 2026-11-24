@@ -438,6 +438,8 @@ html:not(.panel-ok) body { visibility: hidden; }
 .sin-v17 .v17 { display: none !important; }
 html:not(.sin-v17) .sin-v17-solo { display: none !important; }
 .sin-permiso { display: none !important; }
+/* mientras se averigua qué puede ver cada usuario, no se muestran pestañas ni contenido */
+html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility: hidden; }
 .turno { margin-bottom: 1.5rem; }
 .turno__cab { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 .turno__cab h2 { margin: 0; }
