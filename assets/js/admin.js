@@ -46,6 +46,7 @@
   let V12 = false;         // la base lleva inventario (v12_inventario.sql)
   let V13 = false;         // la base tiene crédito a clientes (v13_credito.sql)
   let V14 = false;         // la base tiene cierre de caja (v14_caja.sql)
+  let V15 = false;         // la base anota lo más vendido (v15_mas_vendidos.sql)
   let clientes = [];       // clientes de crédito con su saldo (v_clientes_credito)
   const MAX_LISTA_PROD = 150;
   let V5 = true;           // la base tiene registrar_venta_sin_internet
@@ -251,6 +252,9 @@
       let r14;
       try { r14 = await db.from("caja_turnos").select("id").limit(1); } catch (e) { r14 = { error: e }; }
       V14 = !r14.error;
+      let r15;
+      try { r15 = await db.from("productos").select("vendido").limit(1); } catch (e) { r15 = { error: e }; }
+      V15 = !r15.error;
     }
     document.documentElement.classList.toggle("sin-v14", !V14);
     document.documentElement.classList.toggle("sin-v13", !V13);
@@ -413,7 +417,7 @@
   const hoyCRp = () => new Intl.DateTimeFormat("en-CA", { timeZone: C.ZONA_HORARIA }).format(new Date());
   const ofertaVigente = (p) => p.precio_oferta != null && !!p.oferta_hasta && String(p.oferta_hasta) >= hoyCRp();
   let filtroProd = "todos";
-  const PASA_PROD = { todos: () => true, agotados: (p) => p.agotado, ofertas: ofertaVigente, sinprecio: (p) => p.precio == null, ocultos: (p) => !p.activo };
+  const PASA_PROD = { todos: () => true, agotados: (p) => p.agotado, ofertas: ofertaVigente, sinprecio: (p) => p.precio == null, sinfoto: (p) => !p.imagen_url, ocultos: (p) => !p.activo };
   function pintarProductos() {
     const q = norm($("#aBuscar").value);
     const todos = productos.filter((p) => PASA_PROD[filtroProd](p) && (!q || norm(p.nombre).includes(q) || (p.codigo && String(p.codigo).toLowerCase().includes(q))));
@@ -538,15 +542,52 @@
     if (!j) throw new Error("No se pudo procesar la foto.");
     return j;
   }
-  async function fotoEnDosTamanos(file) {
+  // Si la foto es de catálogo (fondo blanco), devuelve el recuadro donde está el producto;
+  // si no (foto tomada en el almacén, por ejemplo), null y se deja como viene.
+  function recuadroSobreBlanco(img) {
+    const w = img.naturalWidth, h = img.naturalHeight, k = Math.min(1, 200 / Math.max(w, h));
+    const cw = Math.max(1, Math.round(w * k)), ch = Math.max(1, Math.round(h * k));
+    const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+    ctx.canvas.width = cw; ctx.canvas.height = ch;
+    ctx.drawImage(img, 0, 0, cw, ch);
+    const d = ctx.getImageData(0, 0, cw, ch).data;
+    const blanco = (x, y) => { const i = (y * cw + x) * 4; return d[i + 3] < 24 || (d[i] > 236 && d[i + 1] > 236 && d[i + 2] > 236); };
+    const lado = Math.max(1, Math.round(Math.min(cw, ch) * 0.04));
+    for (const [x0, y0] of [[0, 0], [cw - lado, 0], [0, ch - lado], [cw - lado, ch - lado]]) {
+      for (let y = y0; y < y0 + lado; y++) for (let x = x0; x < x0 + lado; x++) if (!blanco(x, y)) return null;
+    }
+    let x1 = cw, y1 = ch, x2 = -1, y2 = -1;
+    for (let y = 0; y < ch; y++) for (let x = 0; x < cw; x++) {
+      if (blanco(x, y)) continue;
+      if (x < x1) x1 = x; if (x > x2) x2 = x; if (y < y1) y1 = y; if (y > y2) y2 = y;
+    }
+    if (x2 < 0) return null;
+    return { x: x1 / k, y: y1 / k, w: Math.min(w, (x2 - x1 + 1) / k), h: Math.min(h, (y2 - y1 + 1) / k) };
+  }
+  // foto de catálogo: el producto centrado en un cuadro blanco, sin bordes de más
+  function cuadrarSobreBlanco(img, r, lado) {
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = lado;
+    const ctx = cv.getContext("2d");
+    ctx.imageSmoothingQuality = "high";
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, lado, lado);
+    const k = Math.min((lado * 0.9) / r.w, (lado * 0.9) / r.h, 2);   // a lo sumo el doble, para que no quede borrosa
+    const w = r.w * k, h = r.h * k;
+    ctx.drawImage(img, r.x, r.y, r.w, r.h, (lado - w) / 2, (lado - h) / 2, w, h);
+    return cv;
+  }
+  async function fotoEnDosTamanos(file, info = {}) {
     const img = await abrirImagen(file);
-    const grande = reescalar(img, img.naturalWidth, img.naturalHeight, FOTO_GRANDE);
+    info.ancho = img.naturalWidth; info.alto = img.naturalHeight;
+    const r = recuadroSobreBlanco(img);
+    const grande = r ? cuadrarSobreBlanco(img, r, FOTO_GRANDE) : reescalar(img, img.naturalWidth, img.naturalHeight, FOTO_GRANDE);
     const mini = reescalar(grande, grande.width, grande.height, FOTO_MINI);
     return [await codificar(grande, 0.8), await codificar(mini, 0.74)];
   }
 
-  async function subirFoto(file) {
-    const [grande, mini] = await fotoEnDosTamanos(file);
+  // info (opcional) recibe el tamaño original de la foto
+  async function subirFoto(file, info) {
+    const [grande, mini] = await fotoEnDosTamanos(file, info);
     if (grande.size > 2 * 1024 * 1024) throw new Error("La foto sigue pesando más de 2 MB.");
     const ext = grande.type === "image/webp" ? "webp" : "jpg", base = crypto.randomUUID();
     const rutas = [`${base}__${FOTO_GRANDE}.${ext}`, `${base}__${FOTO_MINI}.${ext}`];
@@ -2140,6 +2181,183 @@
     cargarInventario(); cargarProductos();
   });
 
+  // ---------- fotos que faltan: buscar en Google y pegar ----------
+  const FOTOS_PAG = 24, TOP_VENDIDOS = 150;
+  const FT = { modo: "vendidos", ids: [], hasta: FOTOS_PAG, activo: null, subiendo: new Set(), chicas: new Set() };
+  const porVendido = (a, b) => (Number(b.vendido) || 0) - (Number(a.vendido) || 0) || a.nombre.localeCompare(b.nombre, "es");
+  const hayVendidos = () => V15 && productos.some((p) => Number(p.vendido) > 0);
+  // puesto en ventas de cada producto (entre los que se muestran en la tienda)
+  function puestosVenta() {
+    const m = new Map();
+    productos.filter((p) => p.activo && Number(p.vendido) > 0).sort(porVendido).forEach((p, i) => m.set(p.id, i + 1));
+    return m;
+  }
+  // lo que se busca en Google: el nombre de Moriah, un poco más legible
+  const consultaFoto = (p) => p.nombre.replace(/pulg\./gi, " pulgadas").replace(/N°\s*/g, "#").replace(/\s+/g, " ").trim();
+  function armarListaFotos() {
+    const sin = productos.filter((p) => p.activo && !p.imagen_url);
+    const l = FT.modo === "vendidos" ? sin.filter((p) => Number(p.vendido) > 0).sort(porVendido)
+      : sin.sort(porVendido);
+    FT.ids = l.map((p) => p.id);
+    FT.hasta = FOTOS_PAG;
+    FT.activo = FT.ids[0] ?? null;
+  }
+  function cuentaFotos() {
+    if (hayVendidos()) {
+      const top = productos.filter((p) => p.activo && Number(p.vendido) > 0).sort(porVendido).slice(0, TOP_VENDIDOS);
+      const con = top.filter((p) => p.imagen_url).length;
+      return `De los ${top.length} más vendidos: ${con} con foto, ${top.length === con ? "no falta ninguno" : `faltan ${top.length - con}`}.`;
+    }
+    const n = productos.filter((p) => p.activo && !p.imagen_url).length;
+    return `${n === 1 ? "Falta 1 producto" : `Faltan ${n.toLocaleString("es-CR")} productos`} con foto.`;
+  }
+  function pintarFotos() {
+    const puesto = puestosVenta(), lista = FT.ids.slice(0, FT.hasta);
+    $("#fotosCuenta").textContent = cuentaFotos();
+    $("#listaFotos").innerHTML = lista.map((id) => {
+      const p = productos.find((x) => x.id === id);
+      if (!p) return "";
+      const url = p.imagen_url ? U.safeUrl(p.imagen_url, "") : "", sube = FT.subiendo.has(id);
+      const google = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(consultaFoto(p))}`;
+      return `<li class="foto-item${FT.activo === id ? " foto-item--activo" : ""}${url ? " foto-item--lista" : ""}" data-fid="${id}">
+        <div class="foto-item__zona" tabindex="0" role="button" data-zona="${id}" aria-label="${url ? "Cambiar" : "Pegar"} la foto de ${U.esc(p.nombre)}">
+          ${sube ? '<span class="foto-item__aviso">Subiendo…</span>'
+            : url ? `<img ${U.srcMini(url)} alt="" />`
+            : `<span class="foto-item__aviso">${FT.activo === id ? "Presione Ctrl + V para pegar la foto" : "Toque aquí y pegue la foto"}</span>`}
+        </div>
+        <div class="foto-item__txt">
+          <b>${U.esc(p.nombre)}</b>
+          <small>${puesto.has(id) ? `N.º ${puesto.get(id)} en ventas` : "Sin ventas anotadas"}${p.codigo ? ` · Cód. ${U.esc(p.codigo)}` : ""}</small>
+          ${url ? `<span class="etq etq--pagado">Con foto</span>${FT.chicas.has(id) ? ' <span class="etq etq--por_verificar">Foto chica: mejor cópiela de la vista grande</span>' : ""}` : ""}
+        </div>
+        <div class="foto-item__acc">
+          <a class="btn btn--sm btn--negro" href="${U.esc(google)}" target="_blank" rel="noopener noreferrer" data-buscar="${id}">Buscar en Google</a>
+          <label class="btn btn--sm btn--linea">Archivo<input type="file" accept="image/*" data-archivo="${id}" class="sr" /></label>
+        </div>
+      </li>`;
+    }).join("") || `<li class="vacio-adm">${FT.modo === "vendidos" && !hayVendidos()
+      ? (V15 ? "Todavía no hay ventas anotadas. Importe el inventario de Moriah (Productos → Importar de Excel) y aquí salen ordenados por lo que más se vende."
+        : "Para ordenarlos por lo que más se vende, corra supabase/v15_mas_vendidos.sql en Supabase y vuelva a importar el inventario de Moriah. Mientras tanto use «Todos sin foto».")
+      : "No falta ninguna foto en este grupo."}</li>`;
+    $("#btnMasFotos").hidden = FT.ids.length <= FT.hasta;
+    $("#btnMasFotos").textContent = `Ver más (${(FT.ids.length - FT.hasta).toLocaleString("es-CR")} más)`;
+  }
+  function avisoFotos(txt, error = false) {
+    const m = $("#fotosMsg");
+    m.className = error ? "msg msg--error" : "msg"; m.textContent = txt;
+  }
+  function marcarActivo(id, enfocar = false) {
+    FT.activo = id;
+    $$("#listaFotos .foto-item").forEach((li) => li.classList.toggle("foto-item--activo", Number(li.dataset.fid) === id));
+    $$("#listaFotos .foto-item").forEach((li) => {
+      const z = li.querySelector(".foto-item__zona .foto-item__aviso");
+      if (z && !FT.subiendo.has(Number(li.dataset.fid))) z.textContent = Number(li.dataset.fid) === id ? "Presione Ctrl + V para pegar la foto" : "Toque aquí y pegue la foto";
+    });
+    const li = $(`#listaFotos [data-fid="${id}"]`);
+    if (li) { li.scrollIntoView({ block: "nearest" }); if (enfocar) li.querySelector(".foto-item__zona").focus({ preventScroll: true }); }
+  }
+  // el siguiente de la lista que todavía no tiene foto
+  function siguienteSinFoto(id) {
+    const i = FT.ids.indexOf(id);
+    const sig = FT.ids.slice(i + 1).find((x) => !productos.find((p) => p.id === x)?.imagen_url && !FT.subiendo.has(x));
+    if (sig !== undefined && FT.ids.indexOf(sig) >= FT.hasta) FT.hasta = FT.ids.indexOf(sig) + FOTOS_PAG;
+    return sig ?? null;
+  }
+  async function ponerFoto(id, file) {
+    const p = productos.find((x) => x.id === id);
+    if (!p || FT.subiendo.has(id)) return;
+    if (!file || !/^image\//.test(file.type)) return avisoFotos("Eso no es una foto. En Google, clic derecho sobre la foto → Copiar imagen.", true);
+    if (file.size > 25 * 1024 * 1024) return avisoFotos("La foto pesa demasiado (más de 25 MB).", true);
+    FT.subiendo.add(id);
+    const sig = siguienteSinFoto(id);
+    pintarFotos();
+    if (sig !== null) marcarActivo(sig);
+    avisoFotos(`Subiendo la foto de ${p.nombre}…`);
+    let url = null;
+    try {
+      const info = {};
+      url = await subirFoto(file, info);
+      const anterior = p.imagen_url;
+      const { error } = await db.from("productos").update({ imagen_url: url }).eq("id", id);
+      if (error) throw error;
+      p.imagen_url = url;
+      if (anterior) borrarFoto(anterior).catch(() => {});
+      if (Math.min(info.ancho, info.alto) < 300) FT.chicas.add(id); else FT.chicas.delete(id);
+      avisoFotos(`Listo: ${p.nombre}.${sig !== null ? " Ya puede buscar la del siguiente." : ""}`);
+    } catch (e) {
+      if (url) borrarFoto(url).catch(() => {});
+      avisoFotos(`No se pudo poner la foto de ${p.nombre}: ${errTxt(e)}`, true);
+      FT.activo = id;
+    } finally {
+      FT.subiendo.delete(id);
+      pintarFotos();
+      pintarProductos();
+    }
+  }
+  $("#btnFotos").addEventListener("click", () => {
+    FT.modo = hayVendidos() || V15 ? "vendidos" : "todos";
+    $$("#fotosModo [data-fm]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.fm === FT.modo)));
+    armarListaFotos();
+    avisoFotos("");
+    pintarFotos();
+    $("#dlgFotos").showModal();
+  });
+  $("#fotosModo").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-fm]");
+    if (!b || b.dataset.fm === FT.modo) return;
+    FT.modo = b.dataset.fm;
+    $$("#fotosModo [data-fm]").forEach((x) => x.setAttribute("aria-checked", String(x === b)));
+    armarListaFotos(); avisoFotos(""); pintarFotos();
+  });
+  $("#btnMasFotos").addEventListener("click", () => { FT.hasta += FOTOS_PAG; pintarFotos(); });
+  $("#dlgFotos").addEventListener("click", (e) => {
+    if (e.target.closest("[data-cerrar-fotos]")) {
+      if (FT.subiendo.size && !confirm("Todavía se está subiendo una foto. ¿Cerrar de todos modos?")) return;
+      $("#dlgFotos").close();
+      return;
+    }
+    const b = e.target.closest("[data-buscar]");
+    if (b) { marcarActivo(Number(b.dataset.buscar)); return; }   // el enlace se abre en otra pestaña
+    const z = e.target.closest("[data-zona]");
+    if (z) marcarActivo(Number(z.dataset.zona), true);
+  });
+  $("#dlgFotos").addEventListener("change", (e) => {
+    const inp = e.target.closest("[data-archivo]");
+    if (!inp || !inp.files[0]) return;
+    const id = Number(inp.dataset.archivo);
+    marcarActivo(id);
+    ponerFoto(id, inp.files[0]);
+    inp.value = "";
+  });
+  $("#dlgFotos").addEventListener("keydown", (e) => {
+    const z = e.target.closest?.("[data-zona]");
+    if (z && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); marcarActivo(Number(z.dataset.zona)); }
+  });
+  // arrastrar un archivo de la compu sobre el producto
+  $("#listaFotos").addEventListener("dragover", (e) => { if (e.target.closest("[data-zona]")) e.preventDefault(); });
+  $("#listaFotos").addEventListener("drop", (e) => {
+    const z = e.target.closest("[data-zona]");
+    if (!z) return;
+    e.preventDefault();
+    const id = Number(z.dataset.zona), f = [...(e.dataTransfer?.files || [])].find((x) => /^image\//.test(x.type));
+    marcarActivo(id);
+    if (f) ponerFoto(id, f);
+    else avisoFotos("Arrastrar desde Google no trae la foto. Mejor: clic derecho sobre la foto → Copiar imagen, y aquí Ctrl + V.", true);
+  });
+  // Ctrl + V en cualquier parte de la ventana: va al producto marcado
+  document.addEventListener("paste", (e) => {
+    if (!$("#dlgFotos").open) return;
+    const items = [...(e.clipboardData?.items || [])];
+    const img = items.find((i) => i.kind === "file" && /^image\//.test(i.type));
+    if (!img) {
+      if (items.length) avisoFotos("Lo que copió no es la foto (parece un enlace o texto). En Google: clic derecho sobre la foto → Copiar imagen.", true);
+      return;
+    }
+    e.preventDefault();
+    if (FT.activo === null) return avisoFotos("Primero toque el producto al que va la foto.", true);
+    ponerFoto(FT.activo, img.getAsFile());
+  });
+
   // ---------- ajuste de precios (como "Ajuste de Precios" de Moriah) ----------
   const AJ = new Map();     // id → { p, nuevo }
   const cambiaAJ = ({ p, nuevo }) => nuevo !== "" && Number(nuevo) >= 0 && Number(nuevo) !== (p.precio == null ? -1 : Number(p.precio));
@@ -3436,6 +3654,8 @@
       } else {
         mapa = COLS.map(([k, , re]) => [k, cab.findIndex((h) => re.test(h))]).filter(([k, i]) => i >= 0 && colUsable(k));
       }
+      // lo vendido de cada producto (columna "Monto V" de Moriah), para ordenar las fotos que faltan
+      const iVend = iMoriah >= 0 && V15 ? cab.indexOf("monto v") : -1;
       const porCodigo = new Set(productos.filter((p) => p.codigo).map((p) => String(p.codigo)));
       const porNombre = new Set(productos.filter((p) => !p.codigo).map((p) => norm(p.nombre)));
       const vistos = new Set();
@@ -3454,6 +3674,10 @@
           else if (k === "unidad") { const u = unidadLimpia(v); if (u) fila.unidad = u; }
           else if (k === "categoria") { const c = String(v).trim(); if (c && !/^(sin categoria|general)$/.test(norm(c))) fila.categoria = c; }
           else fila[k] = String(v).trim();
+        }
+        if (iVend >= 0 && fila.codigo) {
+          const raw = f.celdas[iVend], n = typeof raw === "number" ? raw : Number(String(raw ?? "").replace(/[\s,₡]/g, ""));
+          if (Number.isFinite(n) && n >= 0 && n < 1e12) fila.vendido = Math.round(n * 100) / 100;
         }
         // Moriah pega "Detalle:" al final del nombre
         fila.nombre = String(fila.nombre || "").split(/\n\s*detalle\s*:/i)[0].replace(/\s+/g, " ").trim().slice(0, 100);
@@ -3479,7 +3703,7 @@
       msg.textContent = `${iMoriah >= 0 ? "Inventario de Moriah. " : ""}${ok.length} listos: ${nuevos} nuevos y ${ok.length - nuevos} para actualizar.`
         + (sinExist ? ` ${sinExist} sin existencia quedan como agotados.` : "")
         + (ok.some((x) => x.fila._auto) ? " A los nuevos sin categoría se les puso una según el nombre (se puede cambiar después)." : "")
-        + `${malas ? ` ${malas} con errores no se importan.` : ""} Columnas: ${mapa.map(([k]) => COLS.find((c) => c[0] === k)[1]).join(", ")}.`;
+        + `${malas ? ` ${malas} con errores no se importan.` : ""} Columnas: ${mapa.map(([k]) => COLS.find((c) => c[0] === k)[1]).join(", ")}${iVend >= 0 ? " y lo vendido (Monto V)" : ""}.`;
       $("#btnHacerImport").disabled = !ok.length;
       $("#btnHacerImport").textContent = `Importar ${ok.length} ${ok.length === 1 ? "producto" : "productos"}`;
     } catch (e) {
@@ -3489,7 +3713,9 @@
   $("#btnHacerImport").addEventListener("click", async () => {
     const b = $("#btnHacerImport"), msg = $("#impMsg");
     const conExist = !$("#impExistencias") || $("#impExistencias").checked;
-    const filas = importacion.filter((x) => !x.error).map(({ fila: { _auto, ...f } }) => { if (!conExist) delete f.existencia; return f; });
+    const filas = importacion.filter((x) => !x.error).map(({ fila: { _auto, vendido, ...f } }) => { if (!conExist) delete f.existencia; return f; });
+    const vendidos = importacion.filter((x) => !x.error && x.fila.codigo && x.fila.vendido !== undefined)
+      .map((x) => ({ codigo: x.fila.codigo, vendido: x.fila.vendido }));
     if (!filas.length) return;
     if (!confirm(`¿Importar ${filas.length} productos? Los que ya existen se actualizan con los datos del archivo.`)) return;
     b.disabled = true;
@@ -3502,8 +3728,16 @@
         tot.insertados += data.insertados; tot.actualizados += data.actualizados; tot.categorias_nuevas += data.categorias_nuevas;
         tot.errores.push(...(data.errores || []));
       }
+      // después de importar, cuánto se ha vendido de cada uno (si falla no se pierde la importación)
+      let vendOk = true;
+      for (let i = 0; i < vendidos.length; i += 5000) {
+        msg.textContent = "Anotando lo más vendido…";
+        const { error } = await db.rpc("anotar_vendido", { p_filas: vendidos.slice(i, i + 5000) });
+        if (error) { vendOk = false; break; }
+      }
       msg.className = tot.errores.length ? "msg msg--error" : "msg";
       msg.textContent = `Listo: ${tot.insertados} nuevos, ${tot.actualizados} actualizados${tot.categorias_nuevas ? `, ${tot.categorias_nuevas} categorías nuevas` : ""}.` +
+        (vendidos.length ? (vendOk ? " También quedó anotado lo que más se vende (Productos → Fotos)." : " No se pudo anotar lo más vendido; vuelva a importar el archivo.") : "") +
         (tot.errores.length ? ` No se pudieron importar: ${tot.errores.slice(0, 5).map((x) => `fila ${x.fila} (${x.error})`).join("; ")}${tot.errores.length > 5 ? "…" : ""}` : "");
       await cargarCategorias();
       await cargarProductos();

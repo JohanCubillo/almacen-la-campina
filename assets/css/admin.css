@@ -452,3 +452,22 @@ html:not(.panel-ok) body { visibility: hidden; }
 .dif--mal { color: var(--peligro); }
 .cierre__res { display: grid; gap: .2rem; font-size: .92rem; margin: .25rem 0 .75rem; }
 .cierre__res div { display: flex; justify-content: space-between; gap: 1rem; border-bottom: 1px dashed var(--borde); padding: .15rem 0; }
+
+/* ---------- Fotos que faltan (pegar desde Google) ---------- */
+.fotos-barra { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; }
+.fotos { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: .75rem; }
+.foto-item { display: grid; grid-template-rows: auto 1fr auto; gap: .5rem; padding: .6rem; border: 1px solid var(--borde); border-radius: 8px; background: #fff; }
+.foto-item--activo { border-color: var(--negro); box-shadow: 0 0 0 3px var(--cinta); }
+.foto-item__zona { aspect-ratio: 1; border: 2px dashed var(--borde); border-radius: 6px; background: var(--fondo-2); display: grid; place-items: center; overflow: hidden; cursor: pointer; text-align: center; }
+.foto-item--activo .foto-item__zona { border-color: var(--negro); }
+.foto-item--lista .foto-item__zona { border-style: solid; background: #fff; }
+.foto-item__zona:focus-visible { outline: 3px solid var(--negro); outline-offset: 2px; }
+.foto-item__zona img { width: 100%; height: 100%; object-fit: contain; }
+.foto-item__aviso { padding: .5rem; font-size: .88rem; color: var(--gris); }
+.foto-item--activo .foto-item__aviso { color: var(--negro); font-weight: 700; }
+.foto-item__txt { display: grid; gap: .2rem; align-content: start; font-size: .92rem; line-height: 1.25; }
+.foto-item__txt b { overflow-wrap: anywhere; }
+.foto-item__txt small { color: var(--gris); }
+.foto-item__acc { display: flex; flex-wrap: wrap; gap: .4rem; }
+.foto-item__acc .btn { flex: 1 1 auto; justify-content: center; text-align: center; }
+#dlgFotos .pasos { font-size: .95rem; }

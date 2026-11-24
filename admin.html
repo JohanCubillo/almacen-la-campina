@@ -289,6 +289,7 @@
             <input id="aBuscar" type="search" placeholder="Nombre o código…" maxlength="60" aria-label="Buscar producto" />
             <button type="button" class="btn btn--linea btn--sm v4" id="btnImportar">Importar de Excel</button>
             <button type="button" class="btn btn--linea btn--sm v11" id="btnAjustePrecios">Ajuste de precios</button>
+            <button type="button" class="btn btn--linea btn--sm" id="btnFotos">Fotos</button>
             <button type="button" class="btn btn--linea btn--sm" id="btnExportar">Descargar en Excel</button>
             <button type="button" class="btn btn--negro btn--sm" id="btnNuevoProd">Nuevo producto</button>
           </div>
@@ -298,6 +299,7 @@
           <button type="button" role="radio" aria-checked="false" data-fp="agotados" class="v4">Agotados</button>
           <button type="button" role="radio" aria-checked="false" data-fp="ofertas" class="v4">En oferta</button>
           <button type="button" role="radio" aria-checked="false" data-fp="sinprecio">Sin precio</button>
+          <button type="button" role="radio" aria-checked="false" data-fp="sinfoto">Sin foto</button>
           <button type="button" role="radio" aria-checked="false" data-fp="ocultos">Ocultos</button>
         </div>
         <ul id="listaProd" class="filas"></ul>
@@ -717,6 +719,30 @@
   </dialog>
 
   <!-- Ajuste de precios -->
+  <dialog id="dlgFotos" class="dlg dlg--ancho" aria-labelledby="fotosTitulo">
+    <div class="dlg__form">
+      <div class="dlg__cab">
+        <h2 id="fotosTitulo">Fotos que faltan</h2>
+        <button type="button" class="cerrar-x" data-cerrar-fotos aria-label="Cerrar">✕</button>
+      </div>
+      <ol class="pasos">
+        <li>Toque <b>Buscar en Google</b> en el producto. Se abre otra pestaña con fotos.</li>
+        <li>Abra la foto que sirva y, sobre la foto grande, haga clic derecho → <b>Copiar imagen</b>.</li>
+        <li>Vuelva a esta pestaña y presione <b>Ctrl + V</b>. La foto se arregla, se sube y queda marcado el siguiente.</li>
+      </ol>
+      <div class="fotos-barra">
+        <div class="segmentos segmentos--sm" role="radiogroup" aria-label="Qué productos ver" id="fotosModo">
+          <button type="button" role="radio" aria-checked="true" data-fm="vendidos">Más vendidos</button>
+          <button type="button" role="radio" aria-checked="false" data-fm="todos">Todos sin foto</button>
+        </div>
+        <p class="ayuda" id="fotosCuenta" aria-live="polite"></p>
+      </div>
+      <p class="msg" id="fotosMsg" role="status"></p>
+      <ul id="listaFotos" class="fotos"></ul>
+      <button type="button" class="btn btn--linea" id="btnMasFotos" hidden>Ver más</button>
+    </div>
+  </dialog>
+
   <dialog id="dlgAjuste" class="dlg dlg--ancho" aria-labelledby="ajTitulo">
     <div class="dlg__form">
       <div class="dlg__cab">

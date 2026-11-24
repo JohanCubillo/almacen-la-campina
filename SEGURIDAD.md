@@ -106,3 +106,9 @@ Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usar
 
 - Abrir, mover efectivo y cerrar la caja solo se hace con `abrir_caja`, `mover_caja` y `cerrar_caja` (admin con MFA). El panel solo puede **leer** `caja_turnos` y `caja_movimientos`.
 - Lo que debería haber lo calcula la base (`resumen_caja`) con los pagos del turno, no el navegador. Al cerrar, el resumen y el conteo quedan guardados y ya no cambian.
+
+## Lo más vendido (v15)
+
+- `productos.vendido` (lo vendido según Moriah) **no** se le da a `anon`: la tienda no puede leerlo (las columnas públicas de `productos` se dan una por una desde v9).
+- Solo se anota con `anotar_vendido` (admin con MFA), que nada más toca esa columna y solo en productos que ya tienen ese código.
+- La pantalla **Productos → Fotos** abre Google en otra pestaña con el nombre del producto (sin datos del panel: el enlace va con `noreferrer`). La foto llega por el portapapeles o como archivo, se re-codifica en el navegador (lo que borra datos EXIF/GPS) y se sube igual que cualquier foto de producto.

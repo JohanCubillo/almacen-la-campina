@@ -25,16 +25,17 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 11. **SQL Editor → New query** → pegar `supabase/v12_inventario.sql` → **Run**. Las ventas bajan la existencia, las anulaciones la devuelven, y activa la pestaña *Inventario* (entradas de mercadería y movimientos).
 12. **SQL Editor → New query** → pegar `supabase/v13_credito.sql` → **Run**. Activa la pestaña *Crédito* (clientes, límite, plazo, abonos y estado de cuenta) y la opción *Crédito* en las ventas.
 13. **SQL Editor → New query** → pegar `supabase/v14_caja.sql` → **Run**. Activa abrir y cerrar caja (fondo, entradas y salidas de efectivo, conteo y cierre impreso) en la pestaña *Caja*.
-14. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
-15. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
-16. Registrar al administrador:
+14. **SQL Editor → New query** → pegar `supabase/v15_mas_vendidos.sql` → **Run**. Anota lo que más se vende al importar el inventario de Moriah, para ponerle foto primero a eso (**Productos → Fotos**). Correrlo **antes** de importar el Excel de Moriah.
+15. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
+16. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
+17. Registrar al administrador:
    ```sql
    insert into public.admins (user_id)
    select id from auth.users where email = 'correo-del-admin@ejemplo.com'
    on conflict do nothing;
    ```
-17. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
-18. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
+18. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
+19. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
 
 ## 2. Primer ingreso al panel
 
@@ -161,6 +162,7 @@ Solo puede haber una caja abierta. Abrir y cerrar necesita internet.
 4. **Productos que ya existen** (mismo código): se actualizan precio, existencia y agotado. No se tocan el nombre, la foto, la descripción, la categoría ni si se muestra o no en la tienda: lo que se arregló en el panel se respeta.
 5. Existencia 0 o menos → **agotado** (se ve en la tienda, pero al final y marcado). Precio 0 → **a consultar**.
 6. Se salta: productos con "(prueba)" en el nombre y códigos repetidos dentro del archivo.
+7. Con `v15_mas_vendidos.sql` corrido, también se anota lo vendido de cada producto (columna *Monto V*). No se publica: solo sirve para ordenar en el panel.
 
 Para tener precios y existencias al día, repetir la importación cada semana (o cuando cambien precios en Moriah). La existencia **no** se publica en la tienda: solo la ve el panel.
 
@@ -173,6 +175,18 @@ En la tienda, la sección **¿Tiene una pregunta?** (y el enlace *Dejar una preg
 ## Respaldo
 
 **Datos del negocio → Respaldo en esta compu → Descargar respaldo.** Baja un ZIP con todas las tablas (cada una en CSV para Excel, y `respaldo.json` con todo junto) y, si se marca la casilla, las fotos de comprobantes y productos. No incluye contraseñas ni el token de Telegram. Hacerlo al menos una vez al mes y guardar una copia fuera de la compu (USB o Drive). El panel avisa cuando ya pasaron 30 días.
+
+## Fotos de los productos (buscar en Google y pegar)
+
+**Productos → Fotos** muestra los productos sin foto, empezando por los **más vendidos** (necesita `v15_mas_vendidos.sql` y haber importado el inventario de Moriah). Arriba dice cuántos de los 150 más vendidos ya tienen foto.
+
+1. En el producto marcado (borde amarillo), **Buscar en Google**: abre otra pestaña con fotos de ese producto.
+2. Abrir la foto que sirva y, sobre la **foto grande**, clic derecho → **Copiar imagen**. (Copiarla desde la cuadrícula da una foto chica; el panel avisa si pasa.)
+3. Volver al panel y **Ctrl + V**. La foto se sube y queda marcado el siguiente, sin esperar a que termine.
+
+Si la foto es de catálogo (fondo blanco), el panel le quita los bordes y la centra en un cuadro blanco, para que todas se vean parejas en la tienda. Una foto tomada en el almacén se deja como viene. Para cambiar una foto: tocar el producto y pegar otra. También se puede escoger un **Archivo** de la compu o arrastrarlo encima.
+
+Ojo: las fotos de Google son de otros (fábricas y tiendas). Mejor usar las de la marca del producto, no las de otra ferretería, y con el tiempo cambiarlas por fotos propias.
 
 ## Espacio de fotos
 
@@ -214,7 +228,7 @@ assets/productos/  fotos de productos (WebP 800×800)
 assets/vendor/     supabase-js 2.119.2 (local, sin CDN)
 assets/fonts/      Barlow / Barlow Condensed (OFL)
 assets/img/        logo, íconos de la app, og.jpg (imagen para compartir)
-supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql, v14_caja.sql
+supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql, v14_caja.sql, v15_mas_vendidos.sql
 supabase/functions/facturar/   función que firma y envía los comprobantes a Hacienda
 herramientas/      prueba de facturación en la compu (prueba-hacienda.mjs)
 sw.js              copia de la página para abrirla sin internet
