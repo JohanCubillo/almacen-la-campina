@@ -12,7 +12,7 @@
 // =====================================================================
 import { Buffer } from "node:buffer";
 import {
-  buildClave, buildFacturaXml, buildTiqueteXml, buildNotaCreditoXml,
+  buildClave, buildFacturaXml, buildTiqueteXml, buildNotaCreditoXml, buildMensajeReceptorXml,
   calculateLineItemTotals, calculateInvoiceSummary,
   signXml, validateDocumentXml,
   getEnvironmentConfig, Environment, TokenManager, HttpClient, loadCredentials,
@@ -222,6 +222,76 @@ export function armarNotaCredito(op: {
   const xml = buildNotaCreditoXml(doc as never);
   return { tipo: "03", clave: doc.clave as string, consecutivo: doc.numeroConsecutivo as string, fechaEmision: doc.fechaEmision as string,
            total: Number(res.totalComprobante), impuesto: Number(res.totalImpuesto), doc, xml };
+}
+
+// ---------- mensaje de receptor (aceptar o rechazar la factura de un proveedor) ----------
+// mensaje: 1 acepta (consecutivo tipo 05), 2 acepta en parte (06), 3 rechaza (07)
+// condición del IVA: 01 da crédito completo, 02 crédito parcial, 03 bienes de capital,
+//                    04 gasto corriente sin crédito, 05 proporcionalidad
+export const TIPO_MENSAJE: Record<string, string> = { "1": "05", "2": "06", "3": "07" };
+export type MensajeReceptorEntrada = {
+  numero: number; emisor: Emisor;                 // emisor = este negocio (el que contesta)
+  recibido: { clave: string; emisor_id: string; fecha_emision: string; total: number; impuesto: number };
+  mensaje: "1" | "2" | "3"; detalle?: string | null;
+  condicion?: string | null; acreditar?: number | null;
+  fecha?: Date;
+};
+export function armarMensajeReceptor(op: MensajeReceptorEntrada) {
+  const faltan = revisarEmisor(op.emisor);
+  if (faltan.length) falla("Faltan datos del negocio: " + faltan.join(", ") + ".");
+  const tipo = TIPO_MENSAJE[op.mensaje];
+  if (!tipo) falla("Escoja si acepta, acepta en parte o rechaza.");
+  if (!(op.numero >= 1 && op.numero <= 9999999999)) falla("Consecutivo fuera de rango.");
+  const r = op.recibido;
+  if (!/^[0-9]{50}$/.test(r.clave)) falla("La clave del comprobante no es válida.");
+  if (!/^[0-9]{9,12}$/.test(r.emisor_id)) falla("La cédula del proveedor no es válida.");
+  const detalle = String(op.detalle || "").replace(/\s+/g, " ").trim().slice(0, 160);
+  if (op.mensaje !== "1" && detalle.length < 3) falla("Escriba el motivo (se le manda al proveedor por medio de Hacienda).");
+  const total = r5(Number(r.total)), impuesto = r5(Number(r.impuesto || 0));
+  const consecutivo = `${op.emisor.sucursal}${op.emisor.terminal}${tipo}${String(op.numero).padStart(10, "0")}`;
+  const datos: Record<string, unknown> = {
+    clave: r.clave,
+    numeroCedulaEmisor: r.emisor_id,
+    fechaEmisionDoc: fechaCR(new Date(r.fecha_emision)),
+    mensaje: op.mensaje,
+    ...(detalle ? { detalleMensaje: detalle } : {}),
+    totalFactura: total,
+    numeroCedulaReceptor: String(op.emisor.identificacion),
+    numeroConsecutivoReceptor: consecutivo,
+  };
+  if (impuesto > 0) datos.montoTotalImpuesto = impuesto;
+  if (op.mensaje !== "3") {
+    datos.codigoActividad = op.emisor.actividad;
+    if (impuesto > 0) {
+      const cond = String(op.condicion || "01");
+      if (!["01", "02", "03", "04", "05"].includes(cond)) falla("Condición del IVA no válida.");
+      let acreditar = impuesto;
+      if (cond === "04") acreditar = 0;
+      else if (cond === "02" || cond === "05") {
+        acreditar = r5(Number(op.acreditar));
+        if (!(acreditar >= 0) || acreditar > impuesto) falla("El IVA que se acredita tiene que estar entre 0 y el IVA de la factura.");
+      }
+      datos.condicionImpuesto = cond;
+      datos.montoTotalImpuestoAcreditar = acreditar;
+      datos.montoTotalDeGastoAplicable = r5(impuesto - acreditar);
+    }
+  }
+  const xml = buildMensajeReceptorXml(datos as never);
+  return { tipo, consecutivo, fecha: fechaCR(op.fecha || new Date()), datos, xml };
+}
+
+// Manda el mensaje de receptor: va con la clave del comprobante del proveedor
+export async function enviarMensaje(http: HttpClient, m: {
+  clave: string; fecha: string; emisor: { tipo: string; numero: string }; receptor: { tipo: string; numero: string }; consecutivo: string;
+}, firmado: string) {
+  return await submitDocument(http, {
+    clave: m.clave,
+    fecha: m.fecha,
+    emisor: { tipoIdentificacion: m.emisor.tipo, numeroIdentificacion: m.emisor.numero },
+    receptor: { tipoIdentificacion: m.receptor.tipo, numeroIdentificacion: m.receptor.numero },
+    consecutivoReceptor: m.consecutivo,
+    comprobanteXml: Buffer.from(firmado, "utf8").toString("base64"),
+  } as never);
 }
 
 // Solo revisa el XML sin firmar contra el esquema 4.4 (para probar sin llave)

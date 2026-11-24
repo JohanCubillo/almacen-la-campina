@@ -141,6 +141,16 @@ Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usar
 - Todo queda en la bitácora (el origen sale como "saldos de Moriah" o "apartado").
 - `resumen_caja` y `reporte_ventas` se reemplazan con los permisos de v17 ya puestos: si se corre otra vez un archivo viejo (v4, v14 o v17), hay que correr otra vez v18.
 
+## Compras, ajustes y facturas recibidas (v21)
+
+- Permiso nuevo **compras** para empleados: proveedores, pagos a proveedores y facturas recibidas. Salidas y conteos usan el permiso **inventario**. Todo lo revisa la base (`puede()`), no solo el panel.
+- Salidas, conteos, compras, pagos y anulaciones solo se escriben con funciones (`ajustar_inventario`, `anular_ajuste`, `registrar_compra`, `pagar_proveedor`, `anular_pago_proveedor`, `guardar_recibido`, `borrar_recibido`); las tablas solo se leen. Los proveedores se crean y editan directo, con las mismas reglas de permiso.
+- Un pago "de la caja" pasa por `mover_caja`, que pide además el permiso **caja** y una caja abierta.
+- `guardar_recibido` rechaza comprobantes que no son para la cédula del negocio o que emitió el mismo negocio; el XML tiene tope de 2 MB. La respuesta a Hacienda (mensaje de receptor) la firma solo la función `facturar` con los secretos; el panel nunca ve la llave.
+- `revisar_arranque()` solo la usa el administrador.
+- Todo queda en la bitácora con su origen (salida, conteo, compra a crédito, pago a proveedor, comprobante recibido…).
+- Si se corre otra vez v12 o v17, hay que correr otra vez v21 (v17 deja la lista de permisos sin "compras").
+
 ## Sin internet (v19)
 
 - **Comprobantes sin internet:** la llave .p12 y su PIN **siguen solo** en los secretos de la función `facturar`; la compu nunca firma. La compu solo arma la clave (situación 3) con números que la base le apartó a su terminal (`fe_preparar_sin_internet`, permiso "ventas"). Al recibirla, la función revisa que el número esté en un bloque apartado para esa terminal (`fe_bloques`), que la cédula sea la del emisor y que la clave coincida con la fecha y los datos; si no, no la firma.

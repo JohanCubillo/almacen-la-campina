@@ -31,6 +31,7 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 17. **SQL Editor → New query** → pegar `supabase/v18_cheque_saldos_apartados.sql` → **Run** (después de v17). Pago con **cheque**, **pasar los saldos de crédito de Moriah** y **apartados**. Ver *Pasar de Moriah: saldos de crédito y apartados* más abajo.
 18. **SQL Editor → New query** → pegar `supabase/v19_sin_internet.sql` → **Run** (después de v18). Trabajar **sin internet**: crédito, apartados, abonos, caja y comprobantes electrónicos que se mandan solos al volver la conexión. Ver *Sin internet* más abajo.
 18b. **SQL Editor → New query** → pegar `supabase/v20_actividad_caecr.sql` → **Run**. Acepta el código de actividad como lo da TRIBU-CR (ej. `6201.0`).
+18c. **SQL Editor → New query** → pegar `supabase/v21_compras_ajustes.sql` → **Run** (después de v20). Salidas y conteos de inventario, compras a crédito y proveedores, facturas recibidas y la lista para dejar Moriah. Si algún día vuelve a correr v12 o v17, corra otra vez v21 al final.
 19. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
 20. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
 21. Registrar al administrador (el dueño):
@@ -181,9 +182,34 @@ Necesita `supabase/v18_cheque_saldos_apartados.sql` (después de v17).
 - **En una venta no se puede poner más de lo que hay:** el buscador no deja agregar más y la cantidad se corrige sola al máximo. Al guardar se revisa otra vez contra la existencia del momento, por si otra compu vendió. Si el conteo está mal, corríjalo en Productos o registre la entrada de mercadería.
 - **Menos de 10:** el panel avisa *“Ya casi no quedan”* al agregarlo y el renglón muestra cuántos quedan después de esa venta (o *“Es lo último que hay”*).
 - Los pedidos de la página y las ventas sin internet no se bloquean en la base (para no perder un pedido); la revisión es del panel.
-- Solo se lleva existencia de los productos que la tienen: los de Moriah o los que reciben una entrada. Para corregir un conteo físico, en **Productos → Editar → Existencia**; queda en Movimientos como "Editado en Productos".
+- Solo se lleva existencia de los productos que la tienen: los de Moriah, los que reciben una entrada o los que se cuentan.
+- **Inventario → Salida o conteo** (con v21):
+  - **Sale mercadería:** dañada o quebrada, perdida o robada, usada en el almacén, vencida o devuelta al proveedor. Se resta de la existencia con su motivo.
+  - **Conteo físico:** se escribe lo que hay en el estante y la existencia queda en eso; se ve cuánto faltaba o sobraba y cuánto vale al costo. Sirve también para empezar a llevar existencia de un producto.
+  - Se ven en **Inventario → Salidas y conteos**, con sus productos. Uno mal hecho se **anula** y la existencia vuelve a como estaba.
+  - Sin v21, el conteo se corrige en **Productos → Editar → Existencia** (queda como "Editado en Productos").
 
 **Mientras se usen Moriah y el panel a la vez:** Moriah no sabe lo que vende el panel, ni el panel lo que vende Moriah. Mientras Moriah sea el principal, importe su Excel con **Actualizar existencias desde el archivo** marcado. El día que el panel pase a ser el principal, haga un conteo, importe una última vez y desde entonces importe con esa casilla **sin marcar**, para no pisar lo que lleva el panel.
+
+## Compras y proveedores (v21)
+
+Pestaña **Compras** (administrador o empleado con permiso *Compras y proveedores*):
+
+- **Entrada de mercadería** (Inventario): ahora se escoge el **proveedor** de la lista (si es nuevo, se agrega solo al guardar) y si se pagó **de contado** o **a crédito**. A crédito se pone el **total de la factura** (con IVA) y el **vencimiento**, que sale solo con los días de crédito del proveedor.
+- **Por pagar:** lo que se le debe a cada proveedor, con las facturas vencidas en rojo y las que vencen en 5 días en amarillo. **Pagar** anota el pago (transferencia, SINPE, efectivo, cheque…); si es en efectivo, puede salir de la caja abierta y queda como salida en el cierre. Se puede pagar por partes.
+- **Pagos hechos:** todos los pagos; uno mal anotado se **anula** (vuelve a quedar la deuda y, si salió de la caja, el efectivo vuelve a la caja abierta).
+- **Proveedores:** nombre, cédula, teléfono, vendedor y días de crédito. Se ve cuánto se le debe a cada uno.
+- Una compra con pagos no se puede anular: primero se anulan los pagos.
+
+**Facturas recibidas (las facturas electrónicas de los proveedores):**
+
+1. El proveedor manda al correo dos XML: la factura y la respuesta de Hacienda. En **Compras → Subir factura del proveedor (XML)** se escoge el de la **factura** (se pueden escoger varios). El panel lee el proveedor, el total, el IVA y los productos; si el proveedor no existe, lo crea.
+2. **Aceptar o rechazar:** se le contesta a Hacienda (*mensaje de receptor*): **Aceptar**, **Aceptar en parte** (con el motivo) o **Rechazar** (con el motivo). Al aceptar se escoge cómo cuenta el IVA; para mercadería que se vende es *“Da crédito de IVA completo”*. Si tiene dudas, pregúntele al contador. Hace falta la facturación electrónica configurada (no hace falta tener encendido *Facturar desde el panel*).
+3. **Hacer la entrada:** arma la entrada de mercadería con los datos de la factura. Cada línea se une con el producto que tenga el **mismo código** (o el mismo CABYS, si solo hay uno); las que no se unen salen en rojo para buscarlas a mano. Una factura solo puede tener una entrada.
+
+## Lista para dejar Moriah (v21)
+
+**Datos del negocio → Lista para dejar Moriah → Revisar ahora.** El panel revisa solo: archivos SQL, administrador y empleados, permisos delicados sin código del celular, datos del negocio, productos sin precio, sin CABYS o sin existencia, saldos de crédito, si ya se cerró una caja, la facturación (emisor, un comprobante aceptado, producción), comprobantes sin terminar, facturas de proveedores sin contestar, compras vencidas y el último respaldo. Lo que no se puede revisar solo (apagar registros nuevos, revocar la llave secreta, impresora, prueba con Marvin, importar Moriah el día del cambio, credenciales de producción, contador) sale como casillas para marcar a mano.
 
 ## Inventario desde Moriah
 
@@ -230,11 +256,12 @@ En la tienda, la sección **¿Tiene una pregunta?** (y el enlace *Dejar una preg
 | Anular ventas | Anular ventas y pagos (con nota de crédito si hace falta) |
 | Caja | Abrir, mover y cerrar la caja |
 | Crédito y abonos | Clientes, ventas a crédito, abonos |
-| Inventario (entradas) | Entradas de mercadería |
+| Inventario (entradas) | Entradas de mercadería, salidas y conteos |
 | Productos y fotos | Crear y editar productos, categorías y fotos |
 | Cambiar precios | Precios en el producto, ajuste de precios, importar el Excel de Moriah (con *Productos*). Sin esta casilla, en una venta no se puede bajar el precio de un producto del catálogo |
 | Reportes | Reportes y comprobantes emitidos |
 | Preguntas de clientes | Contestar preguntas de la tienda |
+| Compras y proveedores | Proveedores, pagos a proveedores y facturas recibidas (aceptar o rechazar ante Hacienda) |
 
 Botones rápidos: **Caja** (ventas, caja y crédito) e **Inventario** (inventario y productos). Todo esto lo revisa la base de datos, no solo el panel: aunque alguien sepa de sistemas, no se puede saltar los permisos. Todo lo que hace cada uno queda en la bitácora con su nombre.
 
@@ -312,7 +339,7 @@ assets/productos/  fotos de productos (WebP 800×800)
 assets/vendor/     supabase-js 2.119.2 (local, sin CDN)
 assets/fonts/      Barlow / Barlow Condensed (OFL)
 assets/img/        logo, íconos de la app, og.jpg (imagen para compartir)
-supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql, v14_caja.sql, v15_mas_vendidos.sql, v16_bitacora.sql, v17_permisos.sql, v18_cheque_saldos_apartados.sql, v19_sin_internet.sql, v20_actividad_caecr.sql
+supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql, v14_caja.sql, v15_mas_vendidos.sql, v16_bitacora.sql, v17_permisos.sql, v18_cheque_saldos_apartados.sql, v19_sin_internet.sql, v20_actividad_caecr.sql, v21_compras_ajustes.sql
 supabase/functions/facturar/   función que firma y envía los comprobantes a Hacienda
 herramientas/      prueba de facturación en la compu (prueba-hacienda.mjs)
 sw.js              copia de la página para abrirla sin internet

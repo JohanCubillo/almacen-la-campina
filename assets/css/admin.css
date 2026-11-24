@@ -524,3 +524,31 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 .usu-nuevo > summary { list-style: none; display: inline-flex; cursor: pointer; }
 .usu-nuevo > summary::-webkit-details-marker { display: none; }
 .usu-nuevo__form { display: grid; gap: .75rem; margin-top: .75rem; padding: .8rem; border: 1px solid var(--borde); border-radius: 8px; }
+/* v21: salidas y conteos, compras, facturas recibidas, lista para dejar Moriah */
+.sin-v21 .v21 { display: none !important; }
+.rojo { color: var(--peligro); font-weight: 600; }
+.amarillo { color: #8a5a00; font-weight: 600; }
+.resumen-linea { margin: .5rem 0 .75rem; font-size: .95rem; }
+.resumen-linea:empty { display: none; }
+#aiFilas input { width: 7rem; text-align: right; }
+#aiFilas small { display: block; font-size: .8rem; }
+#provBuscar { width: 100%; margin: .75rem 0 .25rem; }
+.fila__acc .btn + .enlace, .fila__acc .btn + .btn, .fila__acc .etq + .enlace { margin-left: .4rem; }
+.entrada__ref { margin: .25rem 0 .75rem; font-size: .9rem; }
+.entrada__ref summary { cursor: pointer; font-weight: 600; }
+.entrada__ref ul { list-style: none; margin: .4rem 0 0; padding: 0; display: grid; gap: .2rem; max-height: 14rem; overflow: auto; }
+.rec__datos { display: grid; gap: .3rem; margin: 0 0 .9rem; }
+.rec__datos div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .25rem 1rem; border-bottom: 1px dashed var(--borde); padding-bottom: .25rem; }
+.rec__datos dt { color: var(--gris); font-size: .88rem; font-weight: 600; }
+.rec__datos dd { margin: 0; text-align: right; }
+#recIva, #recDetLbl { margin-top: .75rem; }
+.arranque { list-style: none; margin: .75rem 0 0; padding: 0; display: grid; gap: .1rem; }
+.arranque:empty { display: none; }
+.arr__grupo { margin-top: .7rem; font-size: .8rem; font-weight: 700; color: var(--gris); text-transform: none; }
+.arr { display: flex; gap: .6rem; align-items: flex-start; padding: .35rem 0; border-bottom: 1px solid var(--linea); }
+.arr small { display: block; color: var(--gris); font-size: .85rem; }
+.arr__ic { flex: 0 0 1.5rem; height: 1.5rem; border-radius: 50%; display: grid; place-items: center; font-size: .85rem; font-weight: 700; }
+.arr--ok .arr__ic { background: #e3f1e7; color: #1d6b39; }
+.arr--aviso .arr__ic { background: #fbf0d0; color: #8a5a00; }
+.arr--mal .arr__ic { background: #f7e1df; color: var(--peligro); }
+.arr--manual .check { margin: 0; }

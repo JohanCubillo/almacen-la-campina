@@ -10,6 +10,9 @@
 //   { accion: "consultar", documento_id }                 → pregunta el estado a Hacienda
 //   { accion: "enviar", documento_id }                    → reenvía el mismo XML si no llegó
 //   { accion: "anular", documento_id, motivo }            → nota de crédito que anula el comprobante
+//   { accion: "recibido_responder", recibido_id, mensaje: "1"|"2"|"3", detalle?, condicion?, acreditar? }
+//        → acepta, acepta en parte o rechaza la factura de un proveedor (mensaje de receptor)
+//   { accion: "recibido_consultar", recibido_id }  /  { accion: "recibido_enviar", recibido_id }
 //
 //  Secretos (Supabase → Edge Functions → Secrets), nunca en el código ni en la base:
 //   HACIENDA_USUARIO, HACIENDA_CLAVE, HACIENDA_P12_BASE64, HACIENDA_PIN
@@ -17,7 +20,7 @@
 // =====================================================================
 import { createClient } from "@supabase/supabase-js";
 import {
-  armarComprobante, armarNotaCredito, firmar, conectar, enviar, consultar, revisarEmisor,
+  armarComprobante, armarNotaCredito, armarMensajeReceptor, firmar, conectar, enviar, enviarMensaje, consultar, revisarEmisor,
   ErrorComprobante, type Emisor, type Linea,
 } from "./comprobante.ts";
 
@@ -60,7 +63,8 @@ Deno.serve(async (req) => {
   //    nota de crédito → "anular"; probar la conexión → solo el administrador.
   const auth = req.headers.get("Authorization") || "";
   const usuario = createClient(URL_SB, LLAVE_PUBLICA, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } });
-  const necesario = b.accion === "probar" ? null : b.accion === "anular" ? "anular" : "ventas";
+  const accion = String(b.accion || "");
+  const necesario = accion === "probar" ? null : accion === "anular" ? "anular" : accion.startsWith("recibido_") ? "compras" : "ventas";
   let permitido = false;
   if (necesario) {
     const r = await usuario.rpc("puede", { p_permiso: necesario });
@@ -68,7 +72,8 @@ Deno.serve(async (req) => {
   } else {
     permitido = (await usuario.rpc("is_admin")).data === true;
   }
-  if (!permitido) return resp({ ok: false, error: necesario === "anular" ? "No tiene permiso para anular (nota de crédito)." : necesario ? "No tiene permiso para facturar." : "Solo el administrador." }, 403);
+  if (!permitido) return resp({ ok: false, error: necesario === "anular" ? "No tiene permiso para anular (nota de crédito)."
+    : necesario === "compras" ? "No tiene permiso para contestar facturas de proveedores." : necesario ? "No tiene permiso para facturar." : "Solo el administrador." }, 403);
   const { data: quien } = await usuario.auth.getUser();
   const db = createClient(URL_SB, LLAVE_SERVICIO, { auth: { persistSession: false } });
 
@@ -92,6 +97,98 @@ Deno.serve(async (req) => {
       await firmar(muestra.xml, s.p12!, s.pin, { validar: false });
       await conectar(em!.ambiente, s.usuario, s.clave);
       return resp({ ok: true, mensaje: `Todo listo: la llave abre bien y Hacienda aceptó el usuario (${em!.ambiente === "produccion" ? "producción" : "pruebas"}).` });
+    }
+
+    // ---------- facturas de proveedores (mensaje de receptor) ----------
+    // No hace falta tener encendido "Facturar desde el panel": solo los datos y las credenciales.
+    if (accion.startsWith("recibido_")) {
+      if (faltan.length) return resp({ ok: false, error: "Faltan datos del negocio en Facturación electrónica: " + faltan.join(", ") + "." });
+      if (faltanSecretos.length) return resp({ ok: false, error: "Faltan secretos de la función: " + faltanSecretos.join(", ") + "." });
+      const recId = Number(b.recibido_id);
+      if (!(recId > 0)) return resp({ ok: false, error: "Falta el comprobante." }, 400);
+      const COLS_REC = "id,clave,tipo_doc,emisor_tipo,emisor_id,emisor_nombre,fecha_emision,total,impuesto,ambiente,mensaje,detalle_mensaje," +
+        "condicion_impuesto,impuesto_acreditar,consecutivo,fecha_respuesta,estado,detalle,intentos,entrada_id,proveedor_id,updated_at";
+      type Recibido = { id: number; clave: string; tipo_doc: string; emisor_tipo: string; emisor_id: string; fecha_emision: string;
+        total: number; impuesto: number; ambiente: string | null; estado: string; consecutivo: string | null; fecha_respuesta: string | null;
+        intentos: number; xml_firmado: string | null };
+      const { data: fila, error: eR } = await db.from("fe_recibidos").select(COLS_REC + ",xml_firmado").eq("id", recId).single();
+      if (eR) throw eR;
+      const rec = fila as unknown as Recibido;
+      const devolverRec = async () => {
+        const { data } = await db.from("v_fe_recibidos").select("*").eq("id", recId).single();
+        return resp({ ok: true, recibido: data });
+      };
+      const llave = (r: { clave: string; consecutivo: string | null }) => `${r.clave}-${r.consecutivo}`;
+      const guardarRec = (cambios: Record<string, unknown>) => db.from("fe_recibidos").update(cambios).eq("id", recId);
+
+      async function mandar(r: Recibido, firmado: string) {
+        let http;
+        try { http = await conectar(em!.ambiente, s.usuario, s.clave); }
+        catch (e) { await guardarRec({ estado: "error", detalle: "No se pudo entrar a Hacienda: " + corto(e) }); return; }
+        try {
+          await enviarMensaje(http, { clave: r.clave, fecha: String(r.fecha_respuesta), consecutivo: String(r.consecutivo),
+            emisor: { tipo: r.emisor_tipo, numero: r.emisor_id }, receptor: { tipo: em!.tipo_id, numero: em!.identificacion } }, firmado);
+        } catch (e) {
+          const st = (e as { statusCode?: number }).statusCode;
+          if (st !== 409) {
+            await guardarRec({ estado: "error", intentos: r.intentos + 1, detalle: "No llegó a Hacienda: " + corto(e) + ". Use “Enviar de nuevo”." });
+            return;
+          }
+        }
+        await guardarRec({ estado: "enviado", intentos: r.intentos + 1, detalle: null });
+        for (const ms of [2500, 3500, 5000]) {
+          await espera(ms);
+          try {
+            const q = await consultar(http, llave(r));
+            if (q.estado === "procesando") continue;
+            await guardarRec({ estado: q.estado, respuesta_xml: q.respuestaXml,
+              detalle: q.estado === "aceptado" ? null : (q.motivo || (q.estado === "rechazado" ? "Hacienda rechazó la respuesta (vea el detalle)." : null)) });
+            return;
+          } catch { /* se puede consultar después */ }
+        }
+        await guardarRec({ estado: "procesando" });
+      }
+
+      if (accion === "recibido_responder") {
+        if (["firmado", "enviado", "procesando", "aceptado"].includes(rec.estado)) {
+          return resp({ ok: false, error: rec.estado === "aceptado" ? "Ese comprobante ya se contestó y Hacienda lo aceptó." : "Ya se contestó; use “Consultar”." });
+        }
+        if (rec.tipo_doc === "04") return resp({ ok: false, error: "Los tiquetes no se aceptan ni rechazan; solo las facturas y notas." });
+        const mensaje = String(b.mensaje || "") as "1" | "2" | "3";
+        const op = { emisor: em!, recibido: { clave: rec.clave, emisor_id: rec.emisor_id, fecha_emision: rec.fecha_emision, total: Number(rec.total), impuesto: Number(rec.impuesto) },
+                     mensaje, detalle: b.detalle ? String(b.detalle) : null, condicion: b.condicion ? String(b.condicion) : null,
+                     acreditar: b.acreditar == null || b.acreditar === "" ? null : Number(b.acreditar) };
+        const prueba = armarMensajeReceptor({ ...op, numero: 1 });          // revisa antes de gastar un número
+        const { data: numero, error: eN } = await db.rpc("fe_reservar", { p_ambiente: em!.ambiente, p_tipo: prueba.tipo, p_sucursal: em!.sucursal, p_terminal: em!.terminal });
+        if (eN) throw eN;
+        const m = armarMensajeReceptor({ ...op, numero: Number(numero) });
+        const firmado = await firmar(m.xml, s.p12!, s.pin);
+        const d = m.datos as Record<string, unknown>;
+        const { error: eG } = await guardarRec({
+          ambiente: em!.ambiente, mensaje, detalle_mensaje: d.detalleMensaje ?? null, condicion_impuesto: d.condicionImpuesto ?? null,
+          impuesto_acreditar: d.montoTotalImpuestoAcreditar ?? null, gasto_aplicable: d.montoTotalDeGastoAplicable ?? null,
+          consecutivo: m.consecutivo, fecha_respuesta: m.fecha, xml_firmado: firmado, respuesta_xml: null,
+          estado: "firmado", detalle: null, respondido_por: quien?.user?.id ?? null,
+        });
+        if (eG) throw eG;
+        await mandar({ ...rec, ambiente: em!.ambiente, consecutivo: m.consecutivo, fecha_respuesta: m.fecha }, firmado);
+        return await devolverRec();
+      }
+      if (rec.ambiente && rec.ambiente !== em!.ambiente) return resp({ ok: false, error: `Esa respuesta se mandó en ${rec.ambiente}; ahora está en ${em!.ambiente}.` });
+      if (accion === "recibido_enviar") {
+        if (!["firmado", "error"].includes(rec.estado) || !rec.xml_firmado) return resp({ ok: false, error: rec.estado === "nuevo" ? "Primero conteste (aceptar o rechazar)." : "Ya está en Hacienda; use “Consultar”." });
+        await mandar(rec, rec.xml_firmado);
+        return await devolverRec();
+      }
+      if (accion === "recibido_consultar") {
+        if (!rec.consecutivo || ["nuevo", "firmado"].includes(rec.estado)) return resp({ ok: false, error: "Esa respuesta no ha llegado a Hacienda." });
+        const http = await conectar(em!.ambiente, s.usuario, s.clave);
+        const q = await consultar(http, llave(rec));
+        await guardarRec({ estado: q.estado, respuesta_xml: q.respuestaXml,
+          detalle: q.estado === "aceptado" || q.estado === "procesando" ? null : (q.motivo || null) });
+        return await devolverRec();
+      }
+      return resp({ ok: false, error: "Acción no válida." }, 400);
     }
 
     if (!em?.activo) return resp({ ok: false, error: "La facturación electrónica está apagada. Enciéndala en Datos del negocio → Facturación electrónica." });

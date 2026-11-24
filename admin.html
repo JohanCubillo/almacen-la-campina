@@ -108,6 +108,7 @@
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tBit" id="tabBit" hidden>Bitácora</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tProd" id="tabProd">Productos</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tInv" id="tabInv" hidden>Inventario</button>
+      <button role="tab" class="pestana" aria-selected="false" aria-controls="tCom" id="tabCom" hidden>Compras <span class="badge badge--amarillo" id="badgeCom" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCat" id="tabCat">Categorías</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tAj" id="tabAj">Datos del negocio</button>
     </nav>
@@ -341,15 +342,20 @@
         <div class="barra-herr">
           <h2>Inventario</h2>
           <div class="barra-herr__der">
+            <button type="button" class="btn btn--linea btn--sm v21" id="btnNuevoAjusteInv">Salida o conteo</button>
             <button type="button" class="btn btn--negro btn--sm" id="btnNuevaEntrada">Entrada de mercadería</button>
           </div>
         </div>
         <div class="segmentos segmentos--sm" role="radiogroup" aria-label="Ver" id="invVista">
           <button type="button" role="radio" aria-checked="true" data-iv="entradas">Entradas</button>
+          <button type="button" role="radio" aria-checked="false" data-iv="ajustes" class="v21">Salidas y conteos</button>
           <button type="button" role="radio" aria-checked="false" data-iv="movs">Movimientos</button>
         </div>
         <div id="invEntradas">
           <ul id="listaEntradas" class="filas"></ul>
+        </div>
+        <div id="invAjustes" hidden>
+          <ul id="listaAjustesInv" class="filas"></ul>
         </div>
         <div id="invMovs" hidden>
           <div class="inv-filtros">
@@ -367,6 +373,38 @@
               <tbody id="invMovFilas"></tbody>
             </table>
           </div>
+        </div>
+      </section>
+
+      <!-- COMPRAS -->
+      <section id="tCom" role="tabpanel" aria-labelledby="tabCom" hidden>
+        <div class="barra-herr">
+          <h2>Compras</h2>
+          <div class="barra-herr__der">
+            <button type="button" class="btn btn--linea btn--sm" id="btnNuevoProv">Nuevo proveedor</button>
+            <label class="btn btn--negro btn--sm" id="btnSubirXml">Subir factura del proveedor (XML)<input type="file" id="xmlRecibido" accept=".xml,text/xml,application/xml" multiple hidden /></label>
+          </div>
+        </div>
+        <div class="segmentos segmentos--sm" role="radiogroup" aria-label="Ver" id="comVista">
+          <button type="button" role="radio" aria-checked="true" data-cv="pagar">Por pagar</button>
+          <button type="button" role="radio" aria-checked="false" data-cv="recibidas">Facturas recibidas <span class="badge badge--amarillo" id="badgeRecib" hidden></span></button>
+          <button type="button" role="radio" aria-checked="false" data-cv="proveedores">Proveedores</button>
+          <button type="button" role="radio" aria-checked="false" data-cv="pagos">Pagos hechos</button>
+        </div>
+        <div id="comPagar">
+          <p class="resumen-linea" id="comPagarRes"></p>
+          <ul id="listaPorPagar" class="filas"></ul>
+        </div>
+        <div id="comRecibidas" hidden>
+          <p class="ayuda">Las facturas electrónicas que le mandan los proveedores llegan al correo como un archivo <b>.xml</b>. Súbalo aquí para aceptarlo o rechazarlo ante Hacienda (así el IVA cuenta como crédito) y para hacer la entrada de mercadería con sus productos.</p>
+          <ul id="listaRecibidas" class="filas"></ul>
+        </div>
+        <div id="comProveedores" hidden>
+          <input id="provBuscar" type="search" placeholder="Buscar proveedor por nombre o cédula…" maxlength="60" aria-label="Buscar proveedor" />
+          <ul id="listaProveedores" class="filas"></ul>
+        </div>
+        <div id="comPagos" hidden>
+          <ul id="listaPagosProv" class="filas"></ul>
         </div>
       </section>
 
@@ -508,6 +546,17 @@
           </div>
           <p class="msg" id="feConfMsg" role="status"></p>
         </form>
+
+        <section class="tarjeta ajustes v21" id="boxArranque" aria-labelledby="titArranque">
+          <fieldset>
+            <legend id="titArranque">Lista para dejar Moriah</legend>
+            <p class="ayuda">Revisa lo que falta antes de trabajar solo con este sistema. Lo que sale en amarillo es recomendable; lo rojo, necesario.</p>
+            <div class="form-linea__btns">
+              <button class="btn btn--negro" type="button" id="btnArranque">Revisar ahora</button>
+            </div>
+            <ul class="arranque" id="arranqueLista"></ul>
+          </fieldset>
+        </section>
 
         <section class="tarjeta ajustes" id="boxRespaldo" aria-labelledby="titRespaldo">
           <fieldset>
@@ -754,10 +803,18 @@
     <form id="formEntrada" class="dlg__form" novalidate>
       <h2 id="entTitulo">Entrada de mercadería</h2>
       <div class="tres">
-        <label>Proveedor<input name="proveedor" maxlength="100" autocomplete="off" /></label>
+        <label>Proveedor<input name="proveedor" maxlength="100" autocomplete="off" list="dlProveedores" /></label>
         <label>N.º de factura del proveedor<input name="documento" maxlength="40" autocomplete="off" /></label>
         <label>Fecha<input name="fecha" type="date" /></label>
       </div>
+      <datalist id="dlProveedores"></datalist>
+      <div class="tres v21" id="entCompra">
+        <label>Se pagó<select name="condicion"><option value="contado">De contado</option><option value="credito">A crédito (se le debe)</option></select></label>
+        <label id="entVenceLbl" hidden>Vence<input name="vence" type="date" /></label>
+        <label>Total de la factura ₡<input name="total_factura" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Con IVA" /></label>
+      </div>
+      <input type="hidden" name="recibido_id" />
+      <details class="entrada__ref" id="entRef" hidden><summary>Productos de la factura del proveedor</summary><ul id="entRefLineas"></ul></details>
       <div class="buscar-item">
         <input id="entBuscar" type="search" placeholder="Agregar producto: nombre, código o lector de barras…" maxlength="60" autocomplete="off" aria-label="Agregar producto a la entrada" />
         <ul id="entRes" class="buscar-item__res" hidden></ul>
@@ -849,6 +906,132 @@
         </div>
       </div>
     </div>
+  </dialog>
+
+  <!-- Salida o conteo de inventario -->
+  <dialog id="dlgAjusteInv" class="dlg dlg--ancho" aria-labelledby="aiTitulo">
+    <form id="formAjusteInv" class="dlg__form" novalidate>
+      <h2 id="aiTitulo">Salida o conteo de inventario</h2>
+      <div class="segmentos segmentos--sm" role="radiogroup" aria-label="Qué se hace" id="aiTipo">
+        <button type="button" role="radio" aria-checked="true" data-ai="salida">Sale mercadería</button>
+        <button type="button" role="radio" aria-checked="false" data-ai="conteo">Conteo físico</button>
+      </div>
+      <p class="ayuda" id="aiAyuda"></p>
+      <div class="dos">
+        <label id="aiMotivoLbl">Motivo<select name="motivo">
+          <option value="danado">Dañado o quebrado</option>
+          <option value="perdido">Perdido o robado</option>
+          <option value="uso_interno">Uso del almacén</option>
+          <option value="vencido">Vencido</option>
+          <option value="devolucion">Devuelto al proveedor</option>
+          <option value="otro">Otro (explique en la nota)</option>
+        </select></label>
+        <label>Fecha<input name="fecha" type="date" /></label>
+      </div>
+      <div class="buscar-item">
+        <input id="aiBuscar" type="search" placeholder="Agregar producto: nombre, código o lector de barras…" maxlength="60" autocomplete="off" aria-label="Agregar producto" />
+        <ul id="aiRes" class="buscar-item__res" hidden></ul>
+      </div>
+      <div class="items-wrap">
+        <table class="items">
+          <thead><tr><th>Descripción</th><th class="num">Hay</th><th class="num" id="aiColCant">Sale</th><th class="num">Queda</th><th><span class="sr">Quitar</span></th></tr></thead>
+          <tbody id="aiFilas"></tbody>
+          <tfoot><tr><td colspan="3"><b id="aiResumen"></b></td><td class="num" id="aiCosto"></td><td></td></tr></tfoot>
+        </table>
+      </div>
+      <label>Nota<input name="nota" maxlength="300" placeholder="Opcional" /></label>
+      <p class="msg" id="aiMsg" role="status"></p>
+      <div class="dlg__btns">
+        <button type="button" class="btn btn--linea" id="btnCerrarAjusteInv">Cancelar</button>
+        <button type="submit" class="btn btn--negro" id="btnGuardarAjusteInv" disabled>Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Proveedor -->
+  <dialog id="dlgProveedor" class="dlg" aria-labelledby="provTitulo">
+    <form id="formProveedor" class="dlg__form" novalidate>
+      <h2 id="provTitulo">Proveedor</h2>
+      <input type="hidden" name="id" />
+      <label>Nombre<input name="nombre" maxlength="100" required autocomplete="off" /></label>
+      <div class="dos">
+        <label>Tipo de cédula<select name="tipo_id"><option value="">—</option><option value="02">Jurídica</option><option value="01">Física</option><option value="03">DIMEX</option><option value="04">NITE</option></select></label>
+        <label>Cédula<input name="identificacion" inputmode="numeric" maxlength="15" autocomplete="off" /></label>
+      </div>
+      <div class="dos">
+        <label>Teléfono<input name="telefono" maxlength="30" /></label>
+        <label>Correo<input name="correo" type="email" maxlength="160" /></label>
+      </div>
+      <div class="dos">
+        <label>Vendedor o contacto<input name="contacto" maxlength="100" /></label>
+        <label>Días de crédito<input name="dias_credito" type="number" min="0" max="365" step="1" placeholder="30" /></label>
+      </div>
+      <label>Nota<input name="nota" maxlength="300" /></label>
+      <label class="check"><input type="checkbox" name="activo" checked /> Activo</label>
+      <p class="msg" id="provMsg" role="status"></p>
+      <div class="dlg__btns">
+        <button type="button" class="btn btn--linea" data-cerrar-dlg>Cancelar</button>
+        <button type="submit" class="btn btn--negro">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Pago a proveedor -->
+  <dialog id="dlgPagoProv" class="dlg" aria-labelledby="ppTitulo">
+    <form id="formPagoProv" class="dlg__form" novalidate>
+      <h2 id="ppTitulo">Pago al proveedor</h2>
+      <p class="ayuda" id="ppInfo"></p>
+      <input type="hidden" name="entrada_id" />
+      <div class="dos">
+        <label>Monto ₡<input name="monto" type="number" min="0.01" step="0.01" inputmode="decimal" required /></label>
+        <label>Fecha<input name="fecha" type="date" /></label>
+      </div>
+      <div class="dos">
+        <label>Cómo se pagó<select name="metodo">
+          <option value="transferencia">Transferencia</option><option value="sinpe">SINPE Móvil</option><option value="efectivo">Efectivo</option>
+          <option value="cheque">Cheque</option><option value="tarjeta">Tarjeta</option><option value="otro">Otro</option>
+        </select></label>
+        <label>Referencia<input name="referencia" maxlength="60" placeholder="N.º de transferencia o cheque" /></label>
+      </div>
+      <label class="check" id="ppCajaLbl" hidden><input type="checkbox" name="de_caja" /> Sale de la caja abierta (queda como salida de efectivo)</label>
+      <label>Nota<input name="nota" maxlength="300" placeholder="Opcional" /></label>
+      <p class="msg" id="ppMsg" role="status"></p>
+      <div class="dlg__btns">
+        <button type="button" class="btn btn--linea" data-cerrar-dlg>Cancelar</button>
+        <button type="submit" class="btn btn--negro">Guardar pago</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Contestar factura de proveedor -->
+  <dialog id="dlgRecibido" class="dlg dlg--ancho" aria-labelledby="recTitulo">
+    <form id="formRecibido" class="dlg__form" novalidate>
+      <h2 id="recTitulo">Factura del proveedor</h2>
+      <input type="hidden" name="id" />
+      <dl class="rec__datos" id="recDatos"></dl>
+      <div class="segmentos segmentos--sm" role="radiogroup" aria-label="Respuesta" id="recMensaje">
+        <button type="button" role="radio" aria-checked="true" data-msj="1">Aceptar</button>
+        <button type="button" role="radio" aria-checked="false" data-msj="2">Aceptar en parte</button>
+        <button type="button" role="radio" aria-checked="false" data-msj="3">Rechazar</button>
+      </div>
+      <div id="recIva">
+        <label>El IVA de esta factura<select name="condicion">
+          <option value="01">Da crédito de IVA completo (mercadería para vender)</option>
+          <option value="02">Da crédito de IVA parcial</option>
+          <option value="03">Bienes de capital (equipo, mejoras)</option>
+          <option value="04">Gasto que no da crédito de IVA</option>
+          <option value="05">Proporcionalidad</option>
+        </select></label>
+        <label id="recAcredLbl" hidden>IVA que se acredita ₡<input name="acreditar" type="number" min="0" step="0.01" inputmode="decimal" /></label>
+        <p class="ayuda">Si tiene dudas sobre el IVA, pregúntele a su contador. Lo normal para mercadería que se vende es la primera opción.</p>
+      </div>
+      <label id="recDetLbl">Motivo<input name="detalle" maxlength="160" placeholder="Lo ve el proveedor por medio de Hacienda" /></label>
+      <p class="msg" id="recMsg" role="status"></p>
+      <div class="dlg__btns">
+        <button type="button" class="btn btn--linea" data-cerrar-dlg>Cancelar</button>
+        <button type="submit" class="btn btn--negro" id="btnRecEnviar">Mandar a Hacienda</button>
+      </div>
+    </form>
   </dialog>
 
   <!-- Importar productos -->

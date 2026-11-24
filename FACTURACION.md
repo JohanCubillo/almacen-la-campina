@@ -148,11 +148,20 @@ Necesita `supabase/v19_sin_internet.sql` y la función `facturar` publicada otra
 - Si se anula sin internet una venta que tiene comprobante, la nota de crédito se hace sola cuando Hacienda acepte el comprobante; después se anula la venta.
 - No borre los datos del navegador de la compu de la caja con cosas pendientes: ahí están los comprobantes hechos sin internet hasta que se envían.
 
+## Facturas de proveedores (mensaje de receptor)
+
+Con `v21_compras_ajustes.sql` y la función `facturar` publicada otra vez (`index.ts` y `comprobante.ts` nuevos), en **Compras → Facturas recibidas** se sube el XML de la factura del proveedor y se **acepta**, **acepta en parte** o **rechaza** ante Hacienda.
+
+- La respuesta se firma con la **misma llave y credenciales** de los secretos; va con la clave del comprobante del proveedor y un consecutivo propio: tipo **05** (aceptación), **06** (aceptación parcial) o **07** (rechazo), con la sucursal y terminal del panel.
+- Al aceptar se manda la condición del IVA (01 crédito completo, 02 parcial, 03 bienes de capital, 04 gasto sin crédito, 05 proporcionalidad), el IVA que se acredita y el que queda como gasto.
+- Se consulta a Hacienda igual que los comprobantes (*Consultar*, *Enviar de nuevo*). Si Hacienda rechaza la respuesta, se puede contestar de nuevo (con otro consecutivo).
+- Los tiquetes no se aceptan ni rechazan; solo facturas y notas.
+- El XML del proveedor, la respuesta firmada y la de Hacienda quedan en la base y en el respaldo (`facturas-recibidas/`).
+
 ## Lo que todavía no hace
 
 - No envía el PDF y el XML al correo del cliente. Por ahora el cliente recibe el recibo impreso y el XML se descarga desde la venta.
 - **Contingencia con comprobantes preimpresos** (situación 2): no hace falta mientras la compu funcione; sin internet se usa la situación 3 (arriba).
-- **Aceptar o rechazar facturas de proveedores** (mensaje receptor).
 
 ## Sin facturación encendida
 

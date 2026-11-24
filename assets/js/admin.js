@@ -57,6 +57,7 @@
   // Qué puede la persona que entró (v17). null = base sin v17: todo como administrador.
   let ACCESO = null, V17 = false;   // V17: la base tiene empleados con permisos (v17_permisos.sql)
   let V18 = false;         // cheque, saldos de Moriah y apartados (v18_cheque_saldos_apartados.sql)
+  let V21 = false;         // salidas/conteos, compras y proveedores, facturas recibidas (v21_compras_ajustes.sql)
   // pestañas y pantallas: sin v17 todos los del panel las ven, como antes
   const soyAdministrador = () => !ACCESO || ACCESO.rol === "administrador";
   // borrar ventas y cambiar roles: sin v17 se usa el rol de v16
@@ -65,7 +66,7 @@
   const PERMISOS = [
     ["ventas", "Ventas y cobros"], ["anular", "Anular ventas"], ["caja", "Caja"], ["credito", "Crédito y abonos"],
     ["inventario", "Inventario (entradas)"], ["productos", "Productos y fotos"], ["precios", "Cambiar precios"],
-    ["reportes", "Reportes"], ["preguntas", "Preguntas de clientes"]
+    ["reportes", "Reportes"], ["preguntas", "Preguntas de clientes"], ["compras", "Compras y proveedores"]
   ];
   const PLANTILLAS = { caja: ["ventas", "caja", "credito"], inventario: ["inventario", "productos"] };
   let clientes = [];       // clientes de crédito con su saldo (v_clientes_credito)
@@ -379,6 +380,9 @@
       let r19;
       try { r19 = await db.from("fe_dispositivos").select("id").limit(1); } catch (e) { r19 = { error: e }; }
       V19 = !r19.error;
+      let r21;
+      try { r21 = await db.from("proveedores").select("id").limit(1); } catch (e) { r21 = { error: e }; }
+      V21 = !r21.error;
       // para poder abrir el panel sin internet con lo mismo que tiene la base
       if (!r16.error || !U.esErrorRed(r16.error)) {
         copia.poner("versiones", { V10, V12, V13, V14, V18, V19 });
@@ -390,6 +394,8 @@
     document.documentElement.classList.toggle("sin-v16", !V16);
     document.documentElement.classList.toggle("sin-v17", !V17);
     document.documentElement.classList.toggle("sin-v18", !V18);
+    document.documentElement.classList.toggle("sin-v21", !V21);
+    $("#tabCom").hidden = !V21;
     // formas de pago de v18: sin la base nueva no se ofrecen; lo abonado en Moriah solo lo anota el administrador
     $$("option[data-v18]").forEach((o) => { if (!V18 || (o.hasAttribute("data-solo-admin") && !esAdministradorReal())) o.remove(); });
     $("#btnSaldosMoriah").hidden = !V18 || !esAdministradorReal();
@@ -412,6 +418,7 @@
       V4 && !sinRed && soyAdministrador() ? cargarAvisos() : null]);
     if (puede("ventas") || puede("caja") || puede("credito") || puede("reportes")) await cargarVentas();
     if (puede("preguntas")) cargarPreguntas();
+    if (V21 && puede("compras")) contarRecibidos();
     addEventListener("online", estadoRedPanel);
     addEventListener("offline", estadoRedPanel);
     estadoRedPanel();
@@ -437,7 +444,7 @@
       tabVen: !puede("ventas"), tabPreg: !puede("preguntas"), tabCaja: !puede("caja"), tabCred: !puede("credito"),
       tabComp: !(puede("ventas") || puede("reportes")), tabRep: !puede("reportes"), tabBit: !admin,
       tabProd: !(puede("productos") || puede("precios")), tabInv: !(puede("inventario") || puede("productos")),
-      tabCat: !puede("productos"), tabAj: !admin
+      tabCat: !puede("productos"), tabAj: !admin, tabCom: !(puede("compras") || puede("inventario"))
     };
     for (const [id, no] of Object.entries(ocultar)) if (no) $("#" + id).hidden = true;
     // botones de Productos e Inventario
@@ -446,6 +453,8 @@
     $("#btnImportar").classList.toggle("sin-permiso", !(puede("productos") && puede("precios")));
     $("#btnAjustePrecios").classList.toggle("sin-permiso", !puede("precios"));
     $("#btnNuevaEntrada").classList.toggle("sin-permiso", !puede("inventario"));
+    $("#btnNuevoAjusteInv").classList.toggle("sin-permiso", !puede("inventario"));
+    $("#btnSubirXml").classList.toggle("sin-permiso", !puede("compras"));
     // si la pestaña abierta no le toca, se abre la primera que sí
     const abierta = $(".pestana[aria-selected=true]");
     if (!abierta || abierta.hidden) {
@@ -505,6 +514,7 @@
     if (tab.id === "tabBit") cargarBitacora();
     if (tab.id === "tabComp") cargarComprobantes();
     if (tab.id === "tabInv") cargarInventario();
+    if (tab.id === "tabCom") cargarCompras();
     if (tab.id === "tabCred") cargarClientes().then(pintarClientes);
   }));
   $(".pestanas").addEventListener("keydown", (e) => {
@@ -1088,14 +1098,15 @@
     ventas: ["pedidos", "pedido_items", "pagos", "comprobantes_cliente", "facturas"],
     productos: ["productos", "categorias"],
     credito: ["clientes", "abonos"],
-    caja: ["caja_turnos", "caja_movimientos", "entradas"],
+    caja: ["caja_turnos", "caja_movimientos", "entradas", "ajustes_inventario", "proveedores", "pagos_proveedor", "fe_recibidos"],
     ajustes: ["ajustes", "admins", "avisos", "fe_emisor", "consultas"]
   };
   const QUE_BIT = {
     productos: "el producto", categorias: "la categoría", ajustes: "un dato del negocio", admins: "el usuario",
     pedidos: "la venta", pedido_items: "un producto de la venta", pagos: "un pago de la venta", comprobantes_cliente: "un comprobante de pago",
     facturas: "los datos de factura", avisos: "los avisos de Telegram", consultas: "una pregunta", fe_emisor: "los datos de facturación electrónica",
-    clientes: "el cliente", abonos: "un abono de", entradas: "una entrada de mercadería", caja_turnos: "la caja", caja_movimientos: "un movimiento de caja"
+    clientes: "el cliente", abonos: "un abono de", entradas: "una entrada de mercadería", caja_turnos: "la caja", caja_movimientos: "un movimiento de caja",
+    ajustes_inventario: "una salida o conteo de inventario", proveedores: "el proveedor", pagos_proveedor: "un pago a proveedor", fe_recibidos: "una factura de proveedor"
   };
   const CAMPO_BIT = {
     precio: "Precio", precio_oferta: "Precio de oferta", oferta_hasta: "Oferta hasta", nombre: "Nombre", descripcion: "Descripción",
@@ -3260,15 +3271,17 @@
   }
   const ORIGEN_INV = {
     venta: "Venta", venta_cambio: "Cambio en una venta", venta_borrada: "Venta borrada", anulacion: "Venta anulada",
-    entrada: "Entrada de mercadería", entrada_anulada: "Entrada anulada", producto: "Editado en Productos", importacion: "Importación"
+    entrada: "Entrada de mercadería", entrada_anulada: "Entrada anulada", producto: "Editado en Productos", importacion: "Importación",
+    ajuste: "Salida o conteo", ajuste_anulado: "Salida o conteo anulado"
   };
   let invVista = "entradas", invProd = null;
   const cant = (n) => Number(n).toLocaleString("es-CR", { maximumFractionDigits: 2 });
   function cargarInventario() {
     $("#invEntradas").hidden = invVista !== "entradas";
     $("#invMovs").hidden = invVista !== "movs";
+    $("#invAjustes").hidden = invVista !== "ajustes";
     $$("#invVista [data-iv]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.iv === invVista)));
-    return invVista === "entradas" ? cargarEntradas() : cargarMovsInv();
+    return invVista === "entradas" ? cargarEntradas() : invVista === "ajustes" ? cargarAjustesInv() : cargarMovsInv();
   }
   $("#invVista").addEventListener("click", (e) => {
     const b = e.target.closest("[data-iv]"); if (!b) return;
@@ -3284,9 +3297,10 @@
         <div class="fila__txt">
           <b>Entrada ${en.id}${en.proveedor ? " · " + U.esc(en.proveedor) : ""}</b>
           <small>${en.documento ? "Factura " + U.esc(en.documento) + " · " : ""}${en.productos} ${en.productos === 1 ? "producto" : "productos"}${en.nota ? " · " + U.esc(en.nota) : ""}${en.estado === "anulada" ? " · Anulada: " + U.esc(en.motivo_anulacion || "") : ""}</small>
+          ${en.condicion === "credito" && en.estado === "aplicada" ? `<small class="${Number(en.saldo) > 0 && en.vence < hoyCR() ? "rojo" : ""}">A crédito · ${Number(en.saldo) > 0 ? `debe ${fmt(en.saldo)} de ${fmt(en.total_factura)} · vence ${fechaDia(en.vence)}` : "pagada"}</small>` : ""}
           <details data-entrada="${en.id}"><summary>Ver productos</summary><ul class="entrada__items"><li>Cargando…</li></ul></details>
         </div>
-        <div class="fila__acc">${en.estado === "aplicada" ? `<button type="button" class="enlace enlace--peligro" data-anular-entrada="${en.id}">Anular</button>` : '<span class="etq">Anulada</span>'}</div>
+        <div class="fila__acc">${en.estado === "aplicada" && Number(en.saldo) > 0 && puede("compras") ? `<button type="button" class="btn btn--sm btn--negro" data-pagar-entrada="${en.id}">Pagar</button>` : ""}${en.estado === "aplicada" ? `<button type="button" class="enlace enlace--peligro" data-anular-entrada="${en.id}">Anular</button>` : '<span class="etq">Anulada</span>'}</div>
       </li>`).join("") || `<li class="vacio-adm">Todavía no hay entradas. Cuando llegue mercadería del proveedor, toque <b>Entrada de mercadería</b>.</li>`;
   }
   $("#listaEntradas").addEventListener("toggle", async (e) => {
@@ -3297,6 +3311,8 @@
     d.dataset.cargado = "1";
   }, true);
   $("#listaEntradas").addEventListener("click", async (e) => {
+    const pg = e.target.closest("[data-pagar-entrada]");
+    if (pg) return abrirPagoProv(Number(pg.dataset.pagarEntrada));
     const b = e.target.closest("[data-anular-entrada]"); if (!b) return;
     const motivo = prompt("¿Por qué se anula esta entrada? (se resta lo que había sumado)", "Se registró por error");
     if (motivo === null) return;
@@ -3319,7 +3335,7 @@
     if (invProd) $("#invProdSel").innerHTML = `<span>Solo <b>${U.esc(invProd.nombre)}</b>${invProd.existencia != null ? ` · hay ${cant(invProd.existencia)}` : " · no lleva existencia"}</span> <button type="button" class="enlace" id="btnInvTodos">Ver todos los productos</button>`;
     $("#invMovFilas").innerHTML = `<tr><td colspan="6" class="vacio-adm">Cargando…</td></tr>`;
     let q = db.from("inventario_movimientos")
-      .select("id,producto_id,cantidad,existencia_antes,existencia_despues,origen,pedido_id,entrada_id,nota,created_at,productos(nombre,codigo)")
+      .select(`id,producto_id,cantidad,existencia_antes,existencia_despues,origen,pedido_id,entrada_id,${V21 ? "ajuste_id," : ""}nota,created_at,productos(nombre,codigo)`)
       .gte("created_at", rangoDia(desde)[0]).lt("created_at", rangoDia(hasta)[1]);
     if (invProd) q = q.eq("producto_id", invProd.id);
     const { data, error } = await q.order("created_at", { ascending: false }).order("id", { ascending: false }).limit(1500);
@@ -3346,7 +3362,7 @@
     $("#invMovFilas").innerHTML = lista.map((g) => {
       const origen = g.origen === "venta_cambio" && g.cantidad < 0 ? "venta" : g.origen === "venta" && g.cantidad > 0 ? "venta_cambio" : g.origen;
       const ref = g.pedido_id ? `<button type="button" class="enlace" data-inv-venta="${g.pedido_id}">Venta ${U.esc(codigos[g.pedido_id] || "#" + g.pedido_id)}</button>`
-        : g.entrada_id ? `Entrada ${g.entrada_id}` : "";
+        : g.entrada_id ? `Entrada ${g.entrada_id}` : g.ajuste_id ? `Ajuste ${g.ajuste_id}` : "";
       return `<tr>
         <td>${fechaCR(g.created_at, { dateStyle: "short", timeStyle: "short" })}</td>
         <td>${U.esc(g.productos?.nombre || "(borrado)")}${g.productos?.codigo ? `<small class="imp__cod">${U.esc(g.productos.codigo)}</small>` : ""}</td>
@@ -3415,13 +3431,36 @@
     const b = e.target.closest("[data-ent-quitar]"); if (!b) return;
     ENT.delete(Number(b.dataset.entQuitar)); pintarEntrada();
   });
-  $("#btnNuevaEntrada").addEventListener("click", () => {
+  function nuevaEntrada() {
     ENT.clear(); $("#formEntrada").reset();
     $("#formEntrada").fecha.value = hoyCR(); $("#formEntrada").fecha.max = hoyCR();
+    $("#formEntrada").recibido_id.value = "";
+    $("#entRef").hidden = true; $("#entRefLineas").innerHTML = "";
     $("#entMsg").textContent = ""; $("#entMsg").className = "msg";
+    condicionEntrada();
+    if (V21) cargarProveedores();
     pintarEntrada();
+  }
+  $("#btnNuevaEntrada").addEventListener("click", () => {
+    nuevaEntrada();
     $("#dlgEntrada").showModal();
     $("#formEntrada").proveedor.focus();
+  });
+  // contado o crédito: a crédito se pide el vencimiento (lo sugiere con los días de crédito del proveedor)
+  function condicionEntrada() {
+    const f = $("#formEntrada"), cred = f.condicion.value === "credito";
+    $("#entVenceLbl").hidden = !cred;
+    f.total_factura.required = cred;
+    if (cred && !f.vence.value) {
+      const pr = provPorNombre(f.proveedor.value), dias = pr?.dias_credito ?? 30;
+      f.vence.value = new Date(new Date((f.fecha.value || hoyCR()) + "T12:00:00-06:00").getTime() + dias * 864e5).toISOString().slice(0, 10);
+    }
+  }
+  $("#formEntrada").condicion.addEventListener("change", condicionEntrada);
+  $("#formEntrada").proveedor.addEventListener("change", () => {
+    const f = $("#formEntrada"), pr = provPorNombre(f.proveedor.value);
+    if (pr && pr.dias_credito && f.condicion.value === "contado") { f.condicion.value = "credito"; f.vence.value = ""; }
+    if (f.condicion.value === "credito") { f.vence.value = ""; condicionEntrada(); }
   });
   $("#btnCerrarEntrada").addEventListener("click", () => {
     if (ENT.size && !confirm("La entrada no se ha guardado. ¿Cerrar de todos modos?")) return;
@@ -3437,18 +3476,563 @@
       if (!numOk(x.precio) || (x.precio !== "" && !(Number(x.precio) > 0))) { msg.className = "msg msg--error"; msg.textContent = `Revise el precio de venta de ${x.p.nombre}.`; return; }
     }
     const precios = filas.filter((x) => x.precio !== "").length;
-    if (!confirm(`¿Guardar la entrada? Se suman ${filas.length} ${filas.length === 1 ? "producto" : "productos"} al inventario${precios ? ` y cambian ${precios} ${precios === 1 ? "precio" : "precios"} de venta` : ""}.`)) return;
+    const cred = V21 && f.condicion.value === "credito";
+    const nomProv = f.proveedor.value.trim();
+    let prov = V21 ? provPorNombre(nomProv) : null;
+    if (cred && !nomProv) { msg.className = "msg msg--error"; msg.textContent = "Para una compra a crédito, escriba el proveedor."; return; }
+    if (cred && !(Number(f.total_factura.value) > 0)) { msg.className = "msg msg--error"; msg.textContent = "Escriba el total de la factura (lo que se le debe al proveedor)."; return; }
+    if (V21 && nomProv && !prov) {
+      if (!confirm(`“${nomProv}” no está en la lista de proveedores. ¿Agregarlo?`)) return;
+      const { data: np, error: eP } = await db.from("proveedores").insert({ nombre: nomProv }).select("*").single();
+      if (eP) { msg.className = "msg msg--error"; msg.textContent = errTxt(eP); return; }
+      PROVS.push(np); prov = np;
+    }
+    if (!confirm(`¿Guardar la entrada?${cred ? ` Queda a crédito: se le deben ${fmt(f.total_factura.value)} a ${prov.nombre}, vence ${fechaDia(f.vence.value)}.` : ""} Se suman ${filas.length} ${filas.length === 1 ? "producto" : "productos"} al inventario${precios ? ` y cambian ${precios} ${precios === 1 ? "precio" : "precios"} de venta` : ""}.`)) return;
     const b = $("#btnGuardarEntrada"); b.disabled = true; msg.className = "msg"; msg.textContent = "Guardando…";
-    const { data, error } = await db.rpc("registrar_entrada", { p: {
-      proveedor: f.proveedor.value.trim(), documento: f.documento.value.trim(), fecha: f.fecha.value, nota: f.nota.value.trim(),
+    const datos = {
+      proveedor: nomProv, documento: f.documento.value.trim(), fecha: f.fecha.value, nota: f.nota.value.trim(),
       items: filas.map((x) => ({ producto_id: x.p.id, cantidad: String(Number(x.cant)), costo: x.costo === "" ? "" : String(Number(x.costo)), precio: x.precio === "" ? "" : String(Number(x.precio)) }))
-    } });
+    };
+    const { data, error } = V21
+      ? await db.rpc("registrar_compra", { p: { ...datos, proveedor_id: prov?.id ?? "", condicion: f.condicion.value, vence: cred ? f.vence.value : "",
+          total_factura: f.total_factura.value ? String(Math.round(Number(f.total_factura.value) * 100) / 100) : "", recibido_id: f.recibido_id.value } })
+      : await db.rpc("registrar_entrada", { p: datos });
     if (error) { msg.className = "msg msg--error"; msg.textContent = errTxt(error); b.disabled = false; return; }
     ENT.clear();
     $("#dlgEntrada").close();
-    toast(`Entrada ${data.id} guardada: ${data.productos} ${data.productos === 1 ? "producto" : "productos"} sumados al inventario`);
+    toast(`Entrada ${data.id} guardada: ${data.productos} ${data.productos === 1 ? "producto" : "productos"} sumados al inventario${Number(data.saldo) > 0 ? ` · se deben ${fmt(data.saldo)}` : ""}`);
     invVista = "entradas";
-    cargarInventario(); cargarProductos();
+    if (!$("#tCom").hidden) cargarCompras(); else cargarInventario();
+    cargarProductos();
+  });
+
+  // =========================================================
+  //  v21 · SALIDAS Y CONTEOS, COMPRAS, PROVEEDORES Y FACTURAS RECIBIDAS
+  // =========================================================
+  const fechaDia = (d) => d ? new Date(String(d).slice(0, 10) + "T12:00:00-06:00").toLocaleDateString("es-CR", { dateStyle: "medium", timeZone: TZ }) : "";
+  // cerrar cualquier diálogo con un botón data-cerrar-dlg
+  document.addEventListener("click", (e) => { const b = e.target.closest("[data-cerrar-dlg]"); if (b) b.closest("dialog")?.close(); });
+
+  // ---------- salidas y conteos de inventario ----------
+  const MOTIVO_AJ = { danado: "Dañado", perdido: "Perdido o robado", uso_interno: "Uso del almacén", vencido: "Vencido",
+                      devolucion: "Devuelto al proveedor", conteo: "Conteo físico", otro: "Otro" };
+  const AI = { tipo: "salida", filas: new Map() };          // id → { p, cant }
+  function ayudaAjuste() {
+    const salida = AI.tipo === "salida";
+    $$("#aiTipo [data-ai]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.ai === AI.tipo)));
+    $("#aiMotivoLbl").hidden = !salida;
+    $("#aiColCant").textContent = salida ? "Sale" : "Contado";
+    $("#aiAyuda").textContent = salida
+      ? "Para mercadería que sale sin venderse: dañada, perdida, usada en el almacén, vencida o devuelta al proveedor. Se resta de la existencia."
+      : "Escriba lo que contó en el estante. La existencia queda en ese número y la diferencia se anota (sobrante o faltante).";
+  }
+  function pintarAjusteInv() {
+    const salida = AI.tipo === "salida";
+    let costo = 0, faltan = 0, sobran = 0;
+    $("#aiFilas").innerHTML = [...AI.filas.values()].map((f) => {
+      const hay = f.p.existencia != null ? Number(f.p.existencia) : null, c = f.cant === "" ? null : Number(f.cant);
+      const queda = c == null ? null : salida ? (hay ?? 0) - c : c;
+      const dif = c == null ? 0 : salida ? -c : c - (hay ?? 0);
+      costo += dif * (Number(f.p.costo) || 0);
+      if (dif < 0) faltan++; else if (dif > 0) sobran++;
+      return `<tr>
+        <td>${U.esc(f.p.nombre)}${f.p.codigo ? `<small class="imp__cod">${U.esc(f.p.codigo)}</small>` : ""}${salida && hay == null ? `<small class="rojo">No lleva existencia: haga un conteo</small>` : ""}</td>
+        <td class="num">${hay != null ? cant(hay) : "—"}</td>
+        <td class="num"><input type="number" min="0" step="0.01" inputmode="decimal" value="${U.esc(String(f.cant))}" data-ai-cant="${f.p.id}" aria-label="${salida ? "Cantidad que sale" : "Cantidad contada"} de ${U.esc(f.p.nombre)}" /></td>
+        <td class="num ${queda != null && queda < 0 ? "rojo" : ""}">${queda != null ? cant(queda) : ""}${!salida && c != null && dif ? `<small class="${dif > 0 ? "inv-mas" : "inv-menos"}">${dif > 0 ? "+" : "−"}${cant(Math.abs(dif))}</small>` : ""}</td>
+        <td><button type="button" class="enlace enlace--peligro" data-ai-quitar="${f.p.id}">Quitar</button></td>
+      </tr>`;
+    }).join("") || `<tr><td colspan="5" class="vacio-adm">Busque arriba los productos (o páselos por el lector).</td></tr>`;
+    const n = AI.filas.size;
+    $("#aiResumen").textContent = !n ? "" : salida ? `${n} ${n === 1 ? "producto" : "productos"}` : `${n} contados · ${faltan} con faltante · ${sobran} con sobrante`;
+    $("#aiCosto").textContent = costo ? (costo < 0 ? "−" : "+") + fmt(Math.abs(costo)) + " al costo" : "";
+    $("#btnGuardarAjusteInv").disabled = !n;
+  }
+  $("#aiTipo").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-ai]"); if (!b || b.dataset.ai === AI.tipo) return;
+    if (AI.filas.size && !confirm("Se borra la lista que lleva. ¿Cambiar?")) return;
+    AI.tipo = b.dataset.ai; AI.filas.clear(); ayudaAjuste(); pintarAjusteInv();
+  });
+  buscadorProductos($("#aiBuscar"), $("#aiRes"), (p) => {
+    const f = AI.filas.get(p.id);
+    if (f) { if (AI.tipo === "salida") f.cant = Math.round(((Number(f.cant) || 0) + 1) * 100) / 100; }
+    else AI.filas.set(p.id, { p, cant: AI.tipo === "salida" ? 1 : "" });
+    pintarAjusteInv();
+    const inp = $(`#aiFilas [data-ai-cant="${p.id}"]`); if (inp) { inp.focus(); inp.select(); }
+  }, { ocultos: true, nada: "No se encontró ese producto." });
+  $("#aiFilas").addEventListener("input", (e) => {
+    const i = e.target.closest("[data-ai-cant]"); if (!i) return;
+    const f = AI.filas.get(Number(i.dataset.aiCant)); if (!f) return;
+    f.cant = i.value.trim();
+    const pos = i.selectionStart; pintarAjusteInv();
+    const n = $(`#aiFilas [data-ai-cant="${f.p.id}"]`); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch { /* number */ } }
+  });
+  $("#aiFilas").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.closest("[data-ai-cant]")) { e.preventDefault(); $("#aiBuscar").focus(); } });
+  $("#aiFilas").addEventListener("click", (e) => { const b = e.target.closest("[data-ai-quitar]"); if (b) { AI.filas.delete(Number(b.dataset.aiQuitar)); pintarAjusteInv(); } });
+  $("#btnNuevoAjusteInv").addEventListener("click", () => {
+    if (!puede("inventario")) return toast("No tiene permiso para mover inventario.", true);
+    AI.tipo = "salida"; AI.filas.clear();
+    const f = $("#formAjusteInv"); f.reset(); f.fecha.value = hoyCR(); f.fecha.max = hoyCR();
+    $("#aiMsg").textContent = ""; $("#aiMsg").className = "msg";
+    ayudaAjuste(); pintarAjusteInv();
+    $("#dlgAjusteInv").showModal(); $("#aiBuscar").focus();
+  });
+  $("#btnCerrarAjusteInv").addEventListener("click", () => {
+    if (AI.filas.size && !confirm("No se ha guardado. ¿Cerrar de todos modos?")) return;
+    $("#dlgAjusteInv").close();
+  });
+  $("#formAjusteInv").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#aiMsg"), filas = [...AI.filas.values()], salida = AI.tipo === "salida";
+    const mal = (t) => { msg.className = "msg msg--error"; msg.textContent = t; };
+    for (const x of filas) {
+      if (x.cant === "" || !numOk(x.cant)) return mal(`Revise la cantidad de ${x.p.nombre}.`);
+      if (salida && !(Number(x.cant) > 0)) return mal(`La cantidad que sale de ${x.p.nombre} tiene que ser mayor que 0.`);
+      if (salida && x.p.existencia == null) return mal(`${x.p.nombre} no lleva existencia: primero haga un conteo físico.`);
+    }
+    if (salida && f.motivo.value === "otro" && !f.nota.value.trim()) return mal("Con “Otro”, escriba en la nota qué pasó.");
+    const negativos = salida ? filas.filter((x) => Number(x.p.existencia) - Number(x.cant) < 0).length : 0;
+    if (!confirm(salida
+      ? `¿Restar ${filas.length} ${filas.length === 1 ? "producto" : "productos"} del inventario (${MOTIVO_AJ[f.motivo.value]})?${negativos ? `\n\nOjo: ${negativos} quedan en negativo.` : ""}`
+      : `¿Dejar la existencia de ${filas.length} ${filas.length === 1 ? "producto" : "productos"} en lo que contó?`)) return;
+    const b = $("#btnGuardarAjusteInv"); b.disabled = true; msg.className = "msg"; msg.textContent = "Guardando…";
+    const { data, error } = await db.rpc("ajustar_inventario", { p: {
+      tipo: AI.tipo, motivo: salida ? f.motivo.value : "conteo", fecha: f.fecha.value, nota: f.nota.value.trim(),
+      items: filas.map((x) => ({ producto_id: x.p.id, cantidad: String(Number(x.cant)) }))
+    } });
+    if (error) { mal(errTxt(error)); b.disabled = false; return; }
+    AI.filas.clear(); $("#dlgAjusteInv").close();
+    toast(`${salida ? "Salida" : "Conteo"} ${data.id} guardado: ${data.productos} ${data.productos === 1 ? "producto" : "productos"}`);
+    await refrescarExistencias(filas.map((x) => x.p.id));
+    invVista = "ajustes"; if (!$("#tInv").hidden) cargarInventario();
+  });
+
+  async function cargarAjustesInv() {
+    const ul = $("#listaAjustesInv");
+    ul.innerHTML = `<li class="vacio-adm">Cargando…</li>`;
+    const { data, error } = await db.from("ajustes_inventario").select("*").order("fecha", { ascending: false }).order("id", { ascending: false }).limit(300);
+    if (error) { ul.innerHTML = ""; return toast(errTxt(error), true); }
+    ul.innerHTML = data.map((a) => `<li class="fila fila--pago ${a.estado === "anulado" ? "fila--oculta" : ""}">
+        <div class="fila__monto"><b class="${Number(a.costo_total) < 0 ? "inv-menos" : ""}">${Number(a.costo_total) ? (Number(a.costo_total) < 0 ? "−" : "+") + fmt(Math.abs(a.costo_total)) : `${a.productos} prod.`}</b><small>${fechaDia(a.fecha)}</small></div>
+        <div class="fila__txt">
+          <b>${a.tipo === "conteo" ? "Conteo físico" : "Salida"} ${a.id}${a.tipo === "salida" ? " · " + U.esc(MOTIVO_AJ[a.motivo] || a.motivo) : ""}</b>
+          <small>${a.productos} ${a.productos === 1 ? "producto" : "productos"}${a.nota ? " · " + U.esc(a.nota) : ""}${a.estado === "anulado" ? " · Anulado: " + U.esc(a.motivo_anulacion || "") : ""}</small>
+          <details data-ajuste="${a.id}"><summary>Ver productos</summary><ul class="entrada__items"><li>Cargando…</li></ul></details>
+        </div>
+        <div class="fila__acc">${a.estado === "aplicado" ? (puede("inventario") ? `<button type="button" class="enlace enlace--peligro" data-anular-ajuste="${a.id}">Anular</button>` : "") : '<span class="etq">Anulado</span>'}</div>
+      </li>`).join("") || `<li class="vacio-adm">No hay salidas ni conteos. Use <b>Salida o conteo</b> para mercadería dañada, perdida o para el conteo físico.</li>`;
+  }
+  $("#listaAjustesInv").addEventListener("toggle", async (e) => {
+    const d = e.target.closest("details[data-ajuste]"); if (!d || !d.open || d.dataset.cargado) return;
+    const { data, error } = await db.from("ajuste_items").select("antes,cantidad,despues,productos(nombre)").eq("ajuste_id", d.dataset.ajuste).order("id");
+    d.querySelector("ul").innerHTML = error ? `<li>${U.esc(errTxt(error))}</li>` : data.map((i) =>
+      `<li><b class="${Number(i.cantidad) < 0 ? "inv-menos" : Number(i.cantidad) > 0 ? "inv-mas" : ""}">${Number(i.cantidad) > 0 ? "+" : Number(i.cantidad) < 0 ? "−" : "±"}${cant(Math.abs(i.cantidad))}</b> ${U.esc(i.productos?.nombre || "(borrado)")} · había ${i.antes != null ? cant(i.antes) : "—"}, quedó ${i.despues != null ? cant(i.despues) : "—"}</li>`).join("");
+    d.dataset.cargado = "1";
+  }, true);
+  $("#listaAjustesInv").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-anular-ajuste]"); if (!b) return;
+    const motivo = prompt("¿Por qué se anula? (la existencia vuelve a como estaba antes de este movimiento)", "Se registró por error");
+    if (motivo === null) return;
+    if (motivo.trim().length < 3) return toast("Escriba el motivo.", true);
+    const { error } = await db.rpc("anular_ajuste", { p_id: Number(b.dataset.anularAjuste), p_motivo: motivo.trim() });
+    if (error) return toast(errTxt(error), true);
+    toast("Anulado: la existencia volvió");
+    cargarAjustesInv(); cargarProductos();
+  });
+
+  // ---------- proveedores ----------
+  let PROVS = [];
+  const provPorNombre = (n) => { const k = norm(n || ""); return k ? PROVS.find((p) => norm(p.nombre) === k) : null; };
+  async function cargarProveedores() {
+    if (!V21) return [];
+    const { data, error } = await db.from("proveedores").select("*").order("nombre");
+    if (error) { toast(errTxt(error), true); return PROVS; }
+    PROVS = data;
+    $("#dlProveedores").innerHTML = PROVS.filter((p) => p.activo).map((p) => `<option value="${U.esc(p.nombre)}">`).join("");
+    return PROVS;
+  }
+  function pintarProveedores() {
+    const q = norm($("#provBuscar").value), debe = {};
+    for (const c of PAGAR) if (c.proveedor_id) debe[c.proveedor_id] = (debe[c.proveedor_id] || 0) + Number(c.saldo);
+    const lista = PROVS.filter((p) => !q || norm(p.nombre).includes(q) || String(p.identificacion || "").includes(q));
+    $("#listaProveedores").innerHTML = lista.map((p) => `<li class="fila ${p.activo ? "" : "fila--oculta"}">
+        <div class="fila__txt">
+          <b>${U.esc(p.nombre)}</b>
+          <small>${[p.identificacion && "Cédula " + p.identificacion, p.telefono, p.contacto, p.dias_credito != null && p.dias_credito + " días de crédito", !p.activo && "Inactivo"].filter(Boolean).map(U.esc).join(" · ")}</small>
+          ${debe[p.id] ? `<small class="rojo">Se le deben ${fmt(debe[p.id])}</small>` : ""}
+        </div>
+        <div class="fila__acc"><button type="button" class="btn btn--sm btn--linea" data-prov-editar="${p.id}">Editar</button></div>
+      </li>`).join("") || `<li class="vacio-adm">${q ? "No hay proveedores con ese nombre." : "Todavía no hay proveedores. Se agregan solos al subir una factura electrónica, o con <b>Nuevo proveedor</b>."}</li>`;
+  }
+  $("#provBuscar").addEventListener("input", pintarProveedores);
+  function abrirProveedor(p) {
+    const f = $("#formProveedor"); f.reset();
+    $("#provTitulo").textContent = p ? "Editar proveedor" : "Nuevo proveedor";
+    for (const k of ["id", "nombre", "tipo_id", "identificacion", "telefono", "correo", "contacto", "dias_credito", "nota"]) f.elements[k].value = p?.[k] ?? "";
+    f.activo.checked = p ? !!p.activo : true;
+    $("#provMsg").textContent = ""; $("#provMsg").className = "msg";
+    $("#dlgProveedor").showModal(); f.nombre.focus();
+  }
+  $("#btnNuevoProv").addEventListener("click", () => {
+    if (!(puede("compras") || puede("inventario"))) return toast("No tiene permiso para esto.", true);
+    abrirProveedor(null);
+  });
+  $("#listaProveedores").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-prov-editar]"); if (b) abrirProveedor(PROVS.find((p) => p.id === Number(b.dataset.provEditar)));
+  });
+  $("#formProveedor").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#provMsg"), id = Number(f.id.value) || null;
+    const ced = U.soloDigitos(f.identificacion.value);
+    const d = {
+      nombre: f.nombre.value.replace(/\s+/g, " ").trim(), tipo_id: f.tipo_id.value || null, identificacion: ced || null,
+      telefono: f.telefono.value.trim() || null, correo: f.correo.value.trim() || null, contacto: f.contacto.value.trim() || null,
+      dias_credito: f.dias_credito.value === "" ? null : Number(f.dias_credito.value), nota: f.nota.value.trim() || null, activo: f.activo.checked
+    };
+    const mal = (t) => { msg.className = "msg msg--error"; msg.textContent = t; };
+    if (d.nombre.length < 2) return mal("Escriba el nombre.");
+    if (ced && !/^[0-9]{9,12}$/.test(ced)) return mal("La cédula va de 9 a 12 números.");
+    if (d.dias_credito != null && !(Number.isInteger(d.dias_credito) && d.dias_credito >= 0 && d.dias_credito <= 365)) return mal("Los días de crédito van de 0 a 365.");
+    const r = id ? await db.from("proveedores").update(d).eq("id", id).select("*").single() : await db.from("proveedores").insert(d).select("*").single();
+    if (r.error) return mal(r.error.code === "23505" ? "Ya hay un proveedor con ese nombre o esa cédula." : errTxt(r.error));
+    $("#dlgProveedor").close();
+    toast(id ? "Proveedor guardado" : "Proveedor agregado");
+    await cargarProveedores(); pintarProveedores();
+  });
+
+  // ---------- compras: por pagar, facturas recibidas, pagos ----------
+  let comVista = "pagar", PAGAR = [], RECIB = [];
+  function cargarCompras() {
+    if (!V21) return;
+    for (const [v, id] of [["pagar", "#comPagar"], ["recibidas", "#comRecibidas"], ["proveedores", "#comProveedores"], ["pagos", "#comPagos"]]) $(id).hidden = comVista !== v;
+    $$("#comVista [data-cv]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.cv === comVista)));
+    const vista = comVista;
+    return Promise.all([cargarProveedores(), vista === "pagar" || vista === "proveedores" ? cargarPorPagar() : null]).then(() => {
+      if (vista === "recibidas") return cargarRecibidos();
+      if (vista === "proveedores") return pintarProveedores();
+      if (vista === "pagos") return cargarPagosProv();
+    });
+  }
+  $("#comVista").addEventListener("click", (e) => { const b = e.target.closest("[data-cv]"); if (b) { comVista = b.dataset.cv; cargarCompras(); } });
+
+  async function cargarPorPagar() {
+    const { data, error } = await db.from("v_cuentas_pagar").select("*").order("vence").order("entrada_id");
+    if (error) { toast(errTxt(error), true); return; }
+    PAGAR = data;
+    if (comVista !== "pagar") return;
+    const total = PAGAR.reduce((t, c) => t + Number(c.saldo), 0), venc = PAGAR.filter((c) => c.dias_vencida > 0);
+    $("#comPagarRes").innerHTML = PAGAR.length ? `Se le deben <b>${fmt(total)}</b> a proveedores en ${PAGAR.length} ${PAGAR.length === 1 ? "factura" : "facturas"}${venc.length ? ` · <span class="rojo">${venc.length} ${venc.length === 1 ? "vencida" : "vencidas"} (${fmt(venc.reduce((t, c) => t + Number(c.saldo), 0))})</span>` : ""}.` : "";
+    $("#listaPorPagar").innerHTML = PAGAR.map((c) => {
+      const d = Number(c.dias_vencida);
+      return `<li class="fila fila--pago">
+        <div class="fila__monto"><b>${fmt(c.saldo)}</b><small>de ${fmt(c.total_factura)}</small></div>
+        <div class="fila__txt">
+          <b>${U.esc(c.proveedor || "Sin proveedor")}${c.documento ? " · Factura " + U.esc(c.documento) : ""}</b>
+          <small>Compra del ${fechaDia(c.fecha)} · <span class="${d > 0 ? "rojo" : d >= -5 ? "amarillo" : ""}">${d > 0 ? `venció hace ${d} ${d === 1 ? "día" : "días"}` : d === 0 ? "vence hoy" : `vence el ${fechaDia(c.vence)}`}</span>${c.telefono ? " · Tel. " + U.esc(c.telefono) : ""}</small>
+        </div>
+        <div class="fila__acc">${puede("compras") ? `<button type="button" class="btn btn--sm btn--negro" data-pagar-entrada="${c.entrada_id}">Pagar</button>` : ""}</div>
+      </li>`;
+    }).join("") || `<li class="vacio-adm">No se le debe nada a ningún proveedor. Las compras a crédito se anotan en <b>Inventario → Entrada de mercadería</b> (“Se pagó: a crédito”).</li>`;
+  }
+  $("#listaPorPagar").addEventListener("click", (e) => { const b = e.target.closest("[data-pagar-entrada]"); if (b) abrirPagoProv(Number(b.dataset.pagarEntrada)); });
+
+  async function abrirPagoProv(entradaId) {
+    const { data: en, error } = await db.from("entradas").select("id,fecha,vence,documento,proveedor,total_factura,saldo,estado").eq("id", entradaId).single();
+    if (error) return toast(errTxt(error), true);
+    if (!(Number(en.saldo) > 0)) return toast("Esa compra ya no tiene saldo.", true);
+    const f = $("#formPagoProv"); f.reset();
+    f.entrada_id.value = en.id; f.monto.value = Number(en.saldo); f.monto.max = Number(en.saldo);
+    f.fecha.value = hoyCR(); f.fecha.max = hoyCR();
+    $("#ppInfo").innerHTML = `${U.esc(en.proveedor || "Proveedor")}${en.documento ? " · factura " + U.esc(en.documento) : ""} · se debe <b>${fmt(en.saldo)}</b> de ${fmt(en.total_factura)} · vence ${fechaDia(en.vence)}`;
+    $("#ppCajaLbl").hidden = true;
+    $("#ppMsg").textContent = ""; $("#ppMsg").className = "msg";
+    $("#dlgPagoProv").showModal(); f.monto.focus(); f.monto.select();
+  }
+  $("#formPagoProv").metodo.addEventListener("change", (e) => {
+    const ef = e.target.value === "efectivo";
+    $("#ppCajaLbl").hidden = !ef || !puede("caja");
+    e.target.form.de_caja.checked = ef && puede("caja");
+  });
+  $("#formPagoProv").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#ppMsg"), monto = Number(f.monto.value);
+    const mal = (t) => { msg.className = "msg msg--error"; msg.textContent = t; };
+    if (!(monto > 0) || !numOk(f.monto.value)) return mal("Revise el monto.");
+    if (monto > Number(f.monto.max)) return mal(`El pago es mayor que lo que se debe (${fmt(f.monto.max)}).`);
+    const deCaja = f.metodo.value === "efectivo" && f.de_caja.checked;
+    if (!confirm(`¿Anotar el pago de ${fmt(monto)} (${ETQ_METODO[f.metodo.value] || f.metodo.value})${deCaja ? " y sacarlo de la caja" : ""}?`)) return;
+    msg.className = "msg"; msg.textContent = "Guardando…";
+    const { data, error } = await db.rpc("pagar_proveedor", { p: { entrada_id: f.entrada_id.value, monto: String(Math.round(monto * 100) / 100), metodo: f.metodo.value,
+      fecha: f.fecha.value, referencia: f.referencia.value.trim(), nota: f.nota.value.trim(), de_caja: deCaja } });
+    if (error) return mal(errTxt(error));
+    $("#dlgPagoProv").close();
+    toast(Number(data.saldo) > 0 ? `Pago anotado · todavía se deben ${fmt(data.saldo)}` : "Pago anotado · factura cancelada");
+    if (!$("#tCom").hidden) cargarCompras();
+    if (!$("#tInv").hidden) cargarInventario();
+    if (deCaja && !$("#tCaja").hidden) cargarCaja();
+  });
+
+  async function cargarPagosProv() {
+    const ul = $("#listaPagosProv");
+    ul.innerHTML = `<li class="vacio-adm">Cargando…</li>`;
+    const { data, error } = await db.from("pagos_proveedor").select("*,entradas(documento,proveedor)").order("fecha", { ascending: false }).order("id", { ascending: false }).limit(300);
+    if (error) { ul.innerHTML = ""; return toast(errTxt(error), true); }
+    ul.innerHTML = data.map((g) => `<li class="fila fila--pago ${g.anulado ? "fila--oculta" : ""}">
+        <div class="fila__monto"><b>${fmt(g.monto)}</b><small>${fechaDia(g.fecha)}</small></div>
+        <div class="fila__txt">
+          <b>${U.esc(g.entradas?.proveedor || "Proveedor")}${g.entradas?.documento ? " · Factura " + U.esc(g.entradas.documento) : ""}</b>
+          <small>${U.esc(ETQ_METODO[g.metodo] || (g.metodo === "otro" ? "Otro" : g.metodo))}${g.referencia ? " · " + U.esc(g.referencia) : ""}${g.de_caja ? " · salió de la caja" : ""}${g.nota ? " · " + U.esc(g.nota) : ""}${g.anulado ? " · Anulado: " + U.esc(g.motivo_anulacion || "") : ""}</small>
+        </div>
+        <div class="fila__acc">${!g.anulado && puede("compras") ? `<button type="button" class="enlace enlace--peligro" data-anular-pagoprov="${g.id}">Anular</button>` : g.anulado ? '<span class="etq">Anulado</span>' : ""}</div>
+      </li>`).join("") || `<li class="vacio-adm">Todavía no hay pagos a proveedores.</li>`;
+  }
+  $("#listaPagosProv").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-anular-pagoprov]"); if (!b) return;
+    const motivo = prompt("¿Por qué se anula este pago? (vuelve a quedar como deuda; si salió de la caja, el efectivo vuelve a la caja abierta)", "Se anotó por error");
+    if (motivo === null) return;
+    if (motivo.trim().length < 3) return toast("Escriba el motivo.", true);
+    const { error } = await db.rpc("anular_pago_proveedor", { p_id: Number(b.dataset.anularPagoprov), p_motivo: motivo.trim() });
+    if (error) return toast(errTxt(error), true);
+    toast("Pago anulado"); cargarPagosProv();
+  });
+
+  // ---------- facturas recibidas (XML del proveedor) ----------
+  const TIPO_DOC_REC = { "01": "Factura", "02": "Nota de débito", "03": "Nota de crédito", "04": "Tiquete", "08": "Factura de compra", "09": "Factura de exportación" };
+  const RAIZ_REC = { FacturaElectronica: "01", NotaDebitoElectronica: "02", NotaCreditoElectronica: "03", TiqueteElectronico: "04",
+                     FacturaElectronicaCompra: "08", FacturaElectronicaExportacion: "09" };
+  const MSJ_REC = { "1": "Aceptada", "2": "Aceptada en parte", "3": "Rechazada" };
+  const ESTADO_REC = {
+    nuevo: ["Sin contestar", "etq--por_verificar"], firmado: ["Respuesta sin enviar", "etq--error"], enviado: ["Respuesta enviada", "etq--por_verificar"],
+    procesando: ["Hacienda la está revisando", "etq--por_verificar"], aceptado: ["Hacienda recibió la respuesta", "etq--pagado"],
+    rechazado: ["Hacienda rechazó la respuesta", "etq--error"], error: ["Con error", "etq--error"]
+  };
+  // busca un hijo por nombre sin importar el espacio de nombres del XML (4.3 o 4.4)
+  const hijo = (el, ruta) => ruta.split("/").reduce((n, nom) => n && [...n.children].find((c) => c.localName === nom), el);
+  const txt = (el, ruta) => (hijo(el, ruta)?.textContent || "").trim();
+  function leerXmlRecibido(texto) {
+    const doc = new DOMParser().parseFromString(texto, "application/xml");
+    if (doc.getElementsByTagName("parsererror").length) throw new Error("no es un XML válido");
+    const raiz = doc.documentElement, tipo = RAIZ_REC[raiz.localName];
+    if (raiz.localName === "MensajeHacienda") throw new Error("es la respuesta de Hacienda; suba el otro XML (el de la factura)");
+    if (raiz.localName === "MensajeReceptor") throw new Error("es una respuesta de receptor, no una factura");
+    if (!tipo) throw new Error("no es un comprobante electrónico de Hacienda");
+    const num = (v) => (v === "" ? null : Number(v));
+    const lineas = [...(hijo(raiz, "DetalleServicio")?.children || [])].filter((l) => l.localName === "LineaDetalle").slice(0, 1000).map((l) => ({
+      codigo: txt(l, "CodigoComercial/Codigo") || null,
+      cabys: txt(l, "CodigoCABYS") || (/^[0-9]{13}$/.test(txt(l, "Codigo")) ? txt(l, "Codigo") : null),
+      detalle: txt(l, "Detalle").slice(0, 200), cantidad: num(txt(l, "Cantidad")), unidad: txt(l, "UnidadMedida") || null,
+      precio: num(txt(l, "PrecioUnitario")), monto: num(txt(l, "MontoTotalLinea"))
+    }));
+    return {
+      clave: txt(raiz, "Clave"), tipo_doc: tipo, consecutivo_doc: txt(raiz, "NumeroConsecutivo"), fecha_emision: txt(raiz, "FechaEmision"),
+      emisor_nombre: txt(raiz, "Emisor/Nombre"), emisor_tipo: txt(raiz, "Emisor/Identificacion/Tipo"), emisor_id: txt(raiz, "Emisor/Identificacion/Numero"),
+      emisor_correo: txt(raiz, "Emisor/CorreoElectronico"), receptor_id: txt(raiz, "Receptor/Identificacion/Numero"),
+      moneda: txt(raiz, "ResumenFactura/CodigoTipoMoneda/CodigoMoneda") || "CRC", tipo_cambio: txt(raiz, "ResumenFactura/CodigoTipoMoneda/TipoCambio") || "1",
+      total: txt(raiz, "ResumenFactura/TotalComprobante"), impuesto: txt(raiz, "ResumenFactura/TotalImpuesto") || "0", lineas
+    };
+  }
+  $("#xmlRecibido").addEventListener("change", async (e) => {
+    const archivos = [...e.target.files]; e.target.value = "";
+    if (!archivos.length) return;
+    if (!puede("compras")) return toast("No tiene permiso para subir facturas de proveedores.", true);
+    let nuevos = 0, repetidos = 0; const malos = [];
+    for (const a of archivos) {
+      try {
+        if (a.size > 2e6) throw new Error("pesa más de 2 MB");
+        const texto = await a.text(), d = leerXmlRecibido(texto);
+        const { data, error } = await db.rpc("guardar_recibido", { p: { ...d, xml: texto } });
+        if (error) throw new Error(errTxt(error));
+        if (data.repetido) repetidos++; else nuevos++;
+      } catch (err) { malos.push(`${a.name}: ${err.message}`); }
+    }
+    if (nuevos || repetidos) toast(`${nuevos ? `${nuevos} ${nuevos === 1 ? "factura subida" : "facturas subidas"}` : ""}${nuevos && repetidos ? " · " : ""}${repetidos ? `${repetidos} ya estaba${repetidos === 1 ? "" : "n"}` : ""}`);
+    if (malos.length) alert("No se pudieron subir:\n\n" + malos.join("\n"));
+    comVista = "recibidas"; cargarCompras(); contarRecibidos();
+  });
+
+  async function contarRecibidos() {
+    if (!V21) return;
+    const { count } = await db.from("fe_recibidos").select("id", { count: "exact", head: true }).in("estado", ["nuevo", "error", "rechazado", "firmado"]).neq("tipo_doc", "04");
+    for (const id of ["#badgeCom", "#badgeRecib"]) { $(id).hidden = !count; $(id).textContent = count || ""; }
+  }
+  async function cargarRecibidos() {
+    const ul = $("#listaRecibidas");
+    ul.innerHTML = `<li class="vacio-adm">Cargando…</li>`;
+    const { data, error } = await db.from("v_fe_recibidos").select("*").order("fecha_emision", { ascending: false }).limit(300);
+    if (error) { ul.innerHTML = ""; return toast(errTxt(error), true); }
+    RECIB = data;
+    ul.innerHTML = RECIB.map((r) => {
+      const [et, cls] = ESTADO_REC[r.estado] || [r.estado, ""];
+      const acc = [];
+      const puedeC = puede("compras");
+      if (puedeC && r.tipo_doc !== "04" && ["nuevo", "rechazado"].includes(r.estado)) acc.push(`<button type="button" class="btn btn--sm btn--negro" data-rec="contestar" data-id="${r.id}">${r.estado === "nuevo" ? "Aceptar o rechazar" : "Contestar de nuevo"}</button>`);
+      if (puedeC && ["firmado", "error"].includes(r.estado)) acc.push(`<button type="button" class="btn btn--sm btn--negro" data-rec="enviar" data-id="${r.id}">Enviar de nuevo</button>`);
+      if (puedeC && ["enviado", "procesando"].includes(r.estado)) acc.push(`<button type="button" class="btn btn--sm btn--linea" data-rec="consultar" data-id="${r.id}">Consultar</button>`);
+      if (r.entrada_id) acc.push(`<span class="etq etq--pagado">Entrada ${r.entrada_id}</span>`);
+      else if (puede("inventario") && r.mensaje !== "3" && ["01", "04", "08"].includes(r.tipo_doc)) acc.push(`<button type="button" class="btn btn--sm btn--linea" data-rec="entrada" data-id="${r.id}">Hacer la entrada</button>`);
+      acc.push(`<button type="button" class="enlace" data-rec="xml" data-id="${r.id}">XML</button>`);
+      if (puedeC && r.estado === "nuevo") acc.push(`<button type="button" class="enlace enlace--peligro" data-rec="borrar" data-id="${r.id}">Borrar</button>`);
+      const ext = r.moneda !== "CRC";
+      return `<li class="fila fila--pago">
+        <div class="fila__monto"><b>${ext ? U.esc(r.moneda) + " " + Number(r.total).toLocaleString("es-CR") : fmt(r.total)}</b><small>${fechaDia(r.fecha_emision)}</small></div>
+        <div class="fila__txt">
+          <b>${U.esc(r.emisor_nombre)}</b>
+          <small>${TIPO_DOC_REC[r.tipo_doc] || r.tipo_doc}${r.consecutivo_doc ? " " + U.esc(r.consecutivo_doc.slice(10).replace(/^0+/, "")) : ""} · IVA ${ext ? Number(r.impuesto).toLocaleString("es-CR") : fmt(r.impuesto)} · ${r.n_lineas} ${r.n_lineas === 1 ? "línea" : "líneas"}${r.mensaje ? " · " + MSJ_REC[r.mensaje] + (r.detalle_mensaje ? ": " + U.esc(r.detalle_mensaje) : "") : ""}</small>
+          <small><span class="etq ${cls}">${et}</span>${r.ambiente === "pruebas" ? ' <span class="etq">Pruebas</span>' : ""}${r.detalle ? " " + U.esc(r.detalle) : ""}${r.tipo_doc === "04" ? " · Los tiquetes no se aceptan ni rechazan" : ""}</small>
+        </div>
+        <div class="fila__acc">${acc.join("")}</div>
+      </li>`;
+    }).join("") || `<li class="vacio-adm">No hay facturas de proveedores. Toque <b>Subir factura del proveedor (XML)</b> y escoja el archivo .xml que llegó al correo (puede escoger varios a la vez).</li>`;
+  }
+  $("#listaRecibidas").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-rec]"); if (!b) return;
+    const id = Number(b.dataset.id), r = RECIB.find((x) => x.id === id), acc = b.dataset.rec;
+    if (acc === "contestar") return abrirRecibido(r);
+    if (acc === "entrada") return entradaDesdeRecibido(id);
+    if (acc === "xml") {
+      const { data, error } = await db.from("fe_recibidos").select("clave,xml,xml_firmado,respuesta_xml").eq("id", id).single();
+      if (error) return toast(errTxt(error), true);
+      descargar(new Blob([data.xml], { type: "application/xml" }), `${data.clave}.xml`);
+      if (data.respuesta_xml) setTimeout(() => descargar(new Blob([data.respuesta_xml], { type: "application/xml" }), `${data.clave}-respuesta-hacienda.xml`), 400);
+      return;
+    }
+    if (acc === "borrar") {
+      if (!confirm(`¿Borrar la factura de ${r.emisor_nombre}? (solo se borra aquí; no se le contesta nada a Hacienda)`)) return;
+      const { error } = await db.rpc("borrar_recibido", { p_id: id });
+      if (error) return toast(errTxt(error), true);
+      toast("Factura borrada"); cargarRecibidos(); contarRecibidos(); return;
+    }
+    if (acc === "enviar" || acc === "consultar") {
+      b.disabled = true;
+      try { await llamarFE({ accion: "recibido_" + acc, recibido_id: id }); }
+      catch (err) { toast(err.message, true); }
+      cargarRecibidos(); contarRecibidos();
+    }
+  });
+
+  let recMsj = "1";
+  function pintarRecibidoForm() {
+    const f = $("#formRecibido"), r = RECIB.find((x) => x.id === Number(f.id.value));
+    $$("#recMensaje [data-msj]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.msj === recMsj)));
+    $("#recIva").hidden = recMsj === "3" || !(Number(r?.impuesto) > 0);
+    $("#recAcredLbl").hidden = !["02", "05"].includes(f.condicion.value);
+    $("#recDetLbl").hidden = recMsj === "1";
+    f.detalle.required = recMsj !== "1";
+    $("#btnRecEnviar").textContent = { "1": "Aceptar ante Hacienda", "2": "Aceptar en parte ante Hacienda", "3": "Rechazar ante Hacienda" }[recMsj];
+  }
+  function abrirRecibido(r) {
+    if (!FE?.identificacion) return toast("Primero llene los datos de Facturación electrónica (Datos del negocio).", true);
+    const f = $("#formRecibido"); f.reset(); f.id.value = r.id;
+    recMsj = "1";
+    const ext = r.moneda !== "CRC";
+    $("#recDatos").innerHTML = `
+      <div><dt>Proveedor</dt><dd>${U.esc(r.emisor_nombre)} · ${U.esc(r.emisor_id)}</dd></div>
+      <div><dt>${TIPO_DOC_REC[r.tipo_doc] || "Comprobante"}</dt><dd>${U.esc(r.consecutivo_doc || r.clave)} · ${fechaDia(r.fecha_emision)}</dd></div>
+      <div><dt>Total</dt><dd>${ext ? U.esc(r.moneda) + " " + Number(r.total).toLocaleString("es-CR") : fmt(r.total)} · IVA ${ext ? Number(r.impuesto).toLocaleString("es-CR") : fmt(r.impuesto)}</dd></div>`;
+    $("#recMsg").textContent = ""; $("#recMsg").className = "msg";
+    pintarRecibidoForm();
+    $("#dlgRecibido").showModal();
+  }
+  $("#recMensaje").addEventListener("click", (e) => { const b = e.target.closest("[data-msj]"); if (b) { recMsj = b.dataset.msj; pintarRecibidoForm(); } });
+  $("#formRecibido").condicion.addEventListener("change", pintarRecibidoForm);
+  $("#formRecibido").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#recMsg"), r = RECIB.find((x) => x.id === Number(f.id.value));
+    const mal = (t) => { msg.className = "msg msg--error"; msg.textContent = t; };
+    const det = f.detalle.value.trim();
+    if (recMsj !== "1" && det.length < 3) return mal("Escriba el motivo.");
+    const conIva = recMsj !== "3" && Number(r.impuesto) > 0;
+    if (conIva && ["02", "05"].includes(f.condicion.value) && !(Number(f.acreditar.value) >= 0 && Number(f.acreditar.value) <= Number(r.impuesto) && f.acreditar.value !== "")) return mal(`El IVA que se acredita va de 0 a ${fmt(r.impuesto)}.`);
+    if (!confirm(`¿${MSJ_REC[recMsj] === "Rechazada" ? "Rechazar" : recMsj === "2" ? "Aceptar en parte" : "Aceptar"} la factura de ${r.emisor_nombre} ante Hacienda (${FE?.ambiente === "produccion" ? "producción" : "pruebas"})? Esto no se puede deshacer.`)) return;
+    const b = $("#btnRecEnviar"); b.disabled = true; msg.className = "msg"; msg.textContent = "Firmando y mandando a Hacienda…";
+    try {
+      const res = await llamarFE({ accion: "recibido_responder", recibido_id: r.id, mensaje: recMsj, detalle: det || null,
+        condicion: conIva ? f.condicion.value : null, acreditar: conIva && ["02", "05"].includes(f.condicion.value) ? Number(f.acreditar.value) : null });
+      $("#dlgRecibido").close();
+      const est = res.recibido?.estado;
+      toast(est === "aceptado" ? "Listo: Hacienda recibió la respuesta" : est === "rechazado" ? "Hacienda rechazó la respuesta: vea el detalle" : "Respuesta enviada; Hacienda la está revisando", est === "rechazado");
+    } catch (err) { mal(err.message); }
+    finally { b.disabled = false; }
+    cargarRecibidos(); contarRecibidos();
+  });
+
+  // Entrada de mercadería con los productos de la factura del proveedor
+  async function entradaDesdeRecibido(id) {
+    const { data: r, error } = await db.from("fe_recibidos").select("id,emisor_nombre,consecutivo_doc,fecha_emision,moneda,total,lineas,proveedor_id,entrada_id").eq("id", id).single();
+    if (error) return toast(errTxt(error), true);
+    if (r.entrada_id) return toast(`Esa factura ya tiene la entrada ${r.entrada_id}.`, true);
+    await cargarProveedores();
+    nuevaEntrada();
+    const f = $("#formEntrada"), prov = PROVS.find((p) => p.id === r.proveedor_id);
+    f.proveedor.value = prov?.nombre || r.emisor_nombre;
+    f.documento.value = (r.consecutivo_doc || "").slice(-20);
+    f.fecha.value = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date(r.fecha_emision));
+    f.recibido_id.value = r.id;
+    if (r.moneda === "CRC") f.total_factura.value = Number(r.total);
+    if (prov?.dias_credito) { f.condicion.value = "credito"; f.vence.value = ""; }
+    condicionEntrada();
+    // une cada línea con un producto: por código comercial; si no, por CABYS cuando hay uno solo con ese CABYS
+    const porCodigo = new Map(), porCabys = new Map();
+    for (const p of productos) {
+      if (p.codigo) porCodigo.set(String(p.codigo).trim().toLowerCase(), p);
+      if (p.cabys) porCabys.set(p.cabys, porCabys.has(p.cabys) ? null : p);
+    }
+    const ref = [];
+    for (const l of r.lineas || []) {
+      const p = (l.codigo && porCodigo.get(String(l.codigo).trim().toLowerCase())) || (l.cabys && porCabys.get(l.cabys)) || null;
+      if (p && l.cantidad > 0) {
+        const ya = ENT.get(p.id);
+        const costo = r.moneda === "CRC" && l.precio != null ? Math.round(l.precio * 100) / 100 : (p.costo != null ? Number(p.costo) : "");
+        if (ya) ya.cant = Math.round(((Number(ya.cant) || 0) + l.cantidad) * 100) / 100;
+        else ENT.set(p.id, { p, cant: l.cantidad, costo, precio: "" });
+      }
+      ref.push(`<li class="${p ? "inv-mas" : "rojo"}">${p ? "✔" : "✘"} ${cant(l.cantidad || 0)} × ${U.esc(l.detalle)}${l.codigo ? ` <small>(${U.esc(l.codigo)})</small>` : ""}${l.precio != null ? ` · ${r.moneda === "CRC" ? fmt(l.precio) : l.precio} c/u sin IVA` : ""}${p ? ` → ${U.esc(p.nombre)}` : " · busque el producto abajo y agréguelo"}</li>`);
+    }
+    $("#entRefLineas").innerHTML = ref.join("");
+    $("#entRef").hidden = !ref.length; $("#entRef").open = ref.some((x) => x.includes("✘"));
+    pintarEntrada();
+    $("#dlgEntrada").showModal();
+    toast(`${ENT.size} de ${(r.lineas || []).length} líneas se unieron con un producto por su código`);
+  }
+
+  // ---------- lista para dejar Moriah ----------
+  const LS_ARRANQUE = "lc_arranque_v1";
+  const ARRANQUE_MANUAL = [
+    ["registros", "En Supabase: Authentication → Sign In / Providers → apagar “Allow new users to sign up”"],
+    ["llave", "Revocar en Supabase la llave secreta (secret key) que se compartió por chat y crear otra"],
+    ["impresora", "Impresora térmica probada: tiquete de venta y cierre de caja"],
+    ["app", "Panel instalado como programa en la compu de caja (botón Instalar)"],
+    ["prueba", "Prueba completa con Marvin: venta, cobro, crédito, abono, apartado, cierre de caja y sin internet"],
+    ["moriah", "El día del cambio: importar otra vez el Excel de productos de Moriah y los saldos de crédito"],
+    ["produccion", "Credenciales y llave de producción de La Campiña en los secretos de Supabase; ambiente en Producción"],
+    ["contador", "El contador revisó la actividad económica y lo de facturar sin internet"]
+  ];
+  async function revisarArranque() {
+    const ul = $("#arranqueLista"), b = $("#btnArranque");
+    b.disabled = true; ul.innerHTML = `<li>Revisando…</li>`;
+    const { data, error } = await db.rpc("revisar_arranque");
+    b.disabled = false;
+    if (error) { ul.innerHTML = ""; return toast(errTxt(error), true); }
+    const t = leerLS(LS_RESPALDO, null), dias = t ? Math.floor((Date.now() - t) / 864e5) : null;
+    const respaldo = { grupo: "Sistema", que: "Respaldo reciente en esta compu", ok: dias != null && dias <= 7, aviso: true,
+      detalle: dias == null ? "Nunca se ha descargado un respaldo aquí" : dias === 0 ? "Hoy" : `Hace ${dias} ${dias === 1 ? "día" : "días"}` };
+    const items = data.filter((i) => i.grupo === "Sistema").concat([respaldo], data.filter((i) => i.grupo !== "Sistema"));
+    const marcados = leerLS(LS_ARRANQUE, {});
+    const icono = (i) => i.ok ? ["✔", "arr--ok"] : i.aviso ? ["!", "arr--aviso"] : ["✘", "arr--mal"];
+    let grupo = "";
+    ul.innerHTML = items.map((i) => {
+      const [ic, cls] = icono(i), g = i.grupo !== grupo ? `<li class="arr__grupo">${U.esc(i.grupo)}</li>` : "";
+      grupo = i.grupo;
+      return `${g}<li class="arr ${cls}"><span class="arr__ic" aria-hidden="true">${ic}</span><span><b>${U.esc(i.que)}</b><small>${U.esc(i.detalle || "")}</small></span></li>`;
+    }).join("") + `<li class="arr__grupo">A mano (márquelos cuando estén hechos)</li>` + ARRANQUE_MANUAL.map(([k, t]) =>
+      `<li class="arr arr--manual"><label class="check"><input type="checkbox" data-arr="${k}" ${marcados[k] ? "checked" : ""} /> ${U.esc(t)}</label></li>`).join("");
+    const mal = items.filter((i) => !i.ok && !i.aviso).length, manual = ARRANQUE_MANUAL.filter(([k]) => !marcados[k]).length;
+    toast(mal || manual ? `Faltan ${mal} cosas necesarias y ${manual} a mano` : "Todo listo para dejar Moriah");
+  }
+  $("#btnArranque").addEventListener("click", revisarArranque);
+  $("#arranqueLista").addEventListener("change", (e) => {
+    const c = e.target.closest("[data-arr]"); if (!c) return;
+    const m = leerLS(LS_ARRANQUE, {}); m[c.dataset.arr] = c.checked; ponerLS(LS_ARRANQUE, m);
   });
 
   // ---------- fotos que faltan: buscar en Google y pegar ----------
@@ -4037,7 +4621,8 @@
     ["pagos", "id"], ["comprobantes_cliente", "id"], ["facturas", "id"], ["consultas", "id"], ["archivos_borrados", "ruta"], ["auditoria", "id"],
     ["fe_emisor", "id"], ["fe_consecutivos", "ambiente"], ["fe_documentos", "id"], ["precios_movimientos", "id"],
     ["clientes", "id"], ["abonos", "id"], ["caja_turnos", "id"], ["caja_movimientos", "id"],
-    ["entradas", "id"], ["entrada_items", "id"], ["inventario_movimientos", "id"]
+    ["entradas", "id"], ["entrada_items", "id"], ["inventario_movimientos", "id"],
+    ["ajustes_inventario", "id"], ["ajuste_items", "id"], ["proveedores", "id"], ["pagos_proveedor", "id"], ["fe_recibidos", "id"]
   ];
 
   function pintarUltimoRespaldo() {
@@ -4084,13 +4669,20 @@
       }
       for (const [t, filas] of Object.entries(tablas)) {
         // los XML de Hacienda van como archivos aparte; en el CSV solo los datos
-        const csv = t === "fe_documentos" ? filas.map(({ xml_firmado, respuesta_xml, datos, ...r }) => r) : filas;
+        const csv = t === "fe_documentos" ? filas.map(({ xml_firmado, respuesta_xml, datos, ...r }) => r)
+          : t === "fe_recibidos" ? filas.map(({ xml, xml_firmado, respuesta_xml, lineas, ...r }) => r) : filas;
         archivos.push({ nombre: `tablas/${t}.csv`, datos: aCsv(csv) });
       }
       for (const d of tablas.fe_documentos || []) {
         const carpeta = `comprobantes-electronicos/${d.ambiente}/${String(d.fecha_emision).slice(0, 7)}`;
         archivos.push({ nombre: `${carpeta}/${d.clave}.xml`, datos: d.xml_firmado });
         if (d.respuesta_xml) archivos.push({ nombre: `${carpeta}/${d.clave}-respuesta.xml`, datos: d.respuesta_xml });
+      }
+      for (const d of tablas.fe_recibidos || []) {
+        const carpeta = `facturas-recibidas/${String(d.fecha_emision).slice(0, 7)}`;
+        archivos.push({ nombre: `${carpeta}/${d.clave}.xml`, datos: d.xml });
+        if (d.xml_firmado) archivos.push({ nombre: `${carpeta}/${d.clave}-mi-respuesta.xml`, datos: d.xml_firmado });
+        if (d.respuesta_xml) archivos.push({ nombre: `${carpeta}/${d.clave}-respuesta-hacienda.xml`, datos: d.respuesta_xml });
       }
       archivos.push({ nombre: "respaldo.json", datos: JSON.stringify({ sistema: "Almacén La Campiña", formato: 1, fecha: fecha.toISOString(), tablas }, null, 1) });
 
