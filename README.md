@@ -30,6 +30,7 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 16. **SQL Editor → New query** → pegar `supabase/v17_permisos.sql` → **Run**. Empleados con usuario y permisos (el administrador les marca qué pueden usar). Después publique la función **`usuarios`** (ver *Usuarios y permisos* más abajo).
 17. **SQL Editor → New query** → pegar `supabase/v18_cheque_saldos_apartados.sql` → **Run** (después de v17). Pago con **cheque**, **pasar los saldos de crédito de Moriah** y **apartados**. Ver *Pasar de Moriah: saldos de crédito y apartados* más abajo.
 18. **SQL Editor → New query** → pegar `supabase/v19_sin_internet.sql` → **Run** (después de v18). Trabajar **sin internet**: crédito, apartados, abonos, caja y comprobantes electrónicos que se mandan solos al volver la conexión. Ver *Sin internet* más abajo.
+18b. **SQL Editor → New query** → pegar `supabase/v20_actividad_caecr.sql` → **Run**. Acepta el código de actividad como lo da TRIBU-CR (ej. `6201.0`).
 19. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
 20. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
 21. Registrar al administrador (el dueño):
@@ -311,7 +312,7 @@ assets/productos/  fotos de productos (WebP 800×800)
 assets/vendor/     supabase-js 2.119.2 (local, sin CDN)
 assets/fonts/      Barlow / Barlow Condensed (OFL)
 assets/img/        logo, íconos de la app, og.jpg (imagen para compartir)
-supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql, v14_caja.sql, v15_mas_vendidos.sql, v16_bitacora.sql, v17_permisos.sql, v18_cheque_saldos_apartados.sql, v19_sin_internet.sql
+supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql, v14_caja.sql, v15_mas_vendidos.sql, v16_bitacora.sql, v17_permisos.sql, v18_cheque_saldos_apartados.sql, v19_sin_internet.sql, v20_actividad_caecr.sql
 supabase/functions/facturar/   función que firma y envía los comprobantes a Hacienda
 herramientas/      prueba de facturación en la compu (prueba-hacienda.mjs)
 sw.js              copia de la página para abrirla sin internet

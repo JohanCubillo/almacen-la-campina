@@ -3759,7 +3759,8 @@
     const f = e.currentTarget, msg = $("#feConfMsg");
     const d = { activo: f.activo.checked };
     CAMPOS_FE.forEach((k) => { const v = String(f.elements[k].value || "").trim(); d[k] = v === "" ? null : v; });
-    ["identificacion", "actividad", "canton", "distrito", "telefono", "sucursal", "terminal", "cabys_envio"].forEach((k) => { if (d[k]) d[k] = U.soloDigitos(d[k]); });
+    if (d.actividad) d.actividad = d.actividad.replace(/[^0-9.]/g, "");
+    ["identificacion", "canton", "distrito", "telefono", "sucursal", "terminal", "cabys_envio"].forEach((k) => { if (d[k]) d[k] = U.soloDigitos(d[k]); });
     if (d.canton) d.canton = d.canton.padStart(2, "0");
     if (d.distrito) d.distrito = d.distrito.padStart(2, "0");
     d.sucursal = (d.sucursal || "001").padStart(3, "0"); d.terminal = (d.terminal || "00002").padStart(5, "0");
@@ -3769,7 +3770,7 @@
     const { data, error } = await db.from("fe_emisor").update(d).eq("id", 1).select("*").single();
     if (error) {
       msg.className = "msg msg--error";
-      msg.textContent = /check constraint/i.test(error.message || "") ? "Revise los datos: algún campo no tiene el formato correcto (cédula, actividad de 6 dígitos, cantón y distrito de 2, teléfono de 8, CABYS de 13)." : errTxt(error);
+      msg.textContent = /check constraint/i.test(error.message || "") ? "Revise los datos: algún campo no tiene el formato correcto (cédula, actividad como en TRIBU-CR (ej. 6201.0), cantón y distrito de 2, teléfono de 8, CABYS de 13)." : errTxt(error);
       return;
     }
     FE = data; pintarConfFE();

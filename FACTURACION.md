@@ -14,7 +14,7 @@ La parte técnica de Hacienda (XML, firma XAdES-EPES, token y envío) la hace [`
 
 ## 1. Lo que hay que sacar en TRIBU-CR
 
-Se hace en https://ovitribucr.hacienda.go.cr con el usuario **del dueño del almacén**. Hacienda solo da credenciales, incluso las de pruebas, a quien está inscrito con una actividad económica, así que no se pueden sacar a nombre del desarrollador. Para el ambiente de pruebas está la opción *“Necesito un usuario de pruebas”* (en *Mi perfil → Credenciales pruebas*), que da su propio usuario, contraseña y llave. Hay dos juegos de credenciales:
+Se hace en https://ovitribucr.hacienda.go.cr con el usuario **del dueño del almacén**. Hacienda solo da credenciales, incluso las de pruebas, a quien está inscrito con una actividad económica. El ambiente de pruebas puede tardar en reconocer una inscripción nueva: mientras tanto rechaza con "condición diferente a Inscrito", "provincia, cantón y distrito no concuerdan" y "actividad no registrada" aunque la consulta pública ya diga *Inscrito*. Para el ambiente de pruebas está la opción *“Necesito un usuario de pruebas”* (en *Mi perfil → Credenciales pruebas*), que da su propio usuario, contraseña y llave. Hay dos juegos de credenciales:
 
 | | Pruebas (*sandbox*) | Producción |
 |---|---|---|
@@ -27,7 +27,7 @@ Primero se trabaja **solo con las de pruebas**.
 También hacen falta estos datos del almacén, tal como están inscritos en Hacienda:
 
 - Cédula y nombre o razón social.
-- Código de actividad económica (6 dígitos).
+- Código de actividad económica **tal como sale en la consulta pública de TRIBU-CR**, con el punto (ej. `6201.0`). Con el catálogo nuevo (CAECR) Hacienda rechaza el formato viejo de 6 dígitos sin punto. Necesita `v20_actividad_caecr.sql`.
 - Provincia, cantón y distrito.
 - Dirección y correo.
 
@@ -100,6 +100,8 @@ Eso deja el texto copiado. Después, en Supabase: **Edge Functions → Secrets**
 Los secretos también se pueden poner con `npx supabase secrets set NOMBRE=valor --project-ref osuhkkojtwweepniwxtp`.
 
 > Desde v17, la función también la pueden usar los empleados: emitir con el permiso "Ventas y cobros" y hacer notas de crédito con "Anular ventas". Si la función ya estaba publicada antes de ese cambio, vuelva a publicarla con el `index.ts` nuevo.
+
+> Desde v20 el código de actividad va con punto (`6201.0`). Corra `v20_actividad_caecr.sql` y vuelva a publicar la función con el `comprobante.ts` nuevo.
 
 > Desde v19 la función también firma y manda los **comprobantes hechos sin internet** (ver *Sin internet* más abajo). Vuelva a publicarla con el `index.ts` y el `comprobante.ts` nuevos después de correr `v19_sin_internet.sql`.
 
