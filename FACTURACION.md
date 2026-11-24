@@ -101,6 +101,8 @@ Los secretos también se pueden poner con `npx supabase secrets set NOMBRE=valor
 
 > Desde v17, la función también la pueden usar los empleados: emitir con el permiso "Ventas y cobros" y hacer notas de crédito con "Anular ventas". Si la función ya estaba publicada antes de ese cambio, vuelva a publicarla con el `index.ts` nuevo.
 
+> Desde v18, un pago con **cheque** sale en el comprobante como medio de pago 03 (cheque). Si la función ya estaba publicada, vuelva a publicarla con el `comprobante.ts` nuevo; mientras tanto el cheque sale como "otro medio de pago". Lo *abonado en Moriah* también sale como "otro medio de pago". Los saldos pasados de Moriah no se facturan (ya se facturaron allá).
+
 ## 6. Encender en el panel
 
 1. **Datos del negocio → Facturación electrónica:** llene los datos del emisor. Mientras Moriah siga facturando, use **otra terminal**, por ejemplo `00002`, para que los consecutivos no choquen. Si hace envíos a domicilio, ponga el **CABYS del envío**.

@@ -129,6 +129,7 @@
           <button type="button" role="radio" aria-checked="false" data-f="cobrar">Por cobrar</button>
           <button type="button" role="radio" aria-checked="false" data-f="por_verificar">Por verificar</button>
           <button type="button" role="radio" aria-checked="false" data-f="entregar">Pagadas sin entregar</button>
+          <button type="button" role="radio" aria-checked="false" data-f="apartados" class="v18">Apartados <span class="badge badge--amarillo" id="badgeApartados" hidden></span></button>
           <button type="button" role="radio" aria-checked="false" data-f="todas">Todas</button>
         </div>
         <ul id="listaVentas" class="filas"></ul>
@@ -209,6 +210,7 @@
           <h2>Crédito a clientes</h2>
           <div class="barra-herr__der">
             <input id="credBuscar" type="search" placeholder="Nombre, cédula o teléfono…" maxlength="60" aria-label="Buscar cliente" />
+            <button type="button" class="btn btn--linea btn--sm v18" id="btnSaldosMoriah" hidden>Pasar saldos de Moriah</button>
             <button type="button" class="btn btn--negro btn--sm" id="btnNuevoCliente">Nuevo cliente</button>
           </div>
         </div>
@@ -719,8 +721,9 @@
                   <option value="sinpe">SINPE Móvil</option>
                   <option value="transferencia">Transferencia</option>
                   <option value="tarjeta">Tarjeta</option>
+                  <option value="cheque" data-v18>Cheque</option>
                 </select></label>
-              <label>N.º de comprobante<input name="referencia" maxlength="40" autocomplete="off" /></label>
+              <label><span id="abonoRefTxt">N.º de comprobante</span><input name="referencia" maxlength="40" autocomplete="off" /></label>
             </div>
             <div class="dos">
               <label>Fecha y hora<input name="fecha" type="datetime-local" /></label>
@@ -874,6 +877,54 @@
     </div>
   </dialog>
 
+  <!-- Pasar saldos de crédito de Moriah -->
+  <dialog id="dlgSaldos" class="dlg dlg--ancho" aria-labelledby="saldosTitulo">
+    <div class="dlg__form">
+      <h2 id="saldosTitulo">Pasar saldos de crédito de Moriah</h2>
+      <p class="ayuda">Lo que cada cliente le debía al almacén en Moriah. Cada saldo queda en la cuenta del cliente como una deuda a crédito, con su vencimiento, y los abonos que haga se rebajan aquí como cualquier otra. No cuenta como venta del mes ni entra en la caja. Si el cliente no existe, se crea.</p>
+      <ol class="pasos-ayuda">
+        <li>En Moriah, saque el reporte de <b>cuentas por cobrar</b> (saldo de cada factura o de cada cliente) y expórtelo a Excel. Súbalo tal cual: se buscan solas las columnas de cliente, cédula, saldo, vencimiento y documento.</li>
+        <li>O agregue los saldos uno por uno.</li>
+        <li>Revise la lista y toque <b>Pasar saldos</b>. Si sube el mismo archivo otra vez, lo que ya se pasó no se repite.</li>
+      </ol>
+      <label>Archivo (.xlsx o .csv)<input type="file" id="saldosArchivo" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" /></label>
+      <details class="registrar" id="boxSaldoManual">
+        <summary>Agregar un saldo a mano</summary>
+        <form id="formSaldoManual" class="registrar__form" novalidate>
+          <div class="buscar-item">
+            <label>Cliente<input name="nombre" maxlength="80" autocomplete="off" placeholder="Nombre (si ya es cliente de crédito, escójalo de la lista)" /></label>
+            <ul id="saldoCliRes" class="buscar-item__res" hidden></ul>
+          </div>
+          <p class="ayuda" id="saldoCliElegido" hidden></p>
+          <div class="tres">
+            <label>Cédula<input name="identificacion" inputmode="numeric" maxlength="15" autocomplete="off" /></label>
+            <label>Teléfono<input name="telefono" inputmode="tel" maxlength="20" autocomplete="off" /></label>
+            <label>Documento o factura<input name="documento" maxlength="40" autocomplete="off" placeholder="Opcional" /></label>
+          </div>
+          <div class="tres">
+            <label>Saldo que debe ₡<input name="monto" type="number" min="1" step="0.01" inputmode="decimal" /></label>
+            <label>Fecha de la factura<input name="fecha" type="date" /></label>
+            <label>Vence<input name="vence" type="date" /></label>
+          </div>
+          <p class="ayuda">Si no pone cuándo vence, se calcula con el plazo del cliente (30 días si es nuevo).</p>
+          <p class="msg msg--error" id="saldoManualMsg" role="alert"></p>
+          <div class="form-linea__btns"><button type="submit" class="btn btn--sm btn--negro">Agregar a la lista</button></div>
+        </form>
+      </details>
+      <p class="msg" id="saldosMsg" role="status"></p>
+      <div class="items-wrap" id="saldosVista" hidden>
+        <table class="items imp">
+          <thead><tr><th>Fila</th><th>Cliente</th><th>Documento</th><th>Vence</th><th class="num">Saldo</th><th>Qué pasa</th><th><span class="sr">Quitar</span></th></tr></thead>
+          <tbody id="saldosFilas"></tbody>
+        </table>
+      </div>
+      <div class="dlg__btns">
+        <button type="button" class="btn btn--linea" id="btnCerrarSaldos">Cerrar</button>
+        <button type="button" class="btn btn--negro" id="btnPasarSaldos" disabled>Pasar saldos</button>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Detalle de venta -->
   <dialog id="dlgVenta" class="dlg dlg--ancho" aria-labelledby="ventaTitulo">
     <div class="venta">
@@ -898,12 +949,17 @@
         <div class="segmentos segmentos--sm" role="radiogroup" aria-label="Condición de pago" id="ventaCondicion">
           <button type="button" role="radio" aria-checked="true" data-cond="contado">Contado</button>
           <button type="button" role="radio" aria-checked="false" data-cond="credito">Crédito</button>
+          <button type="button" role="radio" aria-checked="false" data-cond="apartado" class="v18">Apartado</button>
         </div>
         <div class="buscar-item" id="boxCliCredito" hidden>
           <input id="cliCreditoQ" type="search" placeholder="Cliente de crédito: nombre, cédula o teléfono…" maxlength="60" autocomplete="off" aria-label="Cliente de crédito" />
           <ul id="cliCreditoRes" class="buscar-item__res" hidden></ul>
         </div>
         <p class="venta__credinfo" id="cliCreditoInfo" hidden></p>
+        <div class="venta__apartado" id="boxApartado" hidden>
+          <label class="fecha-caja">Se le guarda hasta el <input type="date" id="apartadoVence" /></label>
+          <p class="venta__credinfo" id="apartadoInfo"></p>
+        </div>
       </div>
 
       <h3 class="subt">Productos</h3>
@@ -1011,10 +1067,12 @@
                 <option value="efectivo">Efectivo</option>
                 <option value="transferencia">Transferencia</option>
                 <option value="tarjeta">Tarjeta</option>
+                <option value="cheque" data-v18>Cheque</option>
+                <option value="anterior" data-v18 data-solo-admin>Abonado en Moriah (antes del sistema)</option>
               </select></label>
             <label>Monto ₡<input name="monto" type="number" min="1" step="0.01" required /></label>
           </div>
-          <label>Número de comprobante / referencia<input name="referencia" maxlength="40" pattern="[0-9A-Za-z\-]{4,40}" autocomplete="off" /></label>
+          <label><span id="pagoRefTxt">Número de comprobante / referencia</span><input name="referencia" maxlength="40" pattern="[0-9A-Za-z\-]{4,40}" autocomplete="off" /></label>
           <div class="dos">
             <label>Teléfono que pagó<input name="telefono_origen" inputmode="tel" maxlength="20" /></label>
             <label>Nombre que pagó<input name="nombre_origen" maxlength="100" /></label>
@@ -1023,8 +1081,8 @@
             <label>Fecha y hora del pago<input name="fecha" type="datetime-local" required /></label>
             <label>Foto del comprobante<input name="comprobante" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" /></label>
           </div>
-          <label class="check check--fuerte"><input type="checkbox" name="verificado" /> Ya vi este dinero en la app del banco</label>
-          <p class="ayuda">Si no lo ha visto en el banco, déjelo sin marcar: la venta queda “por verificar” hasta que lo confirme.</p>
+          <label class="check check--fuerte"><input type="checkbox" name="verificado" /> <span id="pagoVerTxt">Ya vi este dinero en la app del banco</span></label>
+          <p class="ayuda" id="pagoAyuda">Si no lo ha visto en el banco, déjelo sin marcar: la venta queda “por verificar” hasta que lo confirme.</p>
           <p class="aviso-comp" id="avisoComp" hidden>Se va a registrar con el comprobante que envió el cliente.</p>
           <p class="msg msg--error" id="pagoMsg" role="alert"></p>
           <button class="btn btn--negro" type="submit" id="btnGuardarPago">Registrar pago</button>

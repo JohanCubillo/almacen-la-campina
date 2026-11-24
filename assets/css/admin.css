@@ -436,6 +436,10 @@ html:not(.panel-ok) body { visibility: hidden; }
 .sin-v14 .v14 { display: none !important; }
 .sin-v16 .v16 { display: none !important; }
 .sin-v17 .v17 { display: none !important; }
+.sin-v18 .v18 { display: none !important; }
+.venta__apartado { flex-basis: 100%; display: grid; gap: .4rem; }
+.venta__apartado .fecha-caja { justify-self: start; }
+.saldo-cli { display: block; color: var(--gris); font-size: .8rem; }
 html:not(.sin-v17) .sin-v17-solo { display: none !important; }
 .sin-permiso { display: none !important; }
 /* mientras se averigua qué puede ver cada usuario, no se muestran pestañas ni contenido */

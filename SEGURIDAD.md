@@ -131,3 +131,12 @@ Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usar
 - Cuentas de empleados: las crea la función `usuarios` (Edge Function) con la llave de servicio, que nunca sale de Supabase; antes revisa que quien llama sea administrador con autenticador. El registro en `admins` se hace con la sesión del administrador, así queda en la bitácora. Solo se les cambia la contraseña o el usuario a empleados, nunca a un administrador. Contraseñas de 8+ con letras y números.
 - Empleado desactivado: `puede()` y `es_personal()` dan falso al instante aunque su sesión siga abierta.
 - La función `facturar` ahora deja emitir a quien tenga "ventas" y hacer notas de crédito a quien tenga "anular"; "probar" sigue siendo solo del administrador.
+
+## Cheque, saldos de Moriah y apartados (v18)
+
+- **Saldos de Moriah:** solo el administrador (`importar_saldos_anteriores`, con autenticador). Una venta solo puede quedar marcada como saldo anterior desde esa función (un disparador lo revisa) y la marca no se puede quitar. No cuentan como ventas en la caja ni en los reportes. Máximo 3000 por llamada; los repetidos (mismo cliente y documento) se saltan.
+- **Abonado en Moriah** (forma de pago `anterior`): solo el administrador la puede registrar, queda verificada y no entra en la caja ni en los reportes de cobros. Un empleado que lo intente recibe un error de la base.
+- **Apartados:** `poner_apartado` pide el permiso "ventas", solo en ventas abiertas que no sean a crédito, con teléfono y fecha límite de hasta un año. La base no deja marcar como entregado un apartado sin pagar y verificar completo, ni pasar un apartado a crédito sin quitarle antes el apartado.
+- **Cheque:** como SINPE y transferencia, necesita número; queda por verificar hasta marcarlo.
+- Todo queda en la bitácora (el origen sale como "saldos de Moriah" o "apartado").
+- `resumen_caja` y `reporte_ventas` se reemplazan con los permisos de v17 ya puestos: si se corre otra vez un archivo viejo (v4, v14 o v17), hay que correr otra vez v18.

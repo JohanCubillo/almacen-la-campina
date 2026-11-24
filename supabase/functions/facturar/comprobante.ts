@@ -30,7 +30,7 @@ export const NOMBRES_TARIFA: Record<string, string> = {
   "01": "0 % (artículo 32)", "10": "Exento", "11": "0 % sin derecho a crédito",
 };
 // método de pago del panel → TipoMedioPago
-export const MEDIOS: Record<string, string> = { efectivo: "01", tarjeta: "02", transferencia: "04", sinpe: "06" };
+export const MEDIOS: Record<string, string> = { efectivo: "01", tarjeta: "02", cheque: "03", transferencia: "04", sinpe: "06" };
 // "Se vende por" del panel → UnidadMedida de Hacienda (lo demás va como "Unid")
 const UNIDADES: Record<string, string> = {
   metro: "M", metros: "M", m: "M", mts: "M", kg: "Kg", kilo: "Kg", kilos: "Kg", kilogramo: "Kg",

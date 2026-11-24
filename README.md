@@ -28,17 +28,18 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 14. **SQL Editor → New query** → pegar `supabase/v15_mas_vendidos.sql` → **Run**. Anota lo que más se vende al importar el inventario de Moriah, para ponerle foto primero a eso (**Productos → Fotos**). Correrlo **antes** de importar el Excel de Moriah.
 15. **SQL Editor → New query** → pegar `supabase/v16_bitacora.sql` → **Run**. Bitácora con nombres y "antes → después", pestaña *Bitácora*, usuarios con rol, y las ventas ya no se borran: se anulan (con nota de crédito si tienen comprobante electrónico). Solo el administrador borra, con motivo.
 16. **SQL Editor → New query** → pegar `supabase/v17_permisos.sql` → **Run**. Empleados con usuario y permisos (el administrador les marca qué pueden usar). Después publique la función **`usuarios`** (ver *Usuarios y permisos* más abajo).
-17. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
-18. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
-19. Registrar al administrador (el dueño):
+17. **SQL Editor → New query** → pegar `supabase/v18_cheque_saldos_apartados.sql` → **Run** (después de v17). Pago con **cheque**, **pasar los saldos de crédito de Moriah** y **apartados**. Ver *Pasar de Moriah: saldos de crédito y apartados* más abajo.
+18. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
+19. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
+20. Registrar al administrador (el dueño):
    ```sql
    insert into public.admins (user_id, rol)
    select id, 'administrador' from auth.users where email = 'correo-del-admin@ejemplo.com'
    on conflict (user_id) do update set rol = excluded.rol;
    ```
    Los empleados ya no se agregan así: el administrador los crea desde el panel (ver *Usuarios y permisos*). (Antes de correr v16 se usa el SQL viejo, sin `rol`.)
-20. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
-21. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
+21. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
+22. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
 
 ## 2. Primer ingreso al panel
 
@@ -119,7 +120,8 @@ Tienda: Agregar productos al carrito  ─►  Enviar pedido (nombre + teléfono)
 | Ajuste de Precios + Movimientos | **Productos → Ajuste de precios**: se buscan productos, se pone el precio nuevo o un % para todos (redondea a ₡5), N.º de documento y observación. **Movimientos** muestra cada cambio de precio con el anterior, el nuevo y de dónde vino (ajuste, editar producto o importación) |
 | Entradas de mercadería / inventario | **Inventario**: entradas del proveedor (con costo y precio de venta opcionales) y **Movimientos** de existencia por producto y fechas |
 | Cierre de caja | **Caja**: abrir con fondo, entradas/salidas de efectivo, conteo por billetes y monedas, cierre impreso |
-| Crédito / cuentas por cobrar | **Crédito**: clientes con límite y plazo, ventas a crédito, abonos, estado de cuenta y cobro por WhatsApp |
+| Crédito / cuentas por cobrar | **Crédito**: clientes con límite y plazo, ventas a crédito, abonos, estado de cuenta y cobro por WhatsApp. Los saldos que venían de Moriah se pasan con **Pasar saldos de Moriah** |
+| Apartados | **Ventas → Apartado**: se guarda la mercadería, el cliente abona y se entrega al terminar de pagar (filtro **Apartados**) |
 | Facturas Emitidas | **Comprobantes**: tiquetes, facturas y notas de crédito por fechas, total facturado e IVA, filtro *Con problemas*, enviar de nuevo/consultar, XML y **Descargar en Excel** |
 
 ## Cierre de caja
@@ -128,7 +130,7 @@ En la pestaña **Caja**, arriba:
 
 1. **Abrir caja** al empezar el día con el **fondo** (el efectivo con que arranca la gaveta). Sugiere lo que se contó en el último cierre.
 2. Durante el día, **Entrada o salida de efectivo** para lo que no es una venta: pago a un proveedor, retiro para depositar, cambio que se trae. Cada una con su motivo.
-3. El panel va mostrando las ventas del turno, lo recibido en efectivo, SINPE (y cuánto falta verificar), tarjeta y **el efectivo que debería haber**: fondo + efectivo + entradas − salidas. Los abonos de crédito en efectivo también cuentan.
+3. El panel va mostrando las ventas del turno, lo recibido en efectivo, SINPE (y cuánto falta verificar), tarjeta, **cheques** (aparte: no se cuentan con el efectivo) y **el efectivo que debería haber**: fondo + efectivo + entradas − salidas. Los abonos de crédito en efectivo también cuentan. Lo *abonado en Moriah* no entra en la caja.
 4. **Cerrar caja:** se cuentan los billetes y monedas (o se escribe el total) y el panel dice si **cuadra, sobra o falta**. Avisa si quedan SINPE sin verificar y recuerda comparar la tarjeta con el cierre del datáfono.
 5. Al cerrar, el resumen queda **congelado** (no cambia aunque después se registre algo) y se puede **imprimir** en el mismo papel de los recibos, con línea para firma. En **Cierres anteriores** están los últimos con su sobrante o faltante, y se pueden volver a imprimir.
 
@@ -143,6 +145,29 @@ Solo puede haber una caja abierta. Abrir y cerrar necesita internet.
 - La pestaña **Crédito** muestra lo que hay por cobrar, lo vencido y cuántos clientes están atrasados (número en la pestaña).
 - Con la facturación electrónica encendida, el tiquete o la factura de una venta a crédito sale con condición *crédito* y el plazo hasta el vencimiento.
 - Las ventas a crédito necesitan internet. Sin internet se puede vender de contado como siempre.
+
+## Pasar de Moriah: saldos de crédito y apartados
+
+Necesita `supabase/v18_cheque_saldos_apartados.sql` (después de v17).
+
+**Saldos de crédito (lo que los clientes debían en Moriah).** Solo el administrador.
+1. En Moriah, sacar el reporte de **cuentas por cobrar** (el saldo de cada factura, o de cada cliente) y exportarlo a Excel.
+2. **Crédito → Pasar saldos de Moriah** → subir el archivo tal cual. Se buscan solas las columnas de cliente, cédula, teléfono, documento, fecha, vencimiento y saldo; se saltan los totales, las facturas en cero y los saldos a favor. Si el reporte viene agrupado por cliente (el nombre arriba y las facturas debajo), también sirve.
+3. Revisar la lista (cada fila dice si el cliente es nuevo o si se suma a uno que ya existe) y tocar **Pasar saldos**. También se pueden agregar uno por uno con **Agregar un saldo a mano**.
+- Cada saldo queda en la cuenta del cliente como una deuda a crédito, con la fecha y el vencimiento de Moriah (sin vencimiento: fecha + plazo del cliente). Los abonos lo rebajan como a cualquier venta a crédito.
+- **No cuenta** como venta del mes, ni en la caja, ni en los reportes, y no se le hace factura electrónica (ya se facturó en Moriah). No sale en la lista de **Ventas**; está en **Crédito**.
+- Si se sube el mismo archivo dos veces, lo que ya se pasó **no se repite** (se reconoce por cliente + documento).
+- Conviene pasarlos el mismo día que se deja de usar Moriah, con el reporte de ese día.
+
+**Apartados.**
+- En la venta, **Apartado** (al lado de Contado y Crédito) y la fecha hasta la que se le guarda (un mes si no se cambia; máximo un año). Pide el teléfono del cliente.
+- El cliente va abonando como en cualquier venta (**Registrar un pago**). El panel muestra lo abonado y lo que falta; si se pasa la fecha lo marca en rojo.
+- **No se puede entregar** hasta que esté pagado y verificado completo. Al terminar de pagar sale en **Pagadas sin entregar**.
+- En **Ventas** está el filtro **Apartados** (con el número de los que ya se pasaron de la fecha) y la cifra de lo que falta cobrar en apartados. El recibo dice hasta cuándo se le guarda.
+- Si el cliente se arrepiente: quitarle el apartado (Contado) o anular la venta.
+- **Apartados que venían de Moriah:** hacer la venta aquí con los productos, ponerla como apartado y registrar lo que ya había abonado con la forma de pago **Abonado en Moriah** (solo el administrador). Eso rebaja lo que debe pero no entra en la caja de hoy ni en los reportes.
+
+**Cheques.** Forma de pago **Cheque** en ventas y abonos de crédito: pide el número del cheque y queda *por verificar* hasta que el banco lo pague. En la caja sale aparte del efectivo. En la factura electrónica va como medio de pago *cheque*.
 
 ## Inventario (existencias)
 
@@ -278,7 +303,7 @@ assets/productos/  fotos de productos (WebP 800×800)
 assets/vendor/     supabase-js 2.119.2 (local, sin CDN)
 assets/fonts/      Barlow / Barlow Condensed (OFL)
 assets/img/        logo, íconos de la app, og.jpg (imagen para compartir)
-supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql, v14_caja.sql, v15_mas_vendidos.sql, v16_bitacora.sql, v17_permisos.sql
+supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql, v14_caja.sql, v15_mas_vendidos.sql, v16_bitacora.sql, v17_permisos.sql, v18_cheque_saldos_apartados.sql
 supabase/functions/facturar/   función que firma y envía los comprobantes a Hacienda
 herramientas/      prueba de facturación en la compu (prueba-hacienda.mjs)
 sw.js              copia de la página para abrirla sin internet

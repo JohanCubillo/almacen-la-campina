@@ -50,7 +50,8 @@
   let V16 = false;         // bitácora con nombres y roles (v16_bitacora.sql)
   let YO = null, USUARIOS = [];   // usuario conectado y usuarios del panel (v16)
   // Qué puede la persona que entró (v17). null = base sin v17: todo como administrador.
-  let ACCESO = null, V17 = false;   // V17: la base tiene empleados con permisos (v17_permisos.sql)
+  let ACCESO = null, V17 = false;
+  let V18 = false;         // cheque, saldos de Moriah y apartados (v18_cheque_saldos_apartados.sql)   // V17: la base tiene empleados con permisos (v17_permisos.sql)
   // pestañas y pantallas: sin v17 todos los del panel las ven, como antes
   const soyAdministrador = () => !ACCESO || ACCESO.rol === "administrador";
   // borrar ventas y cambiar roles: sin v17 se usa el rol de v16
@@ -294,10 +295,17 @@
       let r16;
       try { r16 = await db.from("auditoria").select("quien").limit(1); } catch (e) { r16 = { error: e }; }
       V16 = !r16.error;
+      let r18;
+      try { r18 = await db.from("pedidos").select("apartado").limit(1); } catch (e) { r18 = { error: e }; }
+      V18 = !r18.error;
     }
     document.documentElement.classList.toggle("sin-v14", !V14);
     document.documentElement.classList.toggle("sin-v16", !V16);
     document.documentElement.classList.toggle("sin-v17", !V17);
+    document.documentElement.classList.toggle("sin-v18", !V18);
+    // formas de pago de v18: sin la base nueva no se ofrecen; lo abonado en Moriah solo lo anota el administrador
+    $$("option[data-v18]").forEach((o) => { if (!V18 || (o.hasAttribute("data-solo-admin") && !esAdministradorReal())) o.remove(); });
+    $("#btnSaldosMoriah").hidden = !V18 || !esAdministradorReal();
     $("#tabBit").hidden = !V16;
     if (V16 && soyAdministrador()) cargarUsuarios();
     document.documentElement.classList.toggle("sin-v13", !V13);
@@ -1157,7 +1165,7 @@
   // =========================================================
   const TZ = C.ZONA_HORARIA;
   const ETQ_PAGO = { sin_pago: "Sin pago", parcial: "Pago parcial", por_verificar: "Por verificar", pagado: "Pagada", sobrepago: "Pagó de más" };
-  const ETQ_METODO = { sinpe: "SINPE Móvil", efectivo: "Efectivo", transferencia: "Transferencia", tarjeta: "Tarjeta" };
+  const ETQ_METODO = { sinpe: "SINPE Móvil", efectivo: "Efectivo", transferencia: "Transferencia", tarjeta: "Tarjeta", cheque: "Cheque", anterior: "Abonado en Moriah" };
   const fmt = (n) => "₡" + Number(n || 0).toLocaleString("es-CR", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
   const hoyCR = () => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date());
   const fechaCR = (iso, opt = { dateStyle: "medium", timeStyle: "short" }) => new Date(iso).toLocaleString("es-CR", { timeZone: TZ, ...opt });
@@ -1173,9 +1181,10 @@
 
   // ---------- lista de ventas ----------
   async function cargarVentas() {
-    const { data, error, deCopia } = await consulta("ventas", db.from("pedidos")
-      .select("id,codigo,origen,revisado,cliente_nombre,cliente_telefono,estado,estado_pago,total,pagado_registrado,pagado_verificado,created_at" + (V13 ? ",credito,vence" : ""))
-      .order("created_at", { ascending: false }).limit(500));
+    let qv = db.from("pedidos")
+      .select("id,codigo,origen,revisado,cliente_nombre,cliente_telefono,estado,estado_pago,total,pagado_registrado,pagado_verificado,created_at" + (V13 ? ",credito,vence" : "") + (V18 ? ",apartado,apartado_vence" : ""));
+    if (V18) qv = qv.eq("saldo_inicial", false);       // lo que se debía en Moriah está en Crédito, no es venta
+    const { data, error, deCopia } = await consulta("ventas", qv.order("created_at", { ascending: false }).limit(500));
     if (error) { pintarVentas(); return toast(errTxt(error), true); }
     ventas = data;
     if (!deCopia) {
@@ -1186,11 +1195,15 @@
     const nuevos = ventas.filter(esNuevo).length;
     $("#badgeVen").hidden = $("#badgeNuevos").hidden = !nuevos;
     $("#badgeVen").textContent = $("#badgeNuevos").textContent = nuevos || "";
+    const apVencidos = ventas.filter(apartadoVencido).length;
+    $("#badgeApartados").hidden = !apVencidos; $("#badgeApartados").textContent = apVencidos || "";
     pintarCifras();
     pintarVentas();
   }
 
   const esNuevo = (v) => v.estado !== "anulada" && (!v.revisado || compNuevos.has(v.id));
+  const esApartado = (v) => !!v.apartado && v.estado === "abierta";
+  const apartadoVencido = (v) => esApartado(v) && v.apartado_vence < hoyCR() && v.total - v.pagado_registrado > 0;
 
   function pintarCifras() {
     const mes = hoyCR().slice(0, 7);
@@ -1203,6 +1216,9 @@
       ["Por verificar en el banco", fmt(suma(activas, (v) => v.pagado_registrado - v.pagado_verificado)), ""],
       ["Por cobrar", fmt(suma(activas.filter((v) => v.estado === "abierta"), (v) => Math.max(0, v.total - v.pagado_registrado))), ""]
     ];
+    const aps = ventas.filter(esApartado);
+    if (aps.length) cifras.push(["Apartados: falta cobrar", fmt(suma(aps, (v) => Math.max(0, v.total - v.pagado_registrado))),
+      `${aps.length} ${aps.length === 1 ? "apartado" : "apartados"} · ya abonaron ${fmt(suma(aps, (v) => v.pagado_registrado))}`]);
     $("#cifrasVentas").innerHTML = cifras.map(([t, n, s]) => `<div><dt>${t}</dt><dd>${n}${s ? `<small>${s}</small>` : ""}</dd></div>`).join("");
   }
 
@@ -1213,6 +1229,7 @@
       cobrar: (v) => v.estado === "abierta" && ["sin_pago", "parcial"].includes(v.estado_pago),
       por_verificar: (v) => v.estado !== "anulada" && Number(v.pagado_registrado) > Number(v.pagado_verificado),
       entregar: (v) => v.estado === "abierta" && ["pagado", "sobrepago"].includes(v.estado_pago),
+      apartados: esApartado,
       todas: () => true
     }[filtroVenta];
     const lista = ventas.filter((v) => pasa(v) && (!q || v.codigo.toLowerCase().includes(q) || v.cliente_nombre.toLowerCase().includes(q)));
@@ -1247,12 +1264,14 @@
             ${v.estado === "entregada" ? '<span class="etq etq--ok">Entregada</span>' : ""}
             ${v.credito ? `<span class="etq">Crédito${v.vence ? " · vence " + U.esc(fechaCorta(v.vence)) : ""}</span>` : ""}
             ${v.credito && v.estado !== "anulada" && v.total - v.pagado_registrado > 0 && v.vence < hoyCR() ? '<span class="etq etq--error">Vencida</span>' : ""}
+            ${esApartado(v) ? `<span class="etq">Apartado${v.apartado_vence ? " · hasta " + U.esc(fechaCorta(v.apartado_vence)) : ""}</span>` : ""}
+            ${apartadoVencido(v) ? '<span class="etq etq--error">Se pasó la fecha</span>' : ""}
           </span>
         </div>
         <div class="fila__monto"><b>${fmt(v.total)}</b>${v.estado !== "anulada" && saldo > 0 ? `<small>Falta ${fmt(saldo)}</small>` : ""}</div>
         <div class="fila__acc"><button type="button" class="btn btn--sm btn--linea" data-ver-venta="${v.id}">Abrir</button></div>
       </li>`;
-    }).join("") || (locales.length ? "" : `<li class="vacio-adm">${filtroVenta === "nuevos" ? "No hay pedidos nuevos. Los pedidos que hagan los clientes en la página aparecen aquí." : filtroVenta === "todas" ? "Todavía no hay ventas." : "No hay ventas en este grupo."}</li>`));
+    }).join("") || (locales.length ? "" : `<li class="vacio-adm">${filtroVenta === "nuevos" ? "No hay pedidos nuevos. Los pedidos que hagan los clientes en la página aparecen aquí." : filtroVenta === "todas" ? "Todavía no hay ventas." : filtroVenta === "apartados" ? "No hay apartados pendientes. Para apartar, abra una venta y escoja <b>Apartado</b>." : "No hay ventas en este grupo."}</li>`));
   }
 
   $("#filtroVentas").addEventListener("click", (e) => {
@@ -1271,7 +1290,7 @@
 
   // ---------- abrir / borrador ----------
   function abrirBorrador(b) {
-    V = { pedido: null, items: b.items, pagos: [], comps: [], dirty: true, uuid: crypto.randomUUID(), cond: "contado", credCli: null };
+    V = { pedido: null, items: b.items, pagos: [], comps: [], dirty: true, uuid: crypto.randomUUID(), cond: "contado", credCli: null, apVence: null };
     const f = $("#formVenta");
     f.cliente_nombre.value = b.cliente_nombre || "";
     f.cliente_telefono.value = b.cliente_telefono || "";
@@ -1312,7 +1331,8 @@
     let fe = { data: [] };
     if (V10 && FE?.activo) { try { fe = await db.from("v_fe_documentos").select("*").eq("pedido_id", id).order("id"); } catch { fe = { data: [] }; } }
     V = { pedido: p.data, items: it.data.map((i) => ({ ...i })), pagos: pg.data, comps: cc.data, factura: fac.data || null, fe: fe.data || [], dirty: false };
-    V.cond = p.data.credito ? "credito" : "contado";
+    V.cond = p.data.apartado ? "apartado" : p.data.credito ? "credito" : "contado";
+    V.apVence = p.data.apartado_vence || null;
     V.credCli = null;
     if (V13 && p.data.cliente_id) { if (!clientes.length) await cargarClientes(); V.credCli = clientes.find((c) => c.id === p.data.cliente_id) || null; }
     // lo que esta venta ya descontó del inventario (cuenta como disponible al editarla)
@@ -1441,7 +1461,8 @@
       : V.soloLectura ? `<span class="etq">Sin internet: copia de la última conexión, solo para ver</span>`
       : p
       ? (p.estado === "anulada" ? `<span class="etq">Anulada</span> ${U.esc(p.motivo_anulacion || "")}`
-        : `<span class="etq etq--${p.estado_pago}">${ETQ_PAGO[p.estado_pago]}</span>${p.estado === "entregada" ? ` <span class="etq etq--ok">Entregada ${fechaCR(p.entregada_at, { dateStyle: "short" })}</span>` : ""}`)
+        : `<span class="etq etq--${p.estado_pago}">${ETQ_PAGO[p.estado_pago]}</span>${p.estado === "entregada" ? ` <span class="etq etq--ok">Entregada ${fechaCR(p.entregada_at, { dateStyle: "short" })}</span>` : ""}`
+          + (p.saldo_inicial ? ' <span class="etq">Saldo anterior de Moriah</span>' : esApartado(p) ? ' <span class="etq">Apartado</span>' : ""))
       : "Sin guardar";
 
     $("#itemsVenta").innerHTML = V.items.map((i, n) => `
@@ -1502,6 +1523,7 @@
     $("#avisoComp").hidden = true;
     fp.comprobante.disabled = false;
     $("#pagoMsg").textContent = "";
+    pintarFormaPago();
 
     $("#btnEntregar").hidden = !p || cerrada || !!V.local || !!V.soloLectura;
     $("#formPago").comprobante.disabled = !!V.local;
@@ -1518,9 +1540,10 @@
     }
     $("#btnListo").hidden = !p || p.estado !== "abierta" || !V4 || !!V.local || !!V.soloLectura;
     $("#btnListo").textContent = p?.listo_at ? "Avisar otra vez que está listo" : "Avisar que está listo";
-    $("#boxFactura").hidden = !p || !V4 || !!V.local || !!V.soloLectura;
-    if (p && V4 && !V.local && !V.soloLectura) pintarFactura();
-    $("#boxFE").hidden = !p || !V10 || !FE?.activo || !!V.local || !!V.soloLectura;
+    // un saldo que viene de Moriah ya se facturó allá
+    $("#boxFactura").hidden = !p || !V4 || !!V.local || !!V.soloLectura || !!p.saldo_inicial;
+    if (!$("#boxFactura").hidden) pintarFactura();
+    $("#boxFE").hidden = !p || !V10 || !FE?.activo || !!V.local || !!V.soloLectura || !!p.saldo_inicial;
     if (!$("#boxFE").hidden) pintarFEVenta();
     $("#btnAnularVenta").hidden = !p || p.estado === "anulada" || !!V.local || !!V.soloLectura || !puede("anular");
     $(".imprimir").hidden = !p;
@@ -1687,7 +1710,7 @@
     if (items.some((i) => i.precio_unit === 0) && !confirm("Hay renglones con precio ₡0. ¿Guardar así?")) return false;
 
     if (V.soloLectura) return false;
-    const errCredito = revisarCredito(items);
+    const errCredito = revisarCredito(items) || revisarApartado();
     if (errCredito) { msg.textContent = errCredito; return false; }
     if (V12 && !SIN_RED && navigator.onLine) await refrescarExistencias(items.map((i) => i.producto_id));
     const pasados = [...new Set(items.filter((i) => i.producto_id).map((i) => i.producto_id))]
@@ -1851,16 +1874,36 @@
       return `Pasa el límite de crédito de ${c.nombre}: ya debe ${fmt(deudaSinEsta(c))}, esta venta es de ${fmt(totalPendienteVenta())} y el límite es ${fmt(c.limite)}.`;
     return "";
   }
+  // apartado: se guarda la mercadería y el cliente la va pagando; necesita su teléfono y una fecha límite
+  function revisarApartado() {
+    if (!V18 || V.cond !== "apartado") return "";
+    if (V.local || SIN_RED || !navigator.onLine) return "Los apartados necesitan internet.";
+    if (U.soloDigitos($("#formVenta").cliente_telefono.value).length < 8) return "Para apartar, ponga el teléfono del cliente (para avisarle).";
+    if (!V.apVence) return "Ponga hasta qué fecha se le guarda el apartado.";
+    if (V.apVence !== V.pedido?.apartado_vence) {
+      if (V.apVence < hoyCR()) return "La fecha del apartado ya pasó: ponga una de hoy en adelante.";
+      if (V.apVence > sumarDias(hoyCR(), 365)) return "Un apartado es de un año como máximo.";
+    }
+    return "";
+  }
+  async function ponerApartado(id, si, vence) {
+    const { error } = await db.rpc("poner_apartado", { p_pedido: id, p_apartado: si, p_vence: si ? vence : null });
+    return error ? `La venta se guardó, pero ${si ? "no quedó como apartado" : "sigue como apartado"}: ${errTxt(error)}` : "";
+  }
   async function despuesDeGuardar(id, antes) {
     let aviso = "";
     if (V13) {
       const quiere = V.cond === "credito" && V.credCli ? V.credCli.id : null;
       const tenia = antes?.credito ? antes.cliente_id : null;
-      if (quiere || tenia) {
+      const apQuiere = V18 && V.cond === "apartado", apTenia = !!antes?.apartado;
+      // primero se quita lo que ya no va (apartado o crédito) y después se pone lo nuevo
+      if (apTenia && !apQuiere) aviso = await ponerApartado(id, false);
+      if (!aviso && (quiere || tenia)) {
         const { error } = await db.rpc("poner_credito", { p_pedido: id, p_cliente: quiere });
         if (error) aviso = `La venta se guardó, pero ${quiere ? "no quedó a crédito" : "sigue a crédito"}: ${errTxt(error)}`;
         cargarClientes();
       }
+      if (!aviso && apQuiere && (!apTenia || antes.apartado_vence !== V.apVence)) aviso = await ponerApartado(id, true, V.apVence);
     }
     toast(aviso || "Venta guardada", !!aviso);
     refrescarExistencias(V.items.map((i) => i.producto_id));
@@ -1871,13 +1914,28 @@
   function pintarCondicion() {
     const p = V.pedido, edit = itemsEditables() && !V.local;
     const online = !SIN_RED && navigator.onLine;
-    const ver = V13 && !V.local && !V.soloLectura && (p ? p.estado !== "anulada" || p.credito : true) && (online || p?.credito)
-      && (puede("credito") || !!p?.credito);
+    const puedeCred = puede("credito") || !!p?.credito;
+    // apartar (o quitarlo) se puede mientras la venta esté abierta, aunque ya tenga abonos
+    const puedeAp = V18 && !V.local && (!p || (p.estado === "abierta" && !p.saldo_inicial));
+    const ver = V13 && !V.local && !V.soloLectura && (p ? p.estado !== "anulada" || p.credito : true) && (online || p?.credito || p?.apartado)
+      && (puedeCred || puedeAp || !!p?.apartado);
     $("#boxCondicion").hidden = !ver;
     if (!ver) return;
-    const cred = V.cond === "credito";
-    $$("#ventaCondicion [data-cond]").forEach((b) => { b.setAttribute("aria-checked", String(b.dataset.cond === V.cond)); b.disabled = !edit || !online; });
+    const cred = V.cond === "credito", ap = V.cond === "apartado";
+    const habil = {
+      contado: cred ? edit : ap ? puedeAp : true,
+      credito: edit && (!ap || puedeAp),
+      apartado: puedeAp && (!cred || edit)
+    };
+    $$("#ventaCondicion [data-cond]").forEach((b) => {
+      const c = b.dataset.cond;
+      b.setAttribute("aria-checked", String(c === V.cond));
+      if (c === "credito") b.hidden = !puedeCred;
+      if (c === "apartado") b.hidden = !V18 || !(puedeAp || p?.apartado);
+      b.disabled = !online || !habil[c];
+    });
     $("#boxCliCredito").hidden = !cred || !edit || !online;
+    pintarApartado(puedeAp && online);
     const info = $("#cliCreditoInfo");
     info.hidden = !cred;
     if (!cred) return;
@@ -1895,19 +1953,37 @@
     if (Number(c.vencido) > 0) alerta += `${alerta ? " " : ""}Tiene ${fmt(c.vencido)} vencido.`;
     info.innerHTML = partes.join(" · ") + (alerta ? ` <span class="cred-alerta">${U.esc(alerta)}</span>` : "");
   }
+  function pintarApartado(editable) {
+    const box = $("#boxApartado");
+    box.hidden = V.cond !== "apartado";
+    if (box.hidden) return;
+    const p = V.pedido, inp = $("#apartadoVence");
+    inp.min = hoyCR(); inp.max = sumarDias(hoyCR(), 365);
+    inp.value = V.apVence || "";
+    inp.disabled = !editable;
+    const total = actualizarTotal(), abonado = p ? Number(p.pagado_registrado) : 0, falta = Math.max(0, total - abonado);
+    let txt = `${abonado > 0 ? `Ha abonado <b>${fmt(abonado)}</b>` : "Todavía no ha abonado"} · falta <b>${fmt(falta)}</b>. La mercadería se le guarda y se entrega cuando termine de pagar.`;
+    let alerta = "";
+    if (U.soloDigitos($("#formVenta").cliente_telefono.value).length < 8) alerta = "Ponga el teléfono del cliente.";
+    else if (V.apVence && V.apVence < hoyCR() && falta > 0) alerta = "Ya pasó la fecha: llame al cliente para que termine de pagar, o dele más tiempo.";
+    $("#apartadoInfo").innerHTML = txt + (alerta ? ` <span class="cred-alerta">${U.esc(alerta)}</span>` : "");
+  }
   $("#ventaCondicion").addEventListener("click", (e) => {
     const b = e.target.closest("[data-cond]"); if (!b || b.disabled) return;
     if (V.cond === b.dataset.cond) return;
     V.cond = b.dataset.cond; V.dirty = true;
+    if (V.cond === "apartado" && !V.apVence) V.apVence = sumarDias(hoyCR(), 30);    // un mes, se puede cambiar
     $("#ventaMsg").textContent = "";
     pintarCondicion();
     if (V.cond === "credito" && !V.credCli) $("#cliCreditoQ").focus();
   });
-  // al cambiar cantidades o productos, el aviso de límite se actualiza
-  $("#itemsVenta").addEventListener("input", () => { if (V?.cond === "credito") pintarCondicion(); });
+  $("#apartadoVence").addEventListener("change", (e) => { V.apVence = e.target.value || null; V.dirty = true; pintarCondicion(); });
+  // al cambiar cantidades o productos, el aviso de límite (o lo que falta del apartado) se actualiza
+  $("#itemsVenta").addEventListener("input", () => { if (V?.cond === "credito" || V?.cond === "apartado") pintarCondicion(); });
+  $("#formVenta").cliente_telefono.addEventListener("input", () => { if (V?.cond === "apartado") pintarCondicion(); });
 
   // buscador de clientes de crédito
-  function buscadorClientes(input, res, alElegir) {
+  function buscadorClientes(input, res, alElegir, nada = "No hay un cliente de crédito con ese nombre. Créelo en la pestaña Crédito.") {
     const caja = input.closest(".buscar-item");
     function buscar() {
       const q = norm(input.value), qd = U.soloDigitos(input.value);
@@ -1916,7 +1992,7 @@
       res.innerHTML = lista.map((c) => `<li><button type="button" data-cli-id="${c.id}">
           <span>${U.esc(c.nombre)}${c.activo ? "" : " <small>· desactivado</small>"}</span>
           <span class="buscar-item__det">debe ${fmt(c.saldo)}${Number(c.vencido) > 0 ? ` · vencido ${fmt(c.vencido)}` : ""}</span>
-        </button></li>`).join("") || `<li class="buscar-item__nada">No hay un cliente de crédito con ese nombre. Créelo en la pestaña Crédito.</li>`;
+        </button></li>`).join("") || `<li class="buscar-item__nada">${U.esc(nada)}</li>`;
       res.hidden = false;
     }
     input.addEventListener("input", buscar);
@@ -2016,7 +2092,7 @@
   }
   async function cargarCuentaCliente() {
     const [v, a] = await Promise.all([
-      db.from("pedidos").select("id,codigo,created_at,total,pagado_registrado,vence,estado").eq("cliente_id", CLI.id).eq("credito", true).neq("estado", "anulada").order("created_at", { ascending: false }).limit(300),
+      db.from("pedidos").select("id,codigo,created_at,total,pagado_registrado,vence,estado" + (V18 ? ",saldo_inicial,ref_anterior" : "")).eq("cliente_id", CLI.id).eq("credito", true).neq("estado", "anulada").order("created_at", { ascending: false }).limit(300),
       db.from("abonos").select("*").eq("cliente_id", CLI.id).order("fecha", { ascending: false }).limit(100)
     ]);
     if (v.error || a.error) return toast(errTxt(v.error || a.error), true);
@@ -2040,7 +2116,7 @@
         : U.esc(fechaCorta(p.vence));
       return `<tr class="${saldo <= 0 ? "pagada" : ""}">
         <td>${fechaCR(p.created_at, { dateStyle: "short" })}</td>
-        <td><button type="button" class="enlace" data-cli-venta="${p.id}">${U.esc(p.codigo)}</button></td>
+        <td><button type="button" class="enlace" data-cli-venta="${p.id}">${U.esc(p.codigo)}</button>${p.saldo_inicial ? `<span class="saldo-cli">Saldo de Moriah${docMoriah(p) ? ` · doc. ${U.esc(docMoriah(p))}` : ""}</span>` : ""}</td>
         <td class="num">${fmt(p.total)}</td><td class="num">${fmt(p.pagado_registrado)}</td><td class="num"><b>${fmt(saldo)}</b></td>
         <td>${saldo <= 0 ? "Pagada" : vence}</td></tr>`;
     }).join("") || `<tr><td colspan="6" class="vacio-adm">${cliVentas.length ? "No debe nada." : "Todavía no tiene ventas a crédito."}</td></tr>`;
@@ -2103,12 +2179,13 @@
   });
   $("#btnAbonoTodo").addEventListener("click", () => { $("#formAbono").monto.value = CLI.saldo; $("#formAbono").monto.focus(); });
   $("#formAbono").metodo.addEventListener("change", (e) => {
-    // el efectivo está en la caja; un SINPE hay que verlo en el banco
+    // el efectivo está en la caja; un SINPE hay que verlo en el banco; un cheque, esperar a que el banco lo pague
     $("#formAbono").verificado.checked = e.target.value === "efectivo" || e.target.value === "tarjeta";
+    $("#abonoRefTxt").textContent = e.target.value === "cheque" ? "N.º del cheque" : "N.º de comprobante";
   });
   $("#boxAbono").addEventListener("toggle", () => {
     if (!$("#boxAbono").open) return;
-    const fa = $("#formAbono"); fa.reset(); $("#abonoMsg").textContent = "";
+    const fa = $("#formAbono"); fa.reset(); $("#abonoMsg").textContent = ""; $("#abonoRefTxt").textContent = "N.º de comprobante";
     fa.fecha.value = ahoraLocalCR(); fa.fecha.max = ahoraLocalCR();
     fa.monto.focus();
   });
@@ -2119,7 +2196,7 @@
     msg.className = "msg msg--error";
     if (!(monto > 0)) { msg.textContent = "Escriba el monto."; return; }
     if (monto > Number(CLI.saldo) + 0.001) { msg.textContent = `Debe ${fmt(CLI.saldo)}: el abono no puede ser mayor.`; return; }
-    if (["sinpe", "transferencia"].includes(f.metodo.value) && !ref) { msg.textContent = "Ponga el número de comprobante."; return; }
+    if (["sinpe", "transferencia", "cheque"].includes(f.metodo.value) && !ref) { msg.textContent = f.metodo.value === "cheque" ? "Ponga el número del cheque." : "Ponga el número de comprobante."; return; }
     const fecha = f.fecha.value ? new Date(f.fecha.value + ":00-06:00").toISOString() : null;
     msg.className = "msg"; msg.textContent = "Registrando…";
     const { data, error } = await db.rpc("registrar_abono", { p: {
@@ -2156,13 +2233,228 @@
       `¡Hola, ${c.nombre}! Le saludamos de ${C.NEGOCIO}.`,
       `Su saldo de crédito es de ${fmt(c.saldo)}${Number(c.vencido) > 0 ? `, de los cuales ${fmt(c.vencido)} ya están vencidos` : ""}.`,
       "",
-      ...pend.map((p) => `• ${p.codigo} — ${fmt(p.total - p.pagado_registrado)} (vence ${fechaCorta(p.vence)})`),
+      ...pend.map((p) => `• ${p.saldo_inicial ? `Saldo anterior${docMoriah(p) ? ` (doc. ${docMoriah(p)})` : ""}` : p.codigo} — ${fmt(p.total - p.pagado_registrado)} (vence ${fechaCorta(p.vence)})`),
       num.length === 8 ? "" : null,
       num.length === 8 ? `Puede abonar por SINPE Móvil al ${num.slice(0, 4)}-${num.slice(4)}${ajustesCache.sinpe_titular ? ` a nombre de ${ajustesCache.sinpe_titular}` : ""} y enviarnos el comprobante por aquí.` : null,
       "¡Muchas gracias!"
     ].filter((l) => l !== null).join("\n");
     const w = window.open(`https://wa.me/${tel.length === 8 ? "506" + tel : tel}?text=${encodeURIComponent(msg)}`, "_blank");
     if (w) w.opener = null;
+  });
+
+  // ---------- saldos de crédito que vienen de Moriah (v18) ----------
+  // el número de documento de Moriah (si al pasarlo no traía documento, la referencia es "vence monto" y no se muestra)
+  const docMoriah = (p) => (p.ref_anterior && !/^\d{4}-\d{2}-\d{2} [\d.]+$/.test(p.ref_anterior) ? p.ref_anterior : "");
+  let SALDOS = [], saldoCli = null;
+  // fecha de una celda: número de Excel, 25/11/2026, 25-11-26 o 2026-11-25
+  function leerFecha(v) {
+    const t = String(v ?? "").trim();
+    if (!t) return "";
+    let a, m, d;
+    if (/^\d{5}(\.\d+)?$/.test(t)) return new Date(Date.UTC(1899, 11, 30) + Math.floor(Number(t)) * 864e5).toISOString().slice(0, 10);
+    let x = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (x) [, a, m, d] = x;
+    else if ((x = t.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})\b/))) { [, d, m, a] = x; if (a.length === 2) a = "20" + a; }
+    else return null;
+    const iso = `${a}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const f = new Date(iso + "T12:00:00Z");
+    return Number.isNaN(f.getTime()) || f.toISOString().slice(0, 10) !== iso || a < 2000 || a > 2100 ? null : iso;
+  }
+  // columnas del reporte de cuentas por cobrar: para cada dato, los títulos posibles en orden de preferencia
+  const COLS_SALDO = [
+    ["vence", "Vence", [/venc/]],
+    ["monto", "Saldo", [/^saldo$/, /^saldo (actual|pendiente|total)/, /saldo/, /pendiente/, /por cobrar/, /^debe$/, /^monto$/, /monto/, /^total$/]],
+    ["nombre", "Cliente", [/^nombre/, /^cliente$/, /^(nombre del |razon social|deudor)/, /nombre/, /^(?!cod).*cliente/]],
+    ["identificacion", "Cédula", [/cedula/, /identificacion/, /^ident/, /^ced/]],
+    ["telefono", "Teléfono", [/telefono/, /celular/, /^tel/]],
+    ["documento", "Documento", [/^documento/, /^factura/, /^(n|no|nro|num)[.°º]? ?(doc|factura)/, /^doc/, /consecutivo/, /comprobante/, /^numero$/, /^(n|no|nro|num)[.°º]?$/]],
+    ["fecha", "Fecha", [/^fecha$/, /^fecha (de )?(doc|fact|emision)/, /^emision/, /^fecha/]],
+    ["limite", "Límite", [/limite/]],
+    ["plazo_dias", "Plazo", [/^plazo/, /dias (de )?credito/]]
+  ];
+  function mapaSaldos(cab) {
+    const usados = new Set(), mapa = {};
+    for (const [k, , res] of COLS_SALDO) {
+      for (const re of res) {
+        const i = cab.findIndex((h, n) => h && !usados.has(n) && re.test(h));
+        if (i >= 0) { mapa[k] = i; usados.add(i); break; }
+      }
+    }
+    return mapa;
+  }
+  const clienteDeSaldo = (r) => {
+    if (r.cliente_id) return clientes.find((c) => c.id === r.cliente_id) || null;
+    const ced = U.soloDigitos(r.identificacion);
+    return (ced && clientes.find((c) => U.soloDigitos(c.identificacion) === ced)) || clientes.find((c) => norm(c.nombre) === norm(r.nombre)) || null;
+  };
+  function pintarSaldos() {
+    const ok = SALDOS.filter((r) => !r.error), malas = SALDOS.length - ok.length;
+    const total = ok.reduce((t, r) => t + Number(r.monto), 0);
+    const nuevos = new Set(ok.filter((r) => !clienteDeSaldo(r)).map((r) => U.soloDigitos(r.identificacion) || norm(r.nombre))).size;
+    const cuantos = new Set(ok.map((r) => clienteDeSaldo(r)?.id || U.soloDigitos(r.identificacion) || norm(r.nombre))).size;
+    $("#saldosVista").hidden = !SALDOS.length;
+    $("#saldosFilas").innerHTML = SALDOS.slice(0, 400).map((r, n) => {
+      const c = clienteDeSaldo(r);
+      return `<tr class="${r.error ? "imp--error" : ""}">
+        <td>${U.esc(r.fila)}</td>
+        <td>${U.esc(r.nombre || "")}${r.identificacion ? `<small class="imp__cod">${U.esc(r.identificacion)}</small>` : ""}</td>
+        <td>${U.esc(r.documento || "")}</td>
+        <td>${r.vence ? U.esc(fechaCorta(r.vence)) : '<small class="imp__cod">según el plazo</small>'}</td>
+        <td class="num">${r.error && !(Number(r.monto) > 0) ? "" : fmt(r.monto)}</td>
+        <td>${r.error ? `<b>No se pasa:</b> ${U.esc(r.error)}` : c ? `Se suma a la cuenta de ${U.esc(c.nombre)}` : "Cliente nuevo"}</td>
+        <td><button type="button" class="cerrar-x" data-quitar-saldo="${n}" aria-label="Quitar de la lista">✕</button></td>
+      </tr>`;
+    }).join("") + (SALDOS.length > 400 ? `<tr><td colspan="7" class="vacio-adm">… y ${SALDOS.length - 400} filas más</td></tr>` : "");
+    const b = $("#btnPasarSaldos");
+    b.disabled = !ok.length;
+    b.textContent = ok.length ? `Pasar ${ok.length} ${ok.length === 1 ? "saldo" : "saldos"} (${fmt(total)})` : "Pasar saldos";
+    if (SALDOS.length && !$("#saldosMsg").classList.contains("msg--fijo")) {
+      $("#saldosMsg").className = "msg";
+      $("#saldosMsg").textContent = `${ok.length} ${ok.length === 1 ? "saldo listo" : "saldos listos"} por ${fmt(total)}, de ${cuantos} ${cuantos === 1 ? "cliente" : "clientes"}${nuevos ? ` (${nuevos} ${nuevos === 1 ? "nuevo" : "nuevos"})` : ""}.${malas ? ` ${malas} con problemas no se pasan.` : ""}`;
+    }
+  }
+  $("#btnSaldosMoriah").addEventListener("click", async () => {
+    SALDOS = []; saldoCli = null;
+    $("#saldosArchivo").value = ""; $("#formSaldoManual").reset(); $("#saldoManualMsg").textContent = "";
+    $("#saldoCliElegido").hidden = true; $("#boxSaldoManual").open = false;
+    $("#saldosMsg").className = "msg"; $("#saldosMsg").textContent = "";
+    pintarSaldos();
+    $("#dlgSaldos").showModal();
+    if (!clientes.length) { await cargarClientes(); pintarSaldos(); }
+  });
+  $("#btnCerrarSaldos").addEventListener("click", () => $("#dlgSaldos").close());
+  $("#saldosFilas").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-quitar-saldo]"); if (!b) return;
+    SALDOS.splice(Number(b.dataset.quitarSaldo), 1);
+    $("#saldosMsg").classList.remove("msg--fijo");
+    pintarSaldos();
+  });
+  $("#saldosArchivo").addEventListener("change", async () => {
+    const msg = $("#saldosMsg"), file = $("#saldosArchivo").files[0];
+    if (!file) return;
+    msg.className = "msg"; msg.textContent = "Leyendo archivo…";
+    try {
+      const filas = await XlsxMini.leer(file);
+      // los títulos: la primera fila (de las primeras 25) que tenga cliente y saldo
+      let iCab = -1, mapa = null;
+      for (let i = 0; i < Math.min(25, filas.length); i++) {
+        const m = mapaSaldos(filas[i].celdas.map((c) => norm(c)));
+        if (m.nombre !== undefined && m.monto !== undefined) { iCab = i; mapa = m; break; }
+      }
+      if (iCab < 0) throw new Error("No se encontraron las columnas del cliente y del saldo. Revise que el archivo tenga títulos como “Cliente” y “Saldo”.");
+      const val = (f, k) => (mapa[k] === undefined ? "" : String(f.celdas[mapa[k]] ?? "").trim());
+      const leidas = [];
+      let ultimo = null, enCero = 0;
+      for (const f of filas.slice(iCab + 1)) {
+        if (Object.keys(mapa).every((k) => val(f, k) === "")) continue;                       // fila vacía
+        let nombre = val(f, "nombre").replace(/\s+/g, " ").replace(/^\d{1,8}\s*[-–:]\s*/, "").slice(0, 80);   // "001 - JUAN PÉREZ" → "JUAN PÉREZ"
+        const documento = val(f, "documento").slice(0, 40), fechaTxt = val(f, "fecha"), venceTxt = val(f, "vence");
+        if (/^(sub)?total|^gran total|^saldo total/.test(norm(nombre))) continue;               // totales del reporte
+        if (!nombre) {
+          // reporte agrupado por cliente: las facturas vienen debajo del nombre; sin documento ni fechas es un subtotal
+          if (!ultimo || (!documento && !fechaTxt && !venceTxt)) continue;
+          nombre = ultimo.nombre;
+        }
+        const r = { fila: f.r, nombre, identificacion: U.soloDigitos(val(f, "identificacion")) || (nombre === ultimo?.nombre ? ultimo.identificacion : ""),
+          telefono: val(f, "telefono") || (nombre === ultimo?.nombre ? ultimo.telefono : ""), documento, error: "" };
+        ultimo = r;
+        const crudo = val(f, "monto");
+        if (/^[(-]/.test(crudo)) r.error = "Es saldo a favor del cliente (negativo).";
+        else {
+          const m = leerPrecio(crudo);
+          if (m.error || m.v === "") r.error = `Saldo no válido: ${crudo || "vacío"}`;
+          else if (Number(m.v) <= 0) { enCero++; continue; }                                     // factura ya pagada
+          else r.monto = m.v;
+        }
+        const fe = leerFecha(fechaTxt), ve = leerFecha(venceTxt);
+        if (fe) r.fecha = fe;
+        if (ve) r.vence = ve;
+        if (ve === null && !r.error) r.error = `No se entiende la fecha de vencimiento: ${venceTxt}`;
+        if (r.nombre.length < 2 && !r.error) r.error = "Falta el nombre del cliente.";
+        const lim = mapa.limite !== undefined ? leerPrecio(val(f, "limite")) : null;
+        if (lim && !lim.error && Number(lim.v) > 0) r.limite = lim.v;
+        const plazo = parseInt(val(f, "plazo_dias"), 10);
+        if (plazo >= 1 && plazo <= 365) r.plazo_dias = String(plazo);
+        leidas.push(r);
+      }
+      if (!leidas.length) throw new Error(enCero ? "Todas las filas del archivo tienen saldo en cero: no hay nada que pasar." : "El archivo no trae saldos debajo de los títulos.");
+      SALDOS = SALDOS.filter((r) => r.fila === "a mano").concat(leidas);
+      msg.classList.remove("msg--fijo");
+      pintarSaldos();
+      const cols = ["nombre", "identificacion", "telefono", "documento", "fecha", "vence", "monto", "limite", "plazo_dias"]
+        .filter((k) => mapa[k] !== undefined).map((k) => COLS_SALDO.find((c) => c[0] === k)[1]).join(", ");
+      msg.textContent += ` Columnas: ${cols}.${enCero ? ` ${enCero} ${enCero === 1 ? "fila con saldo en cero se dejó" : "filas con saldo en cero se dejaron"} por fuera.` : ""}${mapa.vence === undefined ? " El archivo no trae vencimiento: se calcula con el plazo de cada cliente." : ""}`;
+    } catch (e) {
+      msg.className = "msg msg--error"; msg.textContent = errTxt(e);
+    }
+  });
+  // a mano: si ya es cliente de crédito se escoge de la lista; si no, se crea al pasar el saldo
+  buscadorClientes($("#formSaldoManual").nombre, $("#saldoCliRes"), (c) => {
+    const f = $("#formSaldoManual");
+    saldoCli = c;
+    f.nombre.value = c.nombre;
+    f.identificacion.value = c.identificacion || ""; f.telefono.value = c.telefono || "";
+    $("#saldoCliElegido").hidden = false;
+    $("#saldoCliElegido").innerHTML = `Se suma a la cuenta de <b>${U.esc(c.nombre)}</b>, que ahora debe ${fmt(c.saldo)}.`;
+    f.monto.focus();
+  }, "No es cliente de crédito todavía: se crea al pasar el saldo.");
+  $("#formSaldoManual").nombre.addEventListener("input", () => { if (saldoCli) { saldoCli = null; $("#saldoCliElegido").hidden = true; } });
+  $("#formSaldoManual").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#saldoManualMsg");
+    const r = { fila: "a mano", nombre: f.nombre.value.trim().replace(/\s+/g, " "), identificacion: U.soloDigitos(f.identificacion.value), telefono: f.telefono.value.trim(),
+      documento: f.documento.value.trim(), fecha: f.fecha.value || undefined, vence: f.vence.value || undefined, error: "" };
+    if (saldoCli) r.cliente_id = saldoCli.id;
+    const m = leerPrecio(f.monto.value);
+    if (r.nombre.length < 2) { msg.textContent = "Escriba el nombre del cliente."; f.nombre.focus(); return; }
+    if (r.identificacion && !/^\d{9,12}$/.test(r.identificacion)) { msg.textContent = "La cédula lleva de 9 a 12 números (o déjela vacía)."; return; }
+    if (r.telefono && !/^[0-9 +()-]{8,20}$/.test(r.telefono)) { msg.textContent = "Revise el teléfono."; return; }
+    if (m.error || !(Number(m.v) > 0)) { msg.textContent = "Escriba el saldo que debe."; f.monto.focus(); return; }
+    if (r.fecha && r.fecha > hoyCR()) { msg.textContent = "La fecha de la factura no puede ser después de hoy."; return; }
+    r.monto = m.v;
+    msg.textContent = "";
+    SALDOS.unshift(r);
+    $("#saldosMsg").classList.remove("msg--fijo");
+    pintarSaldos();
+    f.reset(); saldoCli = null; $("#saldoCliElegido").hidden = true;
+    toast(`Agregado: ${r.nombre}, ${fmt(r.monto)}. Toque “Pasar saldos” cuando termine.`);
+    f.nombre.focus();
+  });
+  $("#btnPasarSaldos").addEventListener("click", async () => {
+    const lista = SALDOS.filter((r) => !r.error), b = $("#btnPasarSaldos"), msg = $("#saldosMsg");
+    if (!lista.length) return;
+    const total = lista.reduce((t, r) => t + Number(r.monto), 0);
+    if (!confirm(`¿Pasar ${lista.length} ${lista.length === 1 ? "saldo" : "saldos"} por ${fmt(total)}? Quedan como deudas a crédito en la cuenta de cada cliente.`)) return;
+    b.disabled = true;
+    const tot = { creados: 0, repetidos: 0, clientes_nuevos: 0 }, fallas = [];
+    const pasadas = new Set();
+    try {
+      for (let i = 0; i < lista.length; i += 300) {
+        const parte = lista.slice(i, i + 300);
+        msg.className = "msg"; msg.textContent = `Pasando… ${Math.min(i + 300, lista.length)} de ${lista.length}`;
+        const { data, error } = await db.rpc("importar_saldos_anteriores", { p_filas: parte.map(({ fila, error, ...r }) => r) });
+        if (error) throw error;
+        tot.creados += data.creados; tot.repetidos += data.repetidos; tot.clientes_nuevos += data.clientes_nuevos;
+        const malas = new Map((data.errores || []).map((x) => [x.fila - 1, x.error]));
+        parte.forEach((r, n) => { if (malas.has(n)) { r.error = malas.get(n); fallas.push(r); } else pasadas.add(r); });
+      }
+    } catch (e) {
+      msg.className = "msg msg--error";
+      msg.textContent = `${tot.creados ? `Se pasaron ${tot.creados} saldos, pero se detuvo: ` : ""}${errTxt(e)}`;
+      SALDOS = SALDOS.filter((r) => !pasadas.has(r));
+      pintarSaldos(); b.disabled = false;
+      await cargarClientes(); pintarClientes();
+      return;
+    }
+    SALDOS = fallas;                                   // en la lista quedan solo los que no se pudieron pasar
+    msg.className = "msg msg--fijo" + (fallas.length ? " msg--error" : "");
+    msg.textContent = `Listo: ${tot.creados} ${tot.creados === 1 ? "saldo pasado" : "saldos pasados"}${tot.clientes_nuevos ? `, ${tot.clientes_nuevos} ${tot.clientes_nuevos === 1 ? "cliente nuevo" : "clientes nuevos"}` : ""}.`
+      + (tot.repetidos ? ` ${tot.repetidos === 1 ? "1 ya se había pasado antes" : `${tot.repetidos} ya se habían pasado antes`} (no se repite${tot.repetidos === 1 ? "" : "n"}).` : "")
+      + (fallas.length ? ` ${fallas.length === 1 ? "1 no se pudo pasar: está" : `${fallas.length} no se pudieron pasar: están`} en la lista con el motivo.` : "");
+    pintarSaldos();
+    b.disabled = !fallas.length;
+    toast(`${tot.creados} saldos de Moriah pasados`);
+    await cargarClientes(); pintarClientes();
   });
 
   // ---------- facturación electrónica (función "facturar") ----------
@@ -2909,10 +3201,25 @@
     return out;
   }
 
+  // el formulario cambia un poco según cómo pagó: el cheque lleva su número; lo abonado en Moriah no entra en la caja
+  const AYUDA_PAGO = "Si no lo ha visto en el banco, déjelo sin marcar: la venta queda “por verificar” hasta que lo confirme.";
+  function pintarFormaPago() {
+    const f = $("#formPago"), m = f.metodo.value, ant = m === "anterior";
+    $("#pagoRefTxt").textContent = m === "cheque" ? "Número del cheque" : ant ? "Número de recibo de Moriah (opcional)" : "Número de comprobante / referencia";
+    $("#pagoVerTxt").textContent = m === "cheque" ? "El banco ya pagó este cheque" : ant ? "Ya lo había recibido el almacén" : "Ya vi este dinero en la app del banco";
+    $("#pagoAyuda").textContent = ant ? "Lo que el cliente ya había pagado en Moriah antes de pasar al sistema (por ejemplo, los abonos de un apartado). Rebaja lo que debe, pero no entra en la caja ni en los reportes."
+      : m === "cheque" ? "Déjelo sin marcar hasta que el banco pague el cheque: la venta queda “por verificar”. En el cierre de caja el cheque sale aparte del efectivo."
+      : AYUDA_PAGO;
+    f.verificado.disabled = ant;
+    if (ant) f.verificado.checked = true;
+  }
+  $("#formPago").metodo.addEventListener("change", pintarFormaPago);
+
   $("#btnLeerBanco").addEventListener("click", () => {
     const d = leerMensajeBanco($("#txtBanco").value), f = $("#formPago");
     const leidos = Object.keys(d);
     leidos.forEach((k) => { if (f.elements[k] && d[k]) f.elements[k].value = d[k]; });
+    pintarFormaPago();
     $("#pagoMsg").className = "msg";
     $("#pagoMsg").textContent = leidos.length ? "Datos leídos del mensaje. Revíselos antes de registrar." : "No se encontraron datos en el mensaje. Llene los campos a mano.";
   });
@@ -2943,7 +3250,9 @@
       verificado: f.verificado.checked
     };
     if (!(d.monto > 0)) { msg.textContent = "Escriba el monto del pago."; return; }
+    if (d.metodo === "cheque" && !d.referencia) { msg.textContent = "Ponga el número del cheque: así no se registra dos veces."; f.referencia.focus(); return; }
     if (["sinpe", "transferencia"].includes(d.metodo) && !d.referencia) { msg.textContent = "Para SINPE o transferencia, el número de comprobante es obligatorio: así se evita usar el mismo comprobante dos veces."; f.referencia.focus(); return; }
+    if (d.metodo === "anterior") d.verificado = true;
     if (d.referencia && !/^[0-9A-Za-z-]{4,40}$/.test(d.referencia)) { msg.textContent = "El comprobante solo lleva números, letras o guiones."; return; }
     if (d.telefono_origen && !/^[0-9 +()-]{8,20}$/.test(d.telefono_origen)) { msg.textContent = "Revise el teléfono que pagó."; return; }
     if (!d.fecha) { msg.textContent = "Indique la fecha del pago."; return; }
@@ -2964,7 +3273,10 @@
       abrirLocal(rec.id); pintarVentas();
       return;
     }
-    if (d.verificado && !confirm(`¿Confirma que ve ${fmt(d.monto)} con el comprobante ${d.referencia || "(sin número)"} en la app del banco?`)) return;
+    if (d.metodo === "anterior") {
+      if (!confirm(`¿Anotar ${fmt(d.monto)} como abonado en Moriah? Rebaja lo que debe esta venta, pero no entra en la caja de hoy.`)) return;
+    } else if (d.verificado && !confirm(d.metodo === "cheque" ? `¿Confirma que el banco ya pagó el cheque ${d.referencia} por ${fmt(d.monto)}?`
+      : `¿Confirma que ve ${fmt(d.monto)} con el comprobante ${d.referencia || "(sin número)"} en la app del banco?`)) return;
 
     const btn = $("#btnGuardarPago");
     btn.disabled = true; msg.textContent = "";
@@ -3346,6 +3658,7 @@
       const fp = $("#formPago");
       $("#boxPago").open = true;
       fp.metodo.value = "sinpe";
+      pintarFormaPago();
       if (c.monto_reportado) fp.monto.value = c.monto_reportado;
       fp.referencia.value = c.referencia_reportada || "";
       fp.telefono_origen.value = V.pedido.cliente_telefono || "";
@@ -3372,6 +3685,8 @@
 
   $("#btnEntregar").addEventListener("click", async () => {
     const p = V.pedido;
+    if (p.apartado && Number(p.pagado_verificado) < Number(p.total))
+      return toast(`Este apartado no está pagado completo (falta ${fmt(p.total - p.pagado_verificado)} pagado y verificado). Se entrega cuando termine de pagar.`, true);
     if (p.pagado_verificado < p.total && !confirm(`Esta venta no está pagada y verificada por completo (falta ${fmt(p.total - p.pagado_verificado)}). ¿Marcarla entregada igual?`)) return;
     const { error } = await db.from("pedidos").update({ estado: "entregada" }).eq("id", p.id);
     if (error) return toast(errTxt(error), true);
@@ -3557,6 +3872,13 @@
         ${extra.cuenta ? fila("Saldo total de la cuenta", fmt(extra.cuenta.saldo)) + (Number(extra.cuenta.vencido) > 0 ? fila("<b>Vencido</b>", `<b>${fmt(extra.cuenta.vencido)}</b>`) : "") : ""}
         <div class="r-firma">Recibí conforme</div>`;
     }
+    // apartado: hasta cuándo se le guarda y que se entrega al terminar de pagar
+    let apartado = "";
+    if (p.apartado && p.estado === "abierta") {
+      apartado = `<div class="r-lin"></div><div class="r-tit">Apartado</div>
+        ${p.apartado_vence ? fila("Se le guarda hasta", `<b>${U.esc(String(p.apartado_vence).slice(0, 10).split("-").reverse().join("/"))}</b>`) : ""}
+        <div class="r-peq">La mercadería se entrega cuando se cancele el total.</div>`;
+    }
     let factura = "";
     if (fac && !feFactura) {
       factura = `<div class="r-lin"></div><div class="r-tit">Datos para factura electrónica</div>
@@ -3595,6 +3917,7 @@
       ${pagos.length ? `<div class="r-lin"></div><div class="r-tit">Pagos</div>` + pagos.map((g) =>
         fila(`${U.esc(ETQ_METODO[g.metodo] || g.metodo)} ${fechaCR(g.fecha, { dateStyle: "short" })}${g.referencia ? `<br><span class="r-peq">Comp. ${U.esc(g.referencia)}</span>` : ""}`, fmt(g.monto))).join("") : ""}
       ${p.nota ? `<div class="r-lin"></div><div class="r-peq">Nota: ${U.esc(p.nota)}</div>` : ""}
+      ${apartado}
       ${credito}
       ${electronico}
       ${factura}
@@ -3670,10 +3993,11 @@
   function pintarTurno(r) {
     const v = r.ventas, g = r.pagos;
     $("#turnoCifras").innerHTML = `
-      <div><dt>Ventas</dt><dd>${fmt(v.total)}<small>${v.cantidad} ${v.cantidad === 1 ? "venta" : "ventas"}${Number(v.a_credito) > 0 ? ` · ${fmt(v.a_credito)} a crédito` : ""}${v.anuladas ? ` · ${v.anuladas} ${v.anuladas === 1 ? "anulada" : "anuladas"}` : ""}</small></dd></div>
+      <div><dt>Ventas</dt><dd>${fmt(v.total)}<small>${v.cantidad} ${v.cantidad === 1 ? "venta" : "ventas"}${Number(v.a_credito) > 0 ? ` · ${fmt(v.a_credito)} a crédito` : ""}${Number(v.apartados) > 0 ? ` · ${fmt(v.apartados)} en apartados` : ""}${v.anuladas ? ` · ${v.anuladas} ${v.anuladas === 1 ? "anulada" : "anuladas"}` : ""}</small></dd></div>
       <div><dt>Efectivo recibido</dt><dd>${fmt(g.efectivo)}<small>${Number(g.abonos_credito) > 0 ? `incluye abonos de crédito` : "pagos en efectivo"}</small></dd></div>
       <div><dt>SINPE Móvil</dt><dd>${fmt(g.sinpe)}<small>${Number(g.sinpe_sin_verificar) > 0 ? `<span class="vence-pronto">${fmt(g.sinpe_sin_verificar)} sin verificar</span>` : "todo verificado"}</small></dd></div>
       <div><dt>Tarjeta${Number(g.transferencia) > 0 ? " / transferencia" : ""}</dt><dd>${fmt(g.tarjeta)}<small>${Number(g.transferencia) > 0 ? `transferencias ${fmt(g.transferencia)}` : "compare con el datáfono"}</small></dd></div>
+      ${Number(g.cheque) > 0 ? `<div><dt>Cheques</dt><dd>${fmt(g.cheque)}<small>${g.cheques} ${Number(g.cheques) === 1 ? "cheque" : "cheques"} · no van en el efectivo</small></dd></div>` : ""}
       <div><dt>Efectivo que debería haber</dt><dd class="cifra--clave">${fmt(r.efectivo_esperado)}<small>fondo ${fmt(r.fondo)} + efectivo ${fmt(g.efectivo)}${Number(r.entradas) ? ` + entradas ${fmt(r.entradas)}` : ""}${Number(r.salidas) ? ` − salidas ${fmt(r.salidas)}` : ""}</small></dd></div>`;
     $("#turnoMovs").innerHTML = (r.movimientos || []).map((m) => `<li>${m.tipo === "salida" ? '<span class="inv-menos">Salida</span>' : '<span class="inv-mas">Entrada</span>'} ${fmt(m.monto)} · ${U.esc(m.motivo)} · ${horaCR(m.fecha)}</li>`).join("");
   }
@@ -3742,7 +4066,8 @@
       (Number(r.entradas) ? lin("Entradas de efectivo", fmt(r.entradas)) : "") + (Number(r.salidas) ? lin("Salidas de efectivo", "−" + fmt(r.salidas)) : "") +
       lin("Efectivo que debería haber", fmt(r.efectivo_esperado)) +
       (Number(g.sinpe_sin_verificar) > 0 ? `<div class="cred-alerta"><span>SINPE sin verificar</span><b>${fmt(g.sinpe_sin_verificar)}</b></div>` : "") +
-      (Number(g.tarjeta) > 0 ? lin("Tarjeta (compare con el cierre del datáfono)", fmt(g.tarjeta)) : "");
+      (Number(g.tarjeta) > 0 ? lin("Tarjeta (compare con el cierre del datáfono)", fmt(g.tarjeta)) : "") +
+      (Number(g.cheque) > 0 ? lin(`Cheques (${g.cheques}): no se cuentan con el efectivo`, fmt(g.cheque)) : "");
     pintarDiferencia();
     $("#dlgCierre").showModal();
     $("#conteoBilletes input").focus();
@@ -3785,7 +4110,7 @@
       <div class="r-lin"></div>
       <div class="r-tit">Ventas</div>
       ${fila(`${v.cantidad || 0} ventas`, fmt(v.total))}
-      ${Number(v.a_credito) > 0 ? fila("De contado", fmt(v.de_contado)) + fila("A crédito", fmt(v.a_credito)) : ""}
+      ${Number(v.a_credito) > 0 || Number(v.apartados) > 0 ? fila("De contado", fmt(v.de_contado)) + (Number(v.a_credito) > 0 ? fila("A crédito", fmt(v.a_credito)) : "") + (Number(v.apartados) > 0 ? fila("Apartados", fmt(v.apartados)) : "") : ""}
       ${v.anuladas ? fila("Anuladas", v.anuladas) : ""}
       <div class="r-lin"></div>
       <div class="r-tit">Pagos recibidos</div>
@@ -3794,6 +4119,7 @@
       ${Number(g.sinpe_sin_verificar) > 0 ? `<div class="r-peq">SINPE sin verificar: ${fmt(g.sinpe_sin_verificar)}</div>` : ""}
       ${fila("Tarjeta", fmt(g.tarjeta))}
       ${Number(g.transferencia) > 0 ? fila("Transferencia", fmt(g.transferencia)) : ""}
+      ${Number(g.cheque) > 0 ? fila(`Cheques (${g.cheques})`, fmt(g.cheque)) : ""}
       ${Number(g.abonos_credito) > 0 ? `<div class="r-peq">Incluye abonos de crédito: ${fmt(g.abonos_credito)}</div>` : ""}
       <div class="r-lin"></div>
       <div class="r-tit">Efectivo</div>
