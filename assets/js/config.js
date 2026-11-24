@@ -17,6 +17,9 @@ window.APP_CONFIG = Object.freeze({
   FACEBOOK: "https://www.facebook.com/p/Almacen-Campina-100092324825394/",
   MAPA_QUERY: "Almacen La Campiña, 86JX+MGM, Cariari, Pococí, Costa Rica",
   BUCKET: "productos",
+  // Los empleados entran con "usuario": por dentro su correo es usuario@DOMINIO_PERSONAL
+  // (el mismo valor que en la función "usuarios" de Supabase).
+  DOMINIO_PERSONAL: "usuarios.lacampina.local",
   ZONA_HORARIA: "America/Costa_Rica"
 });
 

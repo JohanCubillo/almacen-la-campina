@@ -120,3 +120,14 @@ Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usar
 - Roles en `admins.rol`: `administrador` o `usuario` (los nuevos entran como `usuario`). Solo `es_administrador()` puede `poner_rol_usuario` y siempre queda al menos un administrador. Los nombres y roles se cambian solo con RPC (`admins` sigue sin políticas para la API).
 - Ventas: `validar_pedido` no deja borrar una venta directo por la API. Solo `borrar_venta(p_pedido, p_motivo)` (administrador, motivo de 5+ letras), y nunca si tiene pagos, comprobante electrónico o datos de factura. El motivo queda en la bitácora junto con lo que tenía la venta y sus renglones.
 - Una venta con tiquete o factura electrónica viva (sin nota de crédito) no se puede anular: primero la nota de crédito.
+
+## Empleados y permisos (v17)
+
+- `is_admin()` ahora exige rol `administrador`, cuenta activa y `aal2` (autenticador). Todas las reglas viejas que usan `is_admin()` quedan solo para el administrador.
+- `puede(permiso)`: el administrador, o un empleado activo que tenga ese permiso (y `aal2` si se le marcó "pide código"). Las reglas de las tablas para empleados se **suman** a las del administrador; no se tocaron las de la tienda (anon).
+- Las funciones que el panel usa por permiso (caja, abonos, entradas, ajuste de precios, importar, reportes, ventas sin internet) se cambiaron en la base para revisar `puede(...)` en vez de `is_admin()`. Si se vuelve a correr un archivo viejo, hay que correr otra vez v17.
+- Disparadores: sin "precios" no se pone ni cambia el precio de un producto ni se vende un producto del catálogo por debajo de su precio (o de la oferta vigente); sin "anular" no se anula una venta ni un pago.
+- Solo el administrador: datos del negocio, avisos, facturación (configuración y "probar"), usuarios, bitácora, limpieza de fotos, espacio, respaldo y borrar ventas.
+- Cuentas de empleados: las crea la función `usuarios` (Edge Function) con la llave de servicio, que nunca sale de Supabase; antes revisa que quien llama sea administrador con autenticador. El registro en `admins` se hace con la sesión del administrador, así queda en la bitácora. Solo se les cambia la contraseña o el usuario a empleados, nunca a un administrador. Contraseñas de 8+ con letras y números.
+- Empleado desactivado: `puede()` y `es_personal()` dan falso al instante aunque su sesión siga abierta.
+- La función `facturar` ahora deja emitir a quien tenga "ventas" y hacer notas de crédito a quien tenga "anular"; "probar" sigue siendo solo del administrador.

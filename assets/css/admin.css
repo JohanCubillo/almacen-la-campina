@@ -435,6 +435,9 @@ html:not(.panel-ok) body { visibility: hidden; }
 #cliVentas tr.pagada td { color: var(--gris); }
 .sin-v14 .v14 { display: none !important; }
 .sin-v16 .v16 { display: none !important; }
+.sin-v17 .v17 { display: none !important; }
+html:not(.sin-v17) .sin-v17-solo { display: none !important; }
+.sin-permiso { display: none !important; }
 .turno { margin-bottom: 1.5rem; }
 .turno__cab { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 .turno__cab h2 { margin: 0; }
@@ -494,3 +497,16 @@ html:not(.panel-ok) body { visibility: hidden; }
 .bit-cambios span { color: var(--gris); }
 .bit-datos summary { cursor: pointer; font-size: .9rem; color: var(--gris); margin-top: .2rem; }
 @media (max-width: 560px) { .bit-item { grid-template-columns: 1fr; gap: .1rem; } }
+
+/* ---------- Empleados y permisos (v17) ---------- */
+.usu-fila--inactivo { opacity: .65; }
+.usu-fila__permisos, .usu-fila__acc { grid-column: 1 / -1; }
+.usu-fila__acc { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; align-items: center; }
+.permisos { border: 1px solid var(--borde); border-radius: 8px; padding: .6rem .8rem .7rem; margin: 0; display: grid; gap: .5rem; }
+.permisos legend { font-weight: 700; font-size: .95rem; padding: 0 .3rem; }
+.permisos__rapidos { display: flex; flex-wrap: wrap; gap: .4rem; }
+.permisos__lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr)); gap: .25rem 1rem; }
+.usu-nuevo { margin-top: .5rem; }
+.usu-nuevo > summary { list-style: none; display: inline-flex; cursor: pointer; }
+.usu-nuevo > summary::-webkit-details-marker { display: none; }
+.usu-nuevo__form { display: grid; gap: .75rem; margin-top: .75rem; padding: .8rem; border: 1px solid var(--borde); border-radius: 8px; }

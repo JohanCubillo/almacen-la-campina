@@ -1,7 +1,7 @@
 // =====================================================================
 //  Función de Supabase "facturar" — comprobantes electrónicos con Hacienda
 //
-//  La llama el panel (admin con MFA). Acciones (POST JSON):
+//  La llama el panel (administrador, o empleado con permiso "ventas"/"anular"). Acciones (POST JSON):
 //   { accion: "probar" }                                  → revisa datos y entra a Hacienda (no envía nada)
 //   { accion: "emitir", pedido_id, tipo: "04"|"01", credito_dias? } → tiquete o factura de una venta
 //   { accion: "consultar", documento_id }                 → pregunta el estado a Hacienda
@@ -50,16 +50,24 @@ Deno.serve(async (req) => {
   const resp = (cuerpo: unknown, status = 200) => new Response(JSON.stringify(cuerpo), { status, headers: h });
   if (req.method !== "POST") return resp({ ok: false, error: "Use POST." }, 405);
 
-  // 1) ¿quién llama? solo un admin con MFA (la misma regla de la base: is_admin())
-  const auth = req.headers.get("Authorization") || "";
-  const usuario = createClient(URL_SB, LLAVE_PUBLICA, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } });
-  const { data: esAdmin } = await usuario.rpc("is_admin");
-  if (esAdmin !== true) return resp({ ok: false, error: "Solo un administrador con verificación en 2 pasos puede facturar." }, 403);
-  const { data: quien } = await usuario.auth.getUser();
-  const db = createClient(URL_SB, LLAVE_SERVICIO, { auth: { persistSession: false } });
-
   let b: Record<string, unknown>;
   try { b = await req.json(); } catch { return resp({ ok: false, error: "Solicitud no válida." }, 400); }
+
+  // 1) ¿quién llama? Las mismas reglas de la base (v17): emitir y consultar → permiso "ventas";
+  //    nota de crédito → "anular"; probar la conexión → solo el administrador.
+  const auth = req.headers.get("Authorization") || "";
+  const usuario = createClient(URL_SB, LLAVE_PUBLICA, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } });
+  const necesario = b.accion === "probar" ? null : b.accion === "anular" ? "anular" : "ventas";
+  let permitido = false;
+  if (necesario) {
+    const r = await usuario.rpc("puede", { p_permiso: necesario });
+    permitido = r.error ? (await usuario.rpc("is_admin")).data === true : r.data === true;   // base sin v17: solo admin
+  } else {
+    permitido = (await usuario.rpc("is_admin")).data === true;
+  }
+  if (!permitido) return resp({ ok: false, error: necesario === "anular" ? "No tiene permiso para anular (nota de crédito)." : necesario ? "No tiene permiso para facturar." : "Solo el administrador." }, 403);
+  const { data: quien } = await usuario.auth.getUser();
+  const db = createClient(URL_SB, LLAVE_SERVICIO, { auth: { persistSession: false } });
 
   try {
     const { data: emisorFila, error: eE } = await db.from("fe_emisor").select("*").eq("id", 1).maybeSingle();

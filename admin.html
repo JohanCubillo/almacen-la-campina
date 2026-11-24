@@ -24,7 +24,7 @@
     <form class="acceso__caja" id="formLogin">
       <img src="assets/img/logo-nav.png" alt="Almacén La Campiña" width="220" height="64" />
       <h1>Panel del almacén</h1>
-      <label>Correo<input type="email" name="email" required autocomplete="username" maxlength="120" /></label>
+      <label>Usuario o correo<input type="text" name="email" required autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="120" /></label>
       <label>Contraseña<input type="password" name="password" required autocomplete="current-password" maxlength="128" /></label>
       <button class="btn btn--negro btn--full" type="submit">Entrar</button>
       <p class="msg msg--error" id="loginMsg" role="alert"></p>
@@ -551,10 +551,26 @@
         <section class="tarjeta ajustes v16" id="boxUsuarios" aria-labelledby="titUsuarios">
           <fieldset>
             <legend id="titUsuarios">Usuarios del panel</legend>
-            <p class="ayuda">El nombre es el que sale en la bitácora. Solo un <b>administrador</b> puede borrar ventas (con motivo) y cambiar roles; los demás las anulan.</p>
+            <p class="ayuda">El nombre es el que sale en la bitácora. El <b>administrador</b> puede todo y entra con el autenticador del celular. Cada <b>empleado</b> entra con su usuario y solo ve lo que se le marque aquí.</p>
             <ul class="usuarios" id="listaUsuarios"></ul>
             <p class="msg" id="usuMsg" role="status"></p>
-            <p class="ayuda">Para agregar a alguien: Supabase → <b>Authentication → Add user</b>, y después el SQL de "Registrar al administrador" del README (para un empleado, con rol <b>usuario</b>). Aquí se le pone el nombre.</p>
+            <details class="usu-nuevo v17" id="boxNuevoUsuario">
+              <summary class="btn btn--negro btn--sm">Agregar empleado</summary>
+              <form id="formNuevoUsuario" class="usu-nuevo__form" novalidate>
+                <div class="form-linea">
+                  <label>Nombre<input name="nombre" maxlength="60" required placeholder="Marvin Solís" autocomplete="off" /></label>
+                  <label>Usuario para entrar<input name="usuario" maxlength="30" required placeholder="marvin" autocapitalize="none" spellcheck="false" autocomplete="off" /></label>
+                  <label>Contraseña<input name="clave" maxlength="72" required autocomplete="new-password" placeholder="8+ letras y números" /></label>
+                </div>
+                <fieldset class="permisos" data-permisos></fieldset>
+                <div class="form-linea__btns">
+                  <button class="btn btn--negro" type="submit">Crear usuario</button>
+                  <button class="btn btn--linea" type="button" id="btnGenerarClave">Inventar contraseña</button>
+                </div>
+                <p class="ayuda">Entra en el panel con ese usuario y contraseña. Désela en persona; se puede cambiar cuando quiera.</p>
+              </form>
+            </details>
+            <p class="ayuda sin-v17-solo">Para agregar a alguien: Supabase → <b>Authentication → Add user</b>, y después el SQL de "Registrar al administrador" del README. Aquí se le pone el nombre.</p>
           </fieldset>
         </section>
 
@@ -576,6 +592,7 @@
       <label>Descripción corta<textarea name="descripcion" rows="2" maxlength="500"></textarea></label>
       <div class="dos">
         <label>Precio en colones<input name="precio" type="number" min="0" step="0.01" placeholder="Vacío = a consultar" /></label>
+        <p class="ayuda" id="prodSinPrecio" hidden>Su usuario no puede poner ni cambiar precios: guarde el producto y el administrador le pone el precio.</p>
         <label>Se vende por<input name="unidad" maxlength="30" placeholder="saco, unidad, metro…" /></label>
       </div>
       <label>Categoría<select name="categoria_id"></select></label>

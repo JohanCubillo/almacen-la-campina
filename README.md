@@ -27,21 +27,22 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 13. **SQL Editor → New query** → pegar `supabase/v14_caja.sql` → **Run**. Activa abrir y cerrar caja (fondo, entradas y salidas de efectivo, conteo y cierre impreso) en la pestaña *Caja*.
 14. **SQL Editor → New query** → pegar `supabase/v15_mas_vendidos.sql` → **Run**. Anota lo que más se vende al importar el inventario de Moriah, para ponerle foto primero a eso (**Productos → Fotos**). Correrlo **antes** de importar el Excel de Moriah.
 15. **SQL Editor → New query** → pegar `supabase/v16_bitacora.sql` → **Run**. Bitácora con nombres y "antes → después", pestaña *Bitácora*, usuarios con rol, y las ventas ya no se borran: se anulan (con nota de crédito si tienen comprobante electrónico). Solo el administrador borra, con motivo.
-16. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
-17. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
-18. Registrar al administrador (el dueño):
+16. **SQL Editor → New query** → pegar `supabase/v17_permisos.sql` → **Run**. Empleados con usuario y permisos (el administrador les marca qué pueden usar). Después publique la función **`usuarios`** (ver *Usuarios y permisos* más abajo).
+17. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
+18. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
+19. Registrar al administrador (el dueño):
    ```sql
    insert into public.admins (user_id, rol)
    select id, 'administrador' from auth.users where email = 'correo-del-admin@ejemplo.com'
    on conflict (user_id) do update set rol = excluded.rol;
    ```
-   Para un empleado, el mismo SQL con `'usuario'` en vez de `'administrador'`. Después, en **Datos del negocio → Usuarios del panel**, se le pone el nombre. (Antes de correr v16 se usa el SQL viejo, sin `rol`.)
-19. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
-20. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
+   Los empleados ya no se agregan así: el administrador los crea desde el panel (ver *Usuarios y permisos*). (Antes de correr v16 se usa el SQL viejo, sin `rol`.)
+20. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
+21. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
 
 ## 2. Primer ingreso al panel
 
-`/admin.html` → correo y contraseña → escanear el QR con Google/Microsoft Authenticator → código de 6 dígitos. Sin ese paso la base de datos no deja modificar nada.
+`/admin.html` → correo y contraseña → escanear el QR con Google/Microsoft Authenticator → código de 6 dígitos. (Los empleados escriben su **usuario** en vez del correo y, si no se les pide código, entran directo.) Sin ese paso la base de datos no deja modificar nada.
 
 En **Datos del negocio**: número **SINPE Móvil** y titular, horario por día, teléfonos, **zonas de envío** (una por línea: `Cariari centro = 2000`) y **avisos por Telegram** (token de @BotFather + su Id de @userinfobot → *Enviar prueba*).
 
@@ -186,7 +187,39 @@ En la tienda, la sección **¿Tiene una pregunta?** (y el enlace *Dejar una preg
 - Filtros: por persona, por fechas, por tipo (ventas y pagos, **ventas borradas o anuladas**, productos y precios, clientes y crédito, caja e inventario, configuración) y buscador por producto, cliente o motivo.
 - Nadie la puede editar ni borrar desde el panel. Va en el respaldo.
 - No anota cada cambio de existencia (para eso está *Inventario → Movimientos*) ni los totales que el sistema recalcula solo.
-- **Datos del negocio → Usuarios del panel:** el nombre de cada uno (el que sale en la bitácora), su correo, el rol y su último ingreso. Solo un **administrador** cambia roles; siempre queda al menos uno.
+- **Datos del negocio → Usuarios del panel:** el nombre de cada uno (el que sale en la bitácora), con qué entra, el rol y su último ingreso. Solo un **administrador** cambia roles; siempre queda al menos uno.
+
+## Usuarios y permisos (v17)
+
+**Dos tipos de usuario:**
+- **Administrador** (el dueño, y usted para soporte): entra con **correo + contraseña + código del autenticador**. Puede todo: datos del negocio, usuarios, bitácora, respaldo, borrar ventas.
+- **Empleado** (Marvin, Thomas…): entra con **usuario + contraseña** (por ejemplo `marvin`) y solo ve lo que el administrador le marque. Si se le marca **Pide el código del autenticador**, también tiene que usar la app del celular.
+
+**Lo que se le puede marcar a un empleado:**
+
+| Casilla | Qué puede |
+|---|---|
+| Ventas y cobros | Hacer ventas, cobrar, verificar SINPE, tiquete/factura electrónica |
+| Anular ventas | Anular ventas y pagos (con nota de crédito si hace falta) |
+| Caja | Abrir, mover y cerrar la caja |
+| Crédito y abonos | Clientes, ventas a crédito, abonos |
+| Inventario (entradas) | Entradas de mercadería |
+| Productos y fotos | Crear y editar productos, categorías y fotos |
+| Cambiar precios | Precios en el producto, ajuste de precios, importar el Excel de Moriah (con *Productos*). Sin esta casilla, en una venta no se puede bajar el precio de un producto del catálogo |
+| Reportes | Reportes y comprobantes emitidos |
+| Preguntas de clientes | Contestar preguntas de la tienda |
+
+Botones rápidos: **Caja** (ventas, caja y crédito) e **Inventario** (inventario y productos). Todo esto lo revisa la base de datos, no solo el panel: aunque alguien sepa de sistemas, no se puede saltar los permisos. Todo lo que hace cada uno queda en la bitácora con su nombre.
+
+**Puesta en marcha (una sola vez):**
+1. Correr `supabase/v17_permisos.sql` (después de v16).
+2. Publicar la función **usuarios**: Supabase → **Edge Functions → Deploy a new function → Via Editor** → nombre `usuarios` → pegar todo `supabase/functions/usuarios/index.ts` → **Deploy**. No lleva secretos (Supabase ya le da sus llaves). Si ya existe el secreto `PANEL_ORIGENES` de la facturación, sirve igual.
+3. **Don Roberto como administrador:** Supabase → **Authentication → Users → Add user** con **su correo** y una contraseña (*Auto Confirm*), y en el SQL Editor el paso "Registrar al administrador" con su correo. La primera vez que entre, el panel le pide configurar el autenticador en su celular.
+4. Don Roberto (o usted) entra al panel → **Datos del negocio → Usuarios del panel → Agregar empleado**: nombre, usuario (minúscula, sin espacios), contraseña (*Inventar contraseña* da una fácil de dictar) y las casillas. Se la da en persona.
+
+**Después:** en la misma pantalla se cambia el nombre, los permisos, la contraseña o el usuario, y se **desactiva** a alguien (ya no puede entrar, pero lo que hizo queda en la bitácora). Si un empleado olvida la contraseña, el administrador le pone otra. El administrador cambia la suya desde Supabase o con "olvidé la contraseña" en su correo.
+
+Por dentro, el usuario `marvin` es la cuenta `marvin@usuarios.lacampina.local` (no recibe correos). Si Supabase no aceptara ese correo al crear empleados, ponga en la función `usuarios` el secreto `DOMINIO_PERSONAL` con un dominio propio y el mismo valor en `assets/js/config.js` (`DOMINIO_PERSONAL`).
 
 **Ventas: anular, no borrar.**
 - *Anular venta* pide el motivo y la venta queda marcada como anulada (con lo que tenía). Si tiene pagos, primero se anulan los pagos.
@@ -245,7 +278,7 @@ assets/productos/  fotos de productos (WebP 800×800)
 assets/vendor/     supabase-js 2.119.2 (local, sin CDN)
 assets/fonts/      Barlow / Barlow Condensed (OFL)
 assets/img/        logo, íconos de la app, og.jpg (imagen para compartir)
-supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql, v14_caja.sql, v15_mas_vendidos.sql, v16_bitacora.sql
+supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql, v14_caja.sql, v15_mas_vendidos.sql, v16_bitacora.sql, v17_permisos.sql
 supabase/functions/facturar/   función que firma y envía los comprobantes a Hacienda
 herramientas/      prueba de facturación en la compu (prueba-hacienda.mjs)
 sw.js              copia de la página para abrirla sin internet

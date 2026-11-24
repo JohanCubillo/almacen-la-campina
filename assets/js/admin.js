@@ -49,6 +49,19 @@
   let V15 = false;         // la base anota lo más vendido (v15_mas_vendidos.sql)
   let V16 = false;         // bitácora con nombres y roles (v16_bitacora.sql)
   let YO = null, USUARIOS = [];   // usuario conectado y usuarios del panel (v16)
+  // Qué puede la persona que entró (v17). null = base sin v17: todo como administrador.
+  let ACCESO = null, V17 = false;   // V17: la base tiene empleados con permisos (v17_permisos.sql)
+  // pestañas y pantallas: sin v17 todos los del panel las ven, como antes
+  const soyAdministrador = () => !ACCESO || ACCESO.rol === "administrador";
+  // borrar ventas y cambiar roles: sin v17 se usa el rol de v16
+  const esAdministradorReal = () => (ACCESO ? ACCESO.rol === "administrador" : !V16 || YO?.rol === "administrador");
+  const puede = (p) => !ACCESO || ACCESO.rol === "administrador" || (ACCESO.permisos || []).includes(p);
+  const PERMISOS = [
+    ["ventas", "Ventas y cobros"], ["anular", "Anular ventas"], ["caja", "Caja"], ["credito", "Crédito y abonos"],
+    ["inventario", "Inventario (entradas)"], ["productos", "Productos y fotos"], ["precios", "Cambiar precios"],
+    ["reportes", "Reportes"], ["preguntas", "Preguntas de clientes"]
+  ];
+  const PLANTILLAS = { caja: ["ventas", "caja", "credito"], inventario: ["inventario", "productos"] };
   let clientes = [];       // clientes de crédito con su saldo (v_clientes_credito)
   const MAX_LISTA_PROD = 150;
   let V5 = true;           // la base tiene registrar_venta_sin_internet
@@ -114,14 +127,27 @@
     if (!navigator.onLine) return entrarSinRed();
     if (!session) return vista("vLogin");
 
-    let reg;
-    try { reg = await conTiempo(db.rpc("soy_admin_registrado"), 12000); } catch (e) { reg = { error: e }; }
-    if (reg.error && U.esErrorRed(reg.error)) return entrarSinRed();
-    if (reg.error || reg.data !== true) return vista("vSinPermiso");
+    // ¿quién es y qué puede? (v17). Sin v17: todos son administradores con autenticador.
+    let acc;
+    try { acc = await conTiempo(db.rpc("mi_acceso"), 12000); } catch (e) { acc = { error: e }; }
+    if (acc.error && U.esErrorRed(acc.error)) return entrarSinRed();
+    let pideCodigo = true;
+    V17 = !acc.error;
+    if (acc.error) {
+      ACCESO = null;
+      let reg;
+      try { reg = await conTiempo(db.rpc("soy_admin_registrado"), 12000); } catch (e) { reg = { error: e }; }
+      if (reg.error && U.esErrorRed(reg.error)) return entrarSinRed();
+      if (reg.error || reg.data !== true) return vista("vSinPermiso");
+    } else {
+      if (!acc.data || acc.data.activo === false) return vista("vSinPermiso");
+      ACCESO = acc.data;
+      pideCodigo = !!acc.data.pide_codigo;
+    }
 
     const { data: aal, error: aErr } = await db.auth.mfa.getAuthenticatorAssuranceLevel();
     if (aErr) return vista("vLogin");
-    if (aal.currentLevel === "aal2") return abrirPanel(session.user);
+    if (aal.currentLevel === "aal2" || !pideCodigo) return abrirPanel(session.user);
 
     const { data: f, error: fErr } = await db.auth.mfa.listFactors();
     if (fErr) { toast(errTxt(fErr), true); return vista("vLogin"); }
@@ -167,7 +193,7 @@
   // Sin internet solo entra si en este aparato ya se entró con internet (contraseña + código) en las últimas horas
   function entrarSinRed() {
     const p = leerLS(LS_PERMISO, null), c = copia.leer();
-    if (p && p.hasta > Date.now() && Array.isArray(c.ventas)) return abrirPanel({ email: p.email }, true);
+    if (p && p.hasta > Date.now() && Array.isArray(c.ventas)) { ACCESO = p.acceso || null; V17 = !!ACCESO; return abrirPanel({ email: p.email }, true); }
     vista("vLogin");
     $("#loginMsg").textContent = "No hay internet. Para poder usar el panel sin internet, primero entre una vez con internet en esta compu.";
   }
@@ -193,10 +219,13 @@
       e.preventDefault();
       const f = e.currentTarget, btn = f.querySelector("button");
       btn.disabled = true; $("#loginMsg").textContent = "";
-      const { error } = await db.auth.signInWithPassword({ email: f.email.value.trim(), password: f.password.value });
+      // "marvin" → marvin@usuarios.lacampina.local; un correo completo entra tal cual
+      const id = f.email.value.trim().toLowerCase();
+      const email = id.includes("@") ? id : `${id}@${C.DOMINIO_PERSONAL || "usuarios.lacampina.local"}`;
+      const { error } = await db.auth.signInWithPassword({ email, password: f.password.value });
       btn.disabled = false;
       f.password.value = "";
-      if (error) { $("#loginMsg").textContent = "Correo o contraseña incorrectos."; return; }
+      if (error) { $("#loginMsg").textContent = "Usuario o contraseña incorrectos."; return; }
       siguientePaso();
     });
     $("#formEnrolar").addEventListener("submit", (e) => { e.preventDefault(); verificarCodigo(e.currentTarget, $("#enrolarMsg")); });
@@ -222,8 +251,8 @@
   async function abrirPanel(user, sinRed = false) {
     SIN_RED = sinRed;
     vista("vPanel");
-    $("#userEmail").textContent = user.email || "";
-    if (!sinRed) ponerLS(LS_PERMISO, { email: user.email, hasta: Date.now() + HORAS_SIN_RED * 3600 * 1000 });
+    $("#userEmail").textContent = ACCESO?.nombre || ACCESO?.usuario || user.email || "";
+    if (!sinRed) ponerLS(LS_PERMISO, { email: user.email, acceso: ACCESO, hasta: Date.now() + HORAS_SIN_RED * 3600 * 1000 });
     if (panelListo) return;
     panelListo = true;
     vigilarInactividad();
@@ -263,8 +292,9 @@
     }
     document.documentElement.classList.toggle("sin-v14", !V14);
     document.documentElement.classList.toggle("sin-v16", !V16);
+    document.documentElement.classList.toggle("sin-v17", !V17);
     $("#tabBit").hidden = !V16;
-    if (V16) cargarUsuarios();
+    if (V16 && soyAdministrador()) cargarUsuarios();
     document.documentElement.classList.toggle("sin-v13", !V13);
     $("#tabCred").hidden = !V13;
     document.documentElement.classList.toggle("sin-v11", !V11);
@@ -276,10 +306,12 @@
     document.documentElement.classList.toggle("sin-v4", !V4);
     document.documentElement.classList.toggle("sin-v9", !V9);
     $("#avisoV4").hidden = V4;
+    aplicarPermisos();
     await cargarCategorias();
-    await Promise.all([cargarProductos(), cargarAjustes(), contarPorVerificar(), V4 && !sinRed ? cargarAvisos() : null]);
-    await cargarVentas();
-    cargarPreguntas();
+    await Promise.all([cargarProductos(), cargarAjustes(), puede("ventas") || puede("caja") ? contarPorVerificar() : null,
+      V4 && !sinRed && soyAdministrador() ? cargarAvisos() : null]);
+    if (puede("ventas") || puede("caja") || puede("credito") || puede("reportes")) await cargarVentas();
+    if (puede("preguntas")) cargarPreguntas();
     addEventListener("online", estadoRedPanel);
     addEventListener("offline", estadoRedPanel);
     estadoRedPanel();
@@ -287,8 +319,37 @@
     setInterval(() => {
       if (document.hidden) return;
       enviarCola();
-      if (!SIN_RED && navigator.onLine && !$("#dlgVenta").open) { cargarVentas(); contarPorVerificar(); cargarPreguntas(); }
+      if (!SIN_RED && navigator.onLine && !$("#dlgVenta").open) {
+        if (puede("ventas") || puede("caja")) { cargarVentas(); contarPorVerificar(); }
+        if (puede("preguntas")) cargarPreguntas();
+      }
     }, 60000);
+  }
+
+  // Cada empleado ve solo las pestañas y botones de lo que puede hacer (la base también lo revisa)
+  function aplicarPermisos() {
+    const admin = soyAdministrador();
+    document.documentElement.classList.toggle("es-empleado", !admin);
+    const ocultar = {
+      tabVen: !puede("ventas"), tabPreg: !puede("preguntas"), tabCaja: !puede("caja"), tabCred: !puede("credito"),
+      tabComp: !(puede("ventas") || puede("reportes")), tabRep: !puede("reportes"), tabBit: !admin,
+      tabProd: !(puede("productos") || puede("precios")), tabInv: !(puede("inventario") || puede("productos")),
+      tabCat: !puede("productos"), tabAj: !admin
+    };
+    for (const [id, no] of Object.entries(ocultar)) if (no) $("#" + id).hidden = true;
+    // botones de Productos e Inventario
+    $("#btnNuevoProd").hidden = !puede("productos");
+    $("#btnFotos").hidden = !puede("productos");
+    $("#btnImportar").classList.toggle("sin-permiso", !(puede("productos") && puede("precios")));
+    $("#btnAjustePrecios").classList.toggle("sin-permiso", !puede("precios"));
+    $("#btnNuevaEntrada").classList.toggle("sin-permiso", !puede("inventario"));
+    // si la pestaña abierta no le toca, se abre la primera que sí
+    const abierta = $(".pestana[aria-selected=true]");
+    if (!abierta || abierta.hidden) {
+      const primera = $$(".pestana").find((t) => !t.hidden);
+      if (primera) primera.click();
+      else $("#tVen").innerHTML = `<p class="msg msg--error">Su usuario todavía no tiene permisos. Pídale al administrador que se los dé.</p>`;
+    }
   }
 
   // ---------- como programa (app instalada) ----------
@@ -297,7 +358,8 @@
     if (!destino) return;
     history.replaceState(null, "", location.pathname);
     const tab = { venta: "#tabVen", productos: "#tabProd", caja: "#tabCaja" }[destino];
-    if (tab) $(tab).click();
+    if (!tab || $(tab).hidden) return;
+    $(tab).click();
     if (destino === "venta" && !$("#dlgVenta").open) $("#btnNuevaVenta").click();
   }
   // si el panel ya está abierto y se toca un acceso directo, llega aquí (launch_handler: focus-existing)
@@ -443,9 +505,9 @@
           <span class="etiquetas">${p.destacado ? '<span class="etq etq--rec">Recomendado</span>' : ""}${p.activo ? "" : '<span class="etq">Oculto</span>'}${p.agotado ? '<span class="etq etq--sin_pago">Agotado</span>' : ""}${ofertaVigente(p) ? `<span class="etq etq--por_verificar">Oferta ${U.esc(U.colones(p.precio_oferta))} hasta ${U.esc(String(p.oferta_hasta).split("-").reverse().join("/"))}</span>` : p.oferta_hasta ? '<span class="etq">Oferta vencida</span>' : ""}</span>
         </div>
         <div class="fila__acc">
-          ${V4 ? `<button type="button" class="btn btn--sm ${p.agotado ? "btn--negro" : "btn--linea"}" data-agotado="${p.id}">${p.agotado ? "Ya hay" : "Agotado"}</button>` : ""}
-          <button type="button" class="btn btn--sm btn--linea" data-edit="${p.id}">Editar</button>
-          <button type="button" class="enlace enlace--peligro" data-del="${p.id}">Borrar</button>
+          ${V4 && puede("productos") ? `<button type="button" class="btn btn--sm ${p.agotado ? "btn--negro" : "btn--linea"}" data-agotado="${p.id}">${p.agotado ? "Ya hay" : "Agotado"}</button>` : ""}
+          ${puede("productos") ? `<button type="button" class="btn btn--sm btn--linea" data-edit="${p.id}">Editar</button>
+          <button type="button" class="enlace enlace--peligro" data-del="${p.id}">Borrar</button>` : ""}
         </div>
       </li>`;
     }).join("") + (todos.length > lista.length ? `<li class="vacio-adm">Se muestran ${lista.length} de ${todos.length.toLocaleString("es-CR")} productos. Escriba en el buscador (nombre o código) para encontrar los demás.</li>` : "")
@@ -470,6 +532,9 @@
     fp.nombre.value = p?.nombre || "";
     fp.descripcion.value = p?.descripcion || "";
     fp.precio.value = p?.precio ?? "";
+    // sin permiso de precios: se ven pero no se cambian (la base tampoco deja)
+    ["precio", "precio_oferta", "oferta_hasta"].forEach((k) => { if (fp[k]) fp[k].disabled = !puede("precios"); });
+    $("#prodSinPrecio").hidden = puede("precios");
     fp.unidad.value = p?.unidad || "";
     fp.categoria_id.value = p?.categoria_id || "";
     fp.destacado.checked = !!p?.destacado;
@@ -763,7 +828,7 @@
   }
   $("#btnVerBitacora").addEventListener("click", () => $("#tabBit").click());
 
-  // ---------- usuarios del panel (v16) ----------
+  // ---------- usuarios del panel (v16 nombres y roles; v17 empleados con permisos) ----------
   async function cargarUsuarios() {
     const { data, error } = await db.rpc("usuarios_panel");
     if (error) return;
@@ -771,31 +836,87 @@
     YO = USUARIOS.find((u) => u.soy_yo) || null;
     pintarUsuarios();
     const sel = $("#bitQuien"), antes = sel.value;
-    sel.innerHTML = `<option value="">Todos</option>` + USUARIOS.map((u) => `<option value="${U.esc(u.user_id)}">${U.esc(u.nombre || u.correo || "Sin nombre")}</option>`).join("");
+    sel.innerHTML = `<option value="">Todos</option>` + USUARIOS.map((u) => `<option value="${U.esc(u.user_id)}">${U.esc(u.nombre || u.usuario || u.correo || "Sin nombre")}</option>`).join("");
     sel.value = antes;
     if (V && $("#dlgVenta").open) $("#btnBorrarVenta").hidden = !puedeBorrarVenta();
   }
+  const casillasPermisos = (marcados = [], pide = false) => `
+    <legend>Puede usar</legend>
+    <div class="permisos__rapidos">
+      <button type="button" class="btn btn--sm btn--linea" data-plantilla="caja">Caja</button>
+      <button type="button" class="btn btn--sm btn--linea" data-plantilla="inventario">Inventario</button>
+      <button type="button" class="btn btn--sm btn--linea" data-plantilla="nada">Nada</button>
+    </div>
+    <div class="permisos__lista">${PERMISOS.map(([k, t]) => `<label class="check"><input type="checkbox" name="permiso" value="${k}"${marcados.includes(k) ? " checked" : ""} /> ${t}</label>`).join("")}</div>
+    <label class="check"><input type="checkbox" name="pide_codigo"${pide ? " checked" : ""} /> Pide el código del autenticador (más seguro)</label>`;
   function pintarUsuarios() {
-    const admin = YO?.rol === "administrador";
-    $("#listaUsuarios").innerHTML = USUARIOS.map((u) => `<li class="usu-fila" data-uid="${U.esc(u.user_id)}">
-      <label>Nombre<input name="nombre" value="${U.esc(u.nombre || "")}" maxlength="60" placeholder="${u.soy_yo ? "Escriba su nombre" : "Nombre"}" autocomplete="off" /></label>
-      <label>Rol<select name="rol"${admin ? "" : " disabled"}>
-        <option value="administrador"${u.rol === "administrador" ? " selected" : ""}>Administrador</option>
-        <option value="usuario"${u.rol === "usuario" ? " selected" : ""}>Usuario</option></select></label>
-      <button type="button" class="btn btn--sm btn--negro" data-guardar-usuario>Guardar</button>
-      <small class="usu-fila__info">${U.esc(u.correo || "")}${u.soy_yo ? " (usted)" : ""} · ${u.ultimo_ingreso ? `último ingreso ${fechaCR(u.ultimo_ingreso, { dateStyle: "short", timeStyle: "short" })}` : "todavía no ha entrado"}</small>
-    </li>`).join("");
+    const admin = esAdministradorReal(), v17 = !!ACCESO;
+    $("#listaUsuarios").innerHTML = USUARIOS.map((u) => {
+      const esEmp = u.rol === "usuario", sintetico = String(u.correo || "").endsWith("@" + (C.DOMINIO_PERSONAL || "usuarios.lacampina.local"));
+      const entra = sintetico ? `usuario <b>${U.esc(u.usuario || u.correo.split("@")[0])}</b>` : U.esc(u.correo || "");
+      return `<li class="usu-fila${u.activo === false ? " usu-fila--inactivo" : ""}" data-uid="${U.esc(u.user_id)}">
+        <label>Nombre<input name="nombre" value="${U.esc(u.nombre || "")}" maxlength="60" placeholder="${u.soy_yo ? "Escriba su nombre" : "Nombre"}" autocomplete="off" /></label>
+        <label>Rol<select name="rol"${admin && !u.soy_yo ? "" : " disabled"}>
+          <option value="administrador"${u.rol === "administrador" ? " selected" : ""}>Administrador (todo)</option>
+          <option value="usuario"${esEmp ? " selected" : ""}>Empleado</option></select></label>
+        <button type="button" class="btn btn--sm btn--negro" data-guardar-usuario>Guardar</button>
+        <small class="usu-fila__info">Entra con ${entra}${u.soy_yo ? " (usted)" : ""} · ${u.ultimo_ingreso ? `último ingreso ${fechaCR(u.ultimo_ingreso, { dateStyle: "short", timeStyle: "short" })}` : "todavía no ha entrado"}${u.activo === false ? " · <b>desactivado</b>" : ""}${esEmp ? "" : " · usa el autenticador"}</small>
+        ${v17 && esEmp ? `<fieldset class="permisos usu-fila__permisos" data-permisos>${casillasPermisos(u.permisos || [], !!u.pide_codigo)}</fieldset>
+        <div class="usu-fila__acc">
+          ${sintetico ? `<button type="button" class="enlace" data-clave-usuario>Cambiar contraseña</button>
+          <button type="button" class="enlace" data-renombrar-usuario>Cambiar usuario</button>` : ""}
+          <label class="check"><input type="checkbox" name="activo"${u.activo !== false ? " checked" : ""} /> Activo (puede entrar)</label>
+        </div>` : ""}
+      </li>`;
+    }).join("");
     const m = $("#usuMsg");
     if (YO && !YO.nombre) { m.className = "msg msg--error"; m.textContent = "Póngale su nombre: es el que sale en la bitácora (mientras tanto sale su correo)."; }
     else if (m.classList.contains("msg--error") && /Póngale/.test(m.textContent)) { m.className = "msg"; m.textContent = ""; }
+    $("#formNuevoUsuario [data-permisos]").innerHTML = casillasPermisos(PLANTILLAS.caja, false);
   }
+  const permisosDe = (caja) => $$("[name=permiso]", caja).filter((x) => x.checked).map((x) => x.value);
+  // botones rápidos: Caja / Inventario / Nada
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-plantilla]");
+    if (!b) return;
+    const caja = b.closest("[data-permisos]"), lista = PLANTILLAS[b.dataset.plantilla] || [];
+    $$("[name=permiso]", caja).forEach((x) => (x.checked = lista.includes(x.value)));
+  });
+  async function llamarUsuarios(cuerpo) {
+    const { data, error } = await db.functions.invoke("usuarios", { body: cuerpo });
+    if (error) {
+      let m = "";
+      try { m = (await error.context.json()).error; } catch { /* sin detalle */ }
+      if (!m && U.esErrorRed(error)) m = "Sin internet.";
+      throw new Error(m || "No se pudo. ¿Está publicada la función “usuarios” en Supabase? (vea el README)");
+    }
+    if (!data?.ok) throw new Error(data?.error || "No se pudo completar.");
+    return data;
+  }
+  function msgUsu(t, error = false) { const m = $("#usuMsg"); m.className = error ? "msg msg--error" : "msg"; m.textContent = t; }
   $("#listaUsuarios").addEventListener("click", async (e) => {
+    const li = e.target.closest("[data-uid]");
+    if (!li) return;
+    const u = USUARIOS.find((x) => x.user_id === li.dataset.uid);
+    const quien = u.nombre || u.usuario || "esta persona";
+    if (e.target.closest("[data-clave-usuario]")) {
+      const clave = prompt(`Nueva contraseña para ${quien} (8 o más, con letras y números):`, claveNueva());
+      if (clave === null) return;
+      try { await llamarUsuarios({ accion: "clave", user_id: u.user_id, clave }); msgUsu(`Contraseña de ${quien} cambiada. Désela en persona.`); }
+      catch (err) { msgUsu(err.message, true); }
+      return cargarUsuarios();
+    }
+    if (e.target.closest("[data-renombrar-usuario]")) {
+      const nuevo = prompt(`Nuevo usuario para entrar (${quien}). Minúsculas, sin espacios:`, u.usuario || "");
+      if (nuevo === null || nuevo.trim().toLowerCase() === u.usuario) return;
+      try { const r = await llamarUsuarios({ accion: "renombrar", user_id: u.user_id, usuario: nuevo }); msgUsu(`Ahora ${quien} entra con el usuario «${r.usuario}».`); }
+      catch (err) { msgUsu(err.message, true); }
+      return cargarUsuarios();
+    }
     const b = e.target.closest("[data-guardar-usuario]");
     if (!b) return;
-    const li = b.closest("[data-uid]"), u = USUARIOS.find((x) => x.user_id === li.dataset.uid);
     const nombre = li.querySelector("[name=nombre]").value.trim().replace(/\s+/g, " "), rol = li.querySelector("[name=rol]").value;
-    const m = $("#usuMsg");
-    if (nombre.length < 2) { m.className = "msg msg--error"; m.textContent = "El nombre debe tener al menos 2 letras."; return; }
+    if (nombre.length < 2) return msgUsu("El nombre debe tener al menos 2 letras.", true);
     b.disabled = true;
     try {
       if (nombre !== (u.nombre || "")) {
@@ -803,16 +924,57 @@
         if (error) throw error;
       }
       if (rol !== u.rol) {
+        if (rol === "administrador" && !confirm(`${quien} va a poder hacer TODO (borrar ventas, cambiar precios, usuarios…) y va a tener que usar el autenticador del celular. ¿Seguir?`)) throw new Error("No se cambió el rol.");
         const { error } = await db.rpc("poner_rol_usuario", { p_user: u.user_id, p_rol: rol });
         if (error) throw error;
       }
-      m.className = "msg"; m.textContent = "Guardado.";
+      const caja = li.querySelector("[data-permisos]");
+      if (caja && rol === "usuario") {
+        const permisos = permisosDe(caja), pide = caja.querySelector("[name=pide_codigo]").checked;
+        if (permisos.join() !== (u.permisos || []).join() || pide !== !!u.pide_codigo) {
+          const { error } = await db.rpc("poner_permisos", { p_user: u.user_id, p_permisos: permisos, p_pide_codigo: pide });
+          if (error) throw error;
+        }
+        const activo = li.querySelector("[name=activo]").checked;
+        if (activo !== (u.activo !== false)) {
+          const { error } = await db.rpc("poner_activo", { p_user: u.user_id, p_activo: activo });
+          if (error) throw error;
+        }
+      }
+      msgUsu(`Guardado: ${nombre}.`);
     } catch (err) {
-      m.className = "msg msg--error"; m.textContent = errTxt(err);
+      msgUsu(errTxt(err), true);
     } finally {
       b.disabled = false;
       await cargarUsuarios();
     }
+  });
+  // contraseña fácil de dictar: palabra + números (el empleado la puede cambiar con el administrador)
+  function claveNueva() {
+    const pal = ["cemento", "martillo", "tornillo", "lamina", "pintura", "varilla", "block", "clavo", "tubo", "cable"];
+    const n = crypto.getRandomValues(new Uint32Array(2));
+    return pal[n[0] % pal.length] + String(1000 + (n[1] % 9000));
+  }
+  $("#btnGenerarClave").addEventListener("click", () => { $("#formNuevoUsuario").clave.value = claveNueva(); });
+  $("#formNuevoUsuario").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, btn = f.querySelector("[type=submit]");
+    const cuerpo = {
+      accion: "crear", nombre: f.nombre.value.trim(), usuario: f.usuario.value.trim().toLowerCase(), clave: f.clave.value,
+      permisos: permisosDe(f), pide_codigo: f.pide_codigo.checked
+    };
+    if (cuerpo.nombre.length < 2) return msgUsu("Escriba el nombre.", true);
+    if (!/^[a-z0-9][a-z0-9._-]{2,29}$/.test(cuerpo.usuario)) return msgUsu("El usuario va en minúscula, de 3 a 30 letras o números, sin espacios (por ejemplo: marvin).", true);
+    if (cuerpo.clave.length < 8 || !/[a-z]/i.test(cuerpo.clave) || !/\d/.test(cuerpo.clave)) return msgUsu("La contraseña: 8 o más, con letras y números.", true);
+    btn.disabled = true;
+    try {
+      await llamarUsuarios(cuerpo);
+      msgUsu(`Listo: ${cuerpo.nombre} entra con el usuario «${cuerpo.usuario}» y la contraseña «${cuerpo.clave}». Anótela y désela en persona.`);
+      f.reset(); $("#boxNuevoUsuario").open = false;
+      await cargarUsuarios();
+    } catch (err) {
+      msgUsu(err.message, true);
+    } finally { btn.disabled = false; }
   });
 
   // ---------- bitácora (v16) ----------
@@ -1233,6 +1395,12 @@
   }
 
   // ---------- existencia dentro de la venta ----------
+  // precio más bajo con que se puede vender un producto sin permiso de precios (el normal o la oferta vigente)
+  function precioCatalogo(id) {
+    const p = productos.find((x) => x.id === id);
+    if (!p || p.precio == null) return null;
+    return ofertaVigente(p) ? Math.min(Number(p.precio), Number(p.precio_oferta)) : Number(p.precio);
+  }
   const STOCK_BAJO = 10;                       // menos de esto: "ya casi no quedan"
   const cantTxt = (n) => Number(n).toLocaleString("es-CR", { maximumFractionDigits: 2 });
   const quedaTxt = (n) => (Number(n) === 1 ? "queda 1" : `quedan ${cantTxt(n)}`);
@@ -1274,7 +1442,7 @@
       <tr data-n="${n}">
         <td><input data-k="descripcion" value="${U.esc(i.descripcion)}" maxlength="120" aria-label="Descripción" ${edit ? "" : "disabled"} />${edit ? `<small class="stock-nota" data-stock="${n}">${notaStock(i)}</small>` : ""}</td>
         <td class="num"><input data-k="cantidad" type="number" min="0.01" step="0.01" value="${U.esc(i.cantidad)}" ${edit && isFinite(disponible(i.producto_id)) ? `max="${disponible(i.producto_id)}"` : ""} aria-label="Cantidad" ${edit ? "" : "disabled"} /></td>
-        <td class="num"><input data-k="precio_unit" type="number" min="0" step="0.01" value="${U.esc(i.precio_unit)}" aria-label="Precio unitario" ${edit ? "" : "disabled"} /></td>
+        <td class="num"><input data-k="precio_unit" type="number" min="0" step="0.01" value="${U.esc(i.precio_unit)}" aria-label="Precio unitario" ${edit && (puede("precios") || !i.producto_id || !precioCatalogo(i.producto_id)) ? "" : "disabled"} /></td>
         <td class="num" data-sub>${fmt(i.cantidad * i.precio_unit)}</td>
         <td>${edit ? `<button type="button" class="cerrar-x" data-quitar-item="${n}" aria-label="Quitar renglón">✕</button>` : ""}</td>
       </tr>`).join("") || `<tr><td colspan="5" class="vacio-adm">Agregue productos a la venta.</td></tr>`;
@@ -1348,7 +1516,7 @@
     if (p && V4 && !V.local && !V.soloLectura) pintarFactura();
     $("#boxFE").hidden = !p || !V10 || !FE?.activo || !!V.local || !!V.soloLectura;
     if (!$("#boxFE").hidden) pintarFEVenta();
-    $("#btnAnularVenta").hidden = !p || p.estado === "anulada" || !!V.local || !!V.soloLectura;
+    $("#btnAnularVenta").hidden = !p || p.estado === "anulada" || !!V.local || !!V.soloLectura || !puede("anular");
     $(".imprimir").hidden = !p;
     $("#btnBorrarVenta").hidden = !puedeBorrarVenta();
   }
@@ -1697,7 +1865,8 @@
   function pintarCondicion() {
     const p = V.pedido, edit = itemsEditables() && !V.local;
     const online = !SIN_RED && navigator.onLine;
-    const ver = V13 && !V.local && !V.soloLectura && (p ? p.estado !== "anulada" || p.credito : true) && (online || p?.credito);
+    const ver = V13 && !V.local && !V.soloLectura && (p ? p.estado !== "anulada" || p.credito : true) && (online || p?.credito)
+      && (puede("credito") || !!p?.credito);
     $("#boxCondicion").hidden = !ver;
     if (!ver) return;
     const cred = V.cond === "credito";
@@ -2017,7 +2186,7 @@
       const acc = [];
       if (["firmado", "error"].includes(d.estado)) acc.push(`<button type="button" class="btn btn--sm btn--negro" data-fe="enviar" data-id="${d.id}">Enviar de nuevo</button>`);
       if (["enviado", "procesando"].includes(d.estado)) acc.push(`<button type="button" class="btn btn--sm btn--linea" data-fe="consultar" data-id="${d.id}">Consultar</button>`);
-      if (d.estado === "aceptado" && d.tipo !== "03" && !d.anulado) acc.push(`<button type="button" class="enlace enlace--peligro" data-fe="anular" data-id="${d.id}">Anular con nota de crédito</button>`);
+      if (d.estado === "aceptado" && d.tipo !== "03" && !d.anulado && puede("anular")) acc.push(`<button type="button" class="enlace enlace--peligro" data-fe="anular" data-id="${d.id}">Anular con nota de crédito</button>`);
       acc.push(`<button type="button" class="enlace" data-fe="xml" data-id="${d.id}">XML</button>`);
       return `<li class="pago fe-doc ${d.anulado ? "pago--anulado" : ""}">
         <div class="pago__monto">${fmt(d.total)}<small>${FE_TIPO[d.tipo] || d.tipo}</small></div>
@@ -3208,10 +3377,10 @@
   // Borrar solo lo puede el administrador (v16), sin pagos ni comprobante electrónico, y queda en la bitácora.
   function puedeBorrarVenta() {
     const p = V?.pedido;
-    if (V?.local) return !V16 || YO?.rol === "administrador";
+    if (V?.local) return esAdministradorReal();
     if (!p || V.soloLectura) return false;
     if (!V16) return p.estado === "abierta" && V.pagos.length === 0;
-    return YO?.rol === "administrador" && V.pagos.length === 0 && !(V.fe || []).length && !V.factura;
+    return esAdministradorReal() && V.pagos.length === 0 && !(V.fe || []).length && !V.factura;
   }
   // tiquete o factura electrónica de la venta que todavía no tiene nota de crédito
   function feSinNota() {

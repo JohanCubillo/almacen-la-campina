@@ -99,6 +99,8 @@ Eso deja el texto copiado. Después, en Supabase: **Edge Functions → Secrets**
 
 Los secretos también se pueden poner con `npx supabase secrets set NOMBRE=valor --project-ref osuhkkojtwweepniwxtp`.
 
+> Desde v17, la función también la pueden usar los empleados: emitir con el permiso "Ventas y cobros" y hacer notas de crédito con "Anular ventas". Si la función ya estaba publicada antes de ese cambio, vuelva a publicarla con el `index.ts` nuevo.
+
 ## 6. Encender en el panel
 
 1. **Datos del negocio → Facturación electrónica:** llene los datos del emisor. Mientras Moriah siga facturando, use **otra terminal**, por ejemplo `00002`, para que los consecutivos no choquen. Si hace envíos a domicilio, ponga el **CABYS del envío**.
