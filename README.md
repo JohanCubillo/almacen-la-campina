@@ -26,16 +26,18 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 12. **SQL Editor → New query** → pegar `supabase/v13_credito.sql` → **Run**. Activa la pestaña *Crédito* (clientes, límite, plazo, abonos y estado de cuenta) y la opción *Crédito* en las ventas.
 13. **SQL Editor → New query** → pegar `supabase/v14_caja.sql` → **Run**. Activa abrir y cerrar caja (fondo, entradas y salidas de efectivo, conteo y cierre impreso) en la pestaña *Caja*.
 14. **SQL Editor → New query** → pegar `supabase/v15_mas_vendidos.sql` → **Run**. Anota lo que más se vende al importar el inventario de Moriah, para ponerle foto primero a eso (**Productos → Fotos**). Correrlo **antes** de importar el Excel de Moriah.
-15. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
-16. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
-17. Registrar al administrador:
+15. **SQL Editor → New query** → pegar `supabase/v16_bitacora.sql` → **Run**. Bitácora con nombres y "antes → después", pestaña *Bitácora*, usuarios con rol, y las ventas ya no se borran: se anulan (con nota de crédito si tienen comprobante electrónico). Solo el administrador borra, con motivo.
+16. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
+17. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
+18. Registrar al administrador (el dueño):
    ```sql
-   insert into public.admins (user_id)
-   select id from auth.users where email = 'correo-del-admin@ejemplo.com'
-   on conflict do nothing;
+   insert into public.admins (user_id, rol)
+   select id, 'administrador' from auth.users where email = 'correo-del-admin@ejemplo.com'
+   on conflict (user_id) do update set rol = excluded.rol;
    ```
-18. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
-19. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
+   Para un empleado, el mismo SQL con `'usuario'` en vez de `'administrador'`. Después, en **Datos del negocio → Usuarios del panel**, se le pone el nombre. (Antes de correr v16 se usa el SQL viejo, sin `rol`.)
+19. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
+20. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
 
 ## 2. Primer ingreso al panel
 
@@ -83,6 +85,8 @@ Tienda: Agregar productos al carrito  ─►  Enviar pedido (nombre + teléfono)
 | Mismo comprobante usado dos veces | Nº de comprobante único; avisa en qué venta ya se usó |
 | Captura falsa o editada | "Pagada" solo con pagos marcados **Ya lo vi en el banco** (queda quién y cuándo) |
 | Cambiar o borrar pagos | No se editan ni se borran: se anulan con motivo |
+| Borrar una venta para esconderla | No se borran: se **anulan** con motivo (con nota de crédito electrónica si tenía tiquete o factura). Solo el **administrador** puede borrar una venta sin pagos ni comprobante electrónico, escribiendo el motivo, y queda en la bitácora con todo lo que tenía |
+| No saber quién hizo qué | **Bitácora**: quién, cuándo y qué cambió (antes → después). No se puede editar ni borrar |
 | Bajar precios después de cobrar | Productos de la venta congelados con pagos verificados |
 | Cliente adivinando pedidos ajenos | Código de 8 caracteres + teléfono; máx. 5 intentos fallidos por código cada 15 min |
 | Spam de pedidos o archivos | Máx. 3 pedidos por teléfono cada 15 min; subidas solo a rutas autorizadas, 5 por pedido al día, 5 MB |
@@ -176,6 +180,19 @@ En la tienda, la sección **¿Tiene una pregunta?** (y el enlace *Dejar una preg
 
 **Datos del negocio → Respaldo en esta compu → Descargar respaldo.** Baja un ZIP con todas las tablas (cada una en CSV para Excel, y `respaldo.json` con todo junto) y, si se marca la casilla, las fotos de comprobantes y productos. No incluye contraseñas ni el token de Telegram. Hacerlo al menos una vez al mes y guardar una copia fuera de la compu (USB o Drive). El panel avisa cuando ya pasaron 30 días.
 
+## Bitácora y usuarios
+
+- **Pestaña Bitácora:** todo lo que se hace en el panel, del más nuevo al más viejo, por día. Dice **quién** (el nombre del usuario), **qué** (producto, venta, cliente, caja…) y **qué cambió**: "Precio: ₡7 900 → ₡8 200". Si vino de una importación de Excel o de un ajuste de precios, también lo dice.
+- Filtros: por persona, por fechas, por tipo (ventas y pagos, **ventas borradas o anuladas**, productos y precios, clientes y crédito, caja e inventario, configuración) y buscador por producto, cliente o motivo.
+- Nadie la puede editar ni borrar desde el panel. Va en el respaldo.
+- No anota cada cambio de existencia (para eso está *Inventario → Movimientos*) ni los totales que el sistema recalcula solo.
+- **Datos del negocio → Usuarios del panel:** el nombre de cada uno (el que sale en la bitácora), su correo, el rol y su último ingreso. Solo un **administrador** cambia roles; siempre queda al menos uno.
+
+**Ventas: anular, no borrar.**
+- *Anular venta* pide el motivo y la venta queda marcada como anulada (con lo que tenía). Si tiene pagos, primero se anulan los pagos.
+- Si la venta tiene **tiquete o factura electrónica**, al anularla el panel emite primero la **nota de crédito** ante Hacienda y después anula la venta. Si Hacienda todavía no aceptó el comprobante, hay que esperar.
+- *Borrar venta* solo le sale al **administrador**, y solo en ventas sin pagos, sin comprobante electrónico y sin datos de factura (por ejemplo, una venta repetida por error). Pide el motivo y queda en la bitácora con todos sus productos.
+
 ## Fotos de los productos (buscar en Google y pegar)
 
 **Productos → Fotos** muestra los productos sin foto, empezando por los **más vendidos** (necesita `v15_mas_vendidos.sql` y haber importado el inventario de Moriah). Arriba dice cuántos de los 150 más vendidos ya tienen foto.
@@ -228,7 +245,7 @@ assets/productos/  fotos de productos (WebP 800×800)
 assets/vendor/     supabase-js 2.119.2 (local, sin CDN)
 assets/fonts/      Barlow / Barlow Condensed (OFL)
 assets/img/        logo, íconos de la app, og.jpg (imagen para compartir)
-supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql, v14_caja.sql, v15_mas_vendidos.sql
+supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql, v14_caja.sql, v15_mas_vendidos.sql, v16_bitacora.sql
 supabase/functions/facturar/   función que firma y envía los comprobantes a Hacienda
 herramientas/      prueba de facturación en la compu (prueba-hacienda.mjs)
 sw.js              copia de la página para abrirla sin internet

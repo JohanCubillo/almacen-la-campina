@@ -105,6 +105,7 @@
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCred" id="tabCred" hidden>Crédito <span class="badge badge--amarillo" id="badgeCred" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tComp" id="tabComp" hidden>Comprobantes</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tRep" id="tabRep">Reportes</button>
+      <button role="tab" class="pestana" aria-selected="false" aria-controls="tBit" id="tabBit" hidden>Bitácora</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tProd" id="tabProd">Productos</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tInv" id="tabInv" hidden>Inventario</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCat" id="tabCat">Categorías</button>
@@ -241,6 +242,34 @@
         </div>
         <dl class="cifras" id="compCifras"></dl>
         <ul id="listaComp" class="filas"></ul>
+      </section>
+
+      <!-- BITÁCORA -->
+      <section id="tBit" role="tabpanel" aria-labelledby="tabBit" hidden>
+        <div class="barra-herr">
+          <h2>Bitácora</h2>
+          <div class="barra-herr__der">
+            <input id="bitBuscar" type="search" placeholder="Producto, cliente, motivo…" maxlength="60" aria-label="Buscar en la bitácora" />
+            <label class="fecha-caja">Desde <input type="date" id="bitDesde" /></label>
+            <label class="fecha-caja">Hasta <input type="date" id="bitHasta" /></label>
+          </div>
+        </div>
+        <p class="ayuda">Todo lo que se hace en el panel queda aquí: quién, cuándo y qué cambió (antes → después). No se puede editar ni borrar.</p>
+        <div class="bit-filtros">
+          <label class="fecha-caja">Quién <select id="bitQuien"><option value="">Todos</option></select></label>
+          <div class="segmentos segmentos--sm" role="radiogroup" aria-label="Qué mostrar" id="bitQue">
+            <button type="button" role="radio" aria-checked="true" data-bq="">Todo</button>
+            <button type="button" role="radio" aria-checked="false" data-bq="ventas">Ventas y pagos</button>
+            <button type="button" role="radio" aria-checked="false" data-bq="borradas">Ventas borradas o anuladas</button>
+            <button type="button" role="radio" aria-checked="false" data-bq="productos">Productos y precios</button>
+            <button type="button" role="radio" aria-checked="false" data-bq="credito">Clientes y crédito</button>
+            <button type="button" role="radio" aria-checked="false" data-bq="caja">Caja e inventario</button>
+            <button type="button" role="radio" aria-checked="false" data-bq="ajustes">Configuración y usuarios</button>
+          </div>
+        </div>
+        <p class="msg" id="bitMsg" role="status"></p>
+        <ol class="bitacora" id="listaBit"></ol>
+        <button type="button" class="btn btn--linea" id="btnMasBit" hidden>Ver más</button>
       </section>
 
       <!-- REPORTES -->
@@ -519,9 +548,20 @@
           </fieldset>
         </section>
 
+        <section class="tarjeta ajustes v16" id="boxUsuarios" aria-labelledby="titUsuarios">
+          <fieldset>
+            <legend id="titUsuarios">Usuarios del panel</legend>
+            <p class="ayuda">El nombre es el que sale en la bitácora. Solo un <b>administrador</b> puede borrar ventas (con motivo) y cambiar roles; los demás las anulan.</p>
+            <ul class="usuarios" id="listaUsuarios"></ul>
+            <p class="msg" id="usuMsg" role="status"></p>
+            <p class="ayuda">Para agregar a alguien: Supabase → <b>Authentication → Add user</b>, y después el SQL de "Registrar al administrador" del README (para un empleado, con rol <b>usuario</b>). Aquí se le pone el nombre.</p>
+          </fieldset>
+        </section>
+
         <details class="tarjeta actividad">
           <summary>Actividad reciente del panel</summary>
           <ul id="listaAuditoria"></ul>
+          <button type="button" class="enlace v16" id="btnVerBitacora">Ver la bitácora completa</button>
         </details>
       </section>
     </main>

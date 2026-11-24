@@ -112,3 +112,11 @@ Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usar
 - `productos.vendido` (lo vendido según Moriah) **no** se le da a `anon`: la tienda no puede leerlo (las columnas públicas de `productos` se dan una por una desde v9).
 - Solo se anota con `anotar_vendido` (admin con MFA), que nada más toca esa columna y solo en productos que ya tienen ese código.
 - La pantalla **Productos → Fotos** abre Google en otra pestaña con el nombre del producto (sin datos del panel: el enlace va con `noreferrer`). La foto llega por el portapapeles o como archivo, se re-codifica en el navegador (lo que borra datos EXIF/GPS) y se sube igual que cualquier foto de producto.
+
+## Bitácora, usuarios y ventas (v16)
+
+- `auditoria` guarda quién (nombre en ese momento), qué tabla y registro, el cambio campo por campo (antes → después) y de dónde vino. Solo la escribe el disparador `registrar_auditoria` (security definer); a `authenticated` y `anon` se les quitó insertar, cambiar y borrar.
+- Los datos secretos (`telegram_token`, `token`, `password`, `pin`) se anotan como "(oculto)". Los textos largos se recortan a 300 letras.
+- Roles en `admins.rol`: `administrador` o `usuario` (los nuevos entran como `usuario`). Solo `es_administrador()` puede `poner_rol_usuario` y siempre queda al menos un administrador. Los nombres y roles se cambian solo con RPC (`admins` sigue sin políticas para la API).
+- Ventas: `validar_pedido` no deja borrar una venta directo por la API. Solo `borrar_venta(p_pedido, p_motivo)` (administrador, motivo de 5+ letras), y nunca si tiene pagos, comprobante electrónico o datos de factura. El motivo queda en la bitácora junto con lo que tenía la venta y sus renglones.
+- Una venta con tiquete o factura electrónica viva (sin nota de crédito) no se puede anular: primero la nota de crédito.

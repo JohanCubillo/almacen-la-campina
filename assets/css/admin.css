@@ -434,6 +434,7 @@ html:not(.panel-ok) body { visibility: hidden; }
 .vence-pronto { color: #8a5a00; font-weight: 600; }
 #cliVentas tr.pagada td { color: var(--gris); }
 .sin-v14 .v14 { display: none !important; }
+.sin-v16 .v16 { display: none !important; }
 .turno { margin-bottom: 1.5rem; }
 .turno__cab { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
 .turno__cab h2 { margin: 0; }
@@ -471,3 +472,25 @@ html:not(.panel-ok) body { visibility: hidden; }
 .foto-item__acc { display: flex; flex-wrap: wrap; gap: .4rem; }
 .foto-item__acc .btn { flex: 1 1 auto; justify-content: center; text-align: center; }
 #dlgFotos .pasos { font-size: .95rem; }
+
+/* ---------- Usuarios del panel y bitácora (v16) ---------- */
+.usuarios { list-style: none; margin: 0 0 .5rem; padding: 0; display: grid; gap: .6rem; }
+.usu-fila { display: grid; grid-template-columns: minmax(12rem, 1.4fr) minmax(9rem, 1fr) auto; gap: .5rem .75rem; align-items: end; padding: .6rem 0; border-bottom: 1px solid var(--borde); }
+.usu-fila label { display: grid; gap: .2rem; font-size: .9rem; }
+.usu-fila__info { grid-column: 1 / -1; color: var(--gris); }
+@media (max-width: 560px) { .usu-fila { grid-template-columns: 1fr; } }
+.bit-filtros { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; margin: .5rem 0 1rem; }
+.bitacora { list-style: none; margin: 0; padding: 0; }
+.bit-dia { margin: 1.2rem 0 .3rem; font-weight: 700; border-bottom: 2px solid var(--negro); padding-bottom: .2rem; }
+.bit-dia::first-letter { text-transform: uppercase; }
+.bit-item { display: grid; grid-template-columns: 5.5rem 1fr; gap: .75rem; padding: .55rem 0; border-bottom: 1px solid var(--borde); }
+.bit-item time { white-space: nowrap; color: var(--gris); font-variant-numeric: tabular-nums; padding-top: .1rem; }
+.bit-item p { margin: 0; }
+.bit-item--alerta { background: #fff4f2; margin: 0 -.5rem; padding-left: .5rem; padding-right: .5rem; }
+.bit-alerta { color: #b42318; }
+.bit-motivo { font-style: italic; }
+.bit-origen, .bit-motivo { margin: .15rem 0 0 !important; font-size: .9rem; color: var(--gris); }
+.bit-cambios { margin: .25rem 0 0; padding-left: 1.1rem; font-size: .92rem; }
+.bit-cambios span { color: var(--gris); }
+.bit-datos summary { cursor: pointer; font-size: .9rem; color: var(--gris); margin-top: .2rem; }
+@media (max-width: 560px) { .bit-item { grid-template-columns: 1fr; gap: .1rem; } }

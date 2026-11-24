@@ -47,6 +47,8 @@
   let V13 = false;         // la base tiene crédito a clientes (v13_credito.sql)
   let V14 = false;         // la base tiene cierre de caja (v14_caja.sql)
   let V15 = false;         // la base anota lo más vendido (v15_mas_vendidos.sql)
+  let V16 = false;         // bitácora con nombres y roles (v16_bitacora.sql)
+  let YO = null, USUARIOS = [];   // usuario conectado y usuarios del panel (v16)
   let clientes = [];       // clientes de crédito con su saldo (v_clientes_credito)
   const MAX_LISTA_PROD = 150;
   let V5 = true;           // la base tiene registrar_venta_sin_internet
@@ -255,8 +257,14 @@
       let r15;
       try { r15 = await db.from("productos").select("vendido").limit(1); } catch (e) { r15 = { error: e }; }
       V15 = !r15.error;
+      let r16;
+      try { r16 = await db.from("auditoria").select("quien").limit(1); } catch (e) { r16 = { error: e }; }
+      V16 = !r16.error;
     }
     document.documentElement.classList.toggle("sin-v14", !V14);
+    document.documentElement.classList.toggle("sin-v16", !V16);
+    $("#tabBit").hidden = !V16;
+    if (V16) cargarUsuarios();
     document.documentElement.classList.toggle("sin-v13", !V13);
     $("#tabCred").hidden = !V13;
     document.documentElement.classList.toggle("sin-v11", !V11);
@@ -328,6 +336,7 @@
     if (tab.id === "tabCaja") cargarCaja();
     if (tab.id === "tabPreg") cargarPreguntas();
     if (tab.id === "tabRep") cargarReportes();
+    if (tab.id === "tabBit") cargarBitacora();
     if (tab.id === "tabComp") cargarComprobantes();
     if (tab.id === "tabInv") cargarInventario();
     if (tab.id === "tabCred") cargarClientes().then(pintarClientes);
@@ -738,6 +747,13 @@
   });
 
   async function cargarAuditoria() {
+    if (V16) {
+      const { data, error } = await db.from("auditoria").select(COLS_BIT).order("id", { ascending: false }).limit(10);
+      if (error) return;
+      $("#listaAuditoria").innerHTML = data.map((a) => `<li><time>${fechaCR(a.creado, { dateStyle: "short", timeStyle: "short" })}</time> ${frase(a)}</li>`).join("")
+        || "<li>Sin movimientos todavía.</li>";
+      return;
+    }
     const { data, error } = await db.from("auditoria").select("tabla,accion,registro,creado").order("creado", { ascending: false }).limit(25);
     if (error) return;
     const acc = { INSERT: "agregó", UPDATE: "cambió", DELETE: "borró" };
@@ -745,6 +761,187 @@
       `<li><time>${new Date(a.creado).toLocaleString("es-CR", { dateStyle: "short", timeStyle: "short" })}</time> ${acc[a.accion] || U.esc(a.accion)} en ${U.esc(a.tabla)} <small>#${U.esc(a.registro)}</small></li>`
     ).join("") || "<li>Sin movimientos todavía.</li>";
   }
+  $("#btnVerBitacora").addEventListener("click", () => $("#tabBit").click());
+
+  // ---------- usuarios del panel (v16) ----------
+  async function cargarUsuarios() {
+    const { data, error } = await db.rpc("usuarios_panel");
+    if (error) return;
+    USUARIOS = data || [];
+    YO = USUARIOS.find((u) => u.soy_yo) || null;
+    pintarUsuarios();
+    const sel = $("#bitQuien"), antes = sel.value;
+    sel.innerHTML = `<option value="">Todos</option>` + USUARIOS.map((u) => `<option value="${U.esc(u.user_id)}">${U.esc(u.nombre || u.correo || "Sin nombre")}</option>`).join("");
+    sel.value = antes;
+    if (V && $("#dlgVenta").open) $("#btnBorrarVenta").hidden = !puedeBorrarVenta();
+  }
+  function pintarUsuarios() {
+    const admin = YO?.rol === "administrador";
+    $("#listaUsuarios").innerHTML = USUARIOS.map((u) => `<li class="usu-fila" data-uid="${U.esc(u.user_id)}">
+      <label>Nombre<input name="nombre" value="${U.esc(u.nombre || "")}" maxlength="60" placeholder="${u.soy_yo ? "Escriba su nombre" : "Nombre"}" autocomplete="off" /></label>
+      <label>Rol<select name="rol"${admin ? "" : " disabled"}>
+        <option value="administrador"${u.rol === "administrador" ? " selected" : ""}>Administrador</option>
+        <option value="usuario"${u.rol === "usuario" ? " selected" : ""}>Usuario</option></select></label>
+      <button type="button" class="btn btn--sm btn--negro" data-guardar-usuario>Guardar</button>
+      <small class="usu-fila__info">${U.esc(u.correo || "")}${u.soy_yo ? " (usted)" : ""} · ${u.ultimo_ingreso ? `último ingreso ${fechaCR(u.ultimo_ingreso, { dateStyle: "short", timeStyle: "short" })}` : "todavía no ha entrado"}</small>
+    </li>`).join("");
+    const m = $("#usuMsg");
+    if (YO && !YO.nombre) { m.className = "msg msg--error"; m.textContent = "Póngale su nombre: es el que sale en la bitácora (mientras tanto sale su correo)."; }
+    else if (m.classList.contains("msg--error") && /Póngale/.test(m.textContent)) { m.className = "msg"; m.textContent = ""; }
+  }
+  $("#listaUsuarios").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-guardar-usuario]");
+    if (!b) return;
+    const li = b.closest("[data-uid]"), u = USUARIOS.find((x) => x.user_id === li.dataset.uid);
+    const nombre = li.querySelector("[name=nombre]").value.trim().replace(/\s+/g, " "), rol = li.querySelector("[name=rol]").value;
+    const m = $("#usuMsg");
+    if (nombre.length < 2) { m.className = "msg msg--error"; m.textContent = "El nombre debe tener al menos 2 letras."; return; }
+    b.disabled = true;
+    try {
+      if (nombre !== (u.nombre || "")) {
+        const { error } = await db.rpc("poner_nombre_usuario", { p_user: u.user_id, p_nombre: nombre });
+        if (error) throw error;
+      }
+      if (rol !== u.rol) {
+        const { error } = await db.rpc("poner_rol_usuario", { p_user: u.user_id, p_rol: rol });
+        if (error) throw error;
+      }
+      m.className = "msg"; m.textContent = "Guardado.";
+    } catch (err) {
+      m.className = "msg msg--error"; m.textContent = errTxt(err);
+    } finally {
+      b.disabled = false;
+      await cargarUsuarios();
+    }
+  });
+
+  // ---------- bitácora (v16) ----------
+  const COLS_BIT = "id,user_id,quien,tabla,accion,registro,etiqueta,cambios,origen,motivo,creado";
+  const GRUPOS_BIT = {
+    ventas: ["pedidos", "pedido_items", "pagos", "comprobantes_cliente", "facturas"],
+    productos: ["productos", "categorias"],
+    credito: ["clientes", "abonos"],
+    caja: ["caja_turnos", "caja_movimientos", "entradas"],
+    ajustes: ["ajustes", "admins", "avisos", "fe_emisor", "consultas"]
+  };
+  const QUE_BIT = {
+    productos: "el producto", categorias: "la categoría", ajustes: "un dato del negocio", admins: "el usuario",
+    pedidos: "la venta", pedido_items: "un producto de la venta", pagos: "un pago de la venta", comprobantes_cliente: "un comprobante de pago",
+    facturas: "los datos de factura", avisos: "los avisos de Telegram", consultas: "una pregunta", fe_emisor: "los datos de facturación electrónica",
+    clientes: "el cliente", abonos: "un abono de", entradas: "una entrada de mercadería", caja_turnos: "la caja", caja_movimientos: "un movimiento de caja"
+  };
+  const CAMPO_BIT = {
+    precio: "Precio", precio_oferta: "Precio de oferta", oferta_hasta: "Oferta hasta", nombre: "Nombre", descripcion: "Descripción",
+    activo: "Se ve en la tienda", agotado: "Agotado", destacado: "Recomendado", imagen_url: "Foto", categoria_id: "Categoría",
+    codigo: "Código", unidad: "Se vende por", cabys: "CABYS", iva_codigo: "IVA", costo: "Costo", estado: "Estado",
+    motivo_anulacion: "Motivo de anulación", cliente_nombre: "Cliente", cliente_telefono: "Teléfono", telefono: "Teléfono",
+    total: "Total", monto: "Monto", metodo: "Medio de pago", medio: "Medio de pago", verificado: "Verificado", anulado: "Anulado",
+    referencia: "Referencia", cantidad: "Cantidad", precio_unit: "Precio unitario", subtotal: "Subtotal", limite: "Límite de crédito",
+    plazo_dias: "Plazo (días)", rol: "Rol", valor: "Valor", envio: "Envío", costo_envio: "Envío", nota: "Nota", credito: "A crédito",
+    vence: "Vence", entrega: "Entrega", direccion: "Dirección", identificacion: "Identificación", correo: "Correo",
+    telegram_token: "Token de Telegram", telegram_chat: "Chat de Telegram", motivo: "Motivo", proveedor: "Proveedor", documento: "Documento"
+  };
+  const DINERO_BIT = /^(precio|precio_oferta|precio_unit|monto|total|costo|costo_envio|envio|limite|saldo|fondo|subtotal|contado|esperado|diferencia|total_costo)$/;
+  const OCULTOS_BIT = new Set(["id", "created_by", "hecho_por", "verificado_por", "abierta_por", "cerrada_por", "user_id", "pedido_id", "cliente_id", "producto_id", "updated_at"]);
+  const campoBit = (k) => CAMPO_BIT[k] || (k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, " "));
+  function valorBit(k, v) {
+    if (v === null || v === undefined || v === "") return "(vacío)";
+    if (v === "(oculto)") return "(oculto)";
+    if (typeof v === "boolean") return v ? "Sí" : "No";
+    if (k === "imagen_url") return "una foto";
+    if (k === "categoria_id") return U.esc(categorias.find((c) => c.id === Number(v))?.nombre || `#${v}`);
+    if (DINERO_BIT.test(k) && Number.isFinite(Number(v))) return fmt(Number(v));
+    if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v)) return fechaCR(v, { dateStyle: "short", timeStyle: "short" });
+    if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v.split("-").reverse().join("/");
+    const t = typeof v === "object" ? JSON.stringify(v) : String(v);
+    return U.esc(t.length > 140 ? t.slice(0, 140) + "…" : t);
+  }
+  // la oración de cada movimiento: "Johan cambió el producto «Cemento Holcim 50K»"
+  function frase(a) {
+    const quien = `<b>${U.esc(a.quien || "Alguien")}</b>`, et = a.etiqueta ? ` «${U.esc(a.etiqueta)}»` : "";
+    const c = a.cambios || {};
+    if (a.tabla === "pedidos" && a.origen === "venta borrada") return `${quien} <b class="bit-alerta">borró la venta</b>${et}`;
+    if (a.tabla === "pedidos" && a.origen === "venta anulada") return `${quien} <b class="bit-alerta">anuló la venta</b>${et}`;
+    if (a.tabla === "pedidos" && a.accion === "INSERT") return `${quien} hizo la venta${et}`;
+    if (a.tabla === "pedido_items" && a.accion !== "UPDATE") {
+      const det = c.cantidad != null ? ` (${Number(c.cantidad).toLocaleString("es-CR")} × ${valorBit("precio_unit", c.precio_unit)})` : "";
+      return `${quien} ${a.accion === "INSERT" ? "agregó" : "quitó"}${et}${det}${a.origen === "venta borrada" ? " al borrar la venta" : ""}`;
+    }
+    if (a.tabla === "pagos" && a.accion === "INSERT") return `${quien} registró un pago de ${valorBit("monto", c.monto)} en la venta${et}`;
+    if (a.tabla === "abonos" && a.accion === "INSERT") return `${quien} registró un abono de ${valorBit("monto", c.monto)}${a.etiqueta ? ` de «${U.esc(a.etiqueta)}»` : ""}`;
+    if (a.tabla === "caja_turnos" && a.accion === "INSERT") return `${quien} abrió la caja`;
+    const verbo = { INSERT: "agregó", UPDATE: "cambió", DELETE: "borró" }[a.accion] || U.esc(a.accion);
+    return `${quien} ${verbo} ${QUE_BIT[a.tabla] || U.esc(a.tabla)}${et}`;
+  }
+  function detalleBit(a) {
+    const c = a.cambios || {};
+    let html = "";
+    if (a.motivo) html += `<p class="bit-motivo">Motivo: ${U.esc(a.motivo)}</p>`;
+    if (a.origen && !["venta borrada", "venta anulada"].includes(a.origen)) html += `<p class="bit-origen">Desde: ${U.esc(a.origen)}</p>`;
+    if (a.accion === "UPDATE") {
+      const filas = Object.entries(c).filter(([k]) => !OCULTOS_BIT.has(k))
+        .map(([k, [antes, despues]]) => k === "imagen_url"
+          ? `<li><span>Foto:</span> <b>${antes ? (despues ? "se cambió" : "se quitó") : "se puso"}</b></li>`
+          : `<li><span>${campoBit(k)}:</span> ${valorBit(k, antes)} → <b>${valorBit(k, despues)}</b></li>`);
+      if (filas.length) html += `<ul class="bit-cambios">${filas.join("")}</ul>`;
+    } else if (a.tabla !== "pedido_items") {
+      const filas = Object.entries(c).filter(([k]) => !OCULTOS_BIT.has(k))
+        .map(([k, v]) => `<li><span>${campoBit(k)}:</span> ${valorBit(k, v)}</li>`);
+      if (filas.length) html += `<details class="bit-datos"><summary>${a.accion === "DELETE" ? "Lo que tenía" : "Datos"}</summary><ul class="bit-cambios">${filas.join("")}</ul></details>`;
+    }
+    return html;
+  }
+  const BIT = { que: "", filas: [], fin: false, cargando: false };
+  async function cargarBitacora(mas = false) {
+    if (!V16 || BIT.cargando) return;
+    BIT.cargando = true;
+    const msg = $("#bitMsg");
+    try {
+      let q = db.from("auditoria").select(COLS_BIT).order("id", { ascending: false }).limit(50);
+      if (mas && BIT.filas.length) q = q.lt("id", BIT.filas[BIT.filas.length - 1].id);
+      const quien = $("#bitQuien").value;
+      if (quien) q = q.eq("user_id", quien);
+      if (BIT.que === "borradas") q = q.eq("tabla", "pedidos").in("origen", ["venta borrada", "venta anulada"]);
+      else if (GRUPOS_BIT[BIT.que]) q = q.in("tabla", GRUPOS_BIT[BIT.que]);
+      let desde = $("#bitDesde").value, hasta = $("#bitHasta").value;
+      if (desde && hasta && desde > hasta) { [desde, hasta] = [hasta, desde]; $("#bitDesde").value = desde; $("#bitHasta").value = hasta; }
+      if (desde) q = q.gte("creado", rangoDia(desde)[0]);
+      if (hasta) q = q.lt("creado", rangoDia(hasta)[1]);
+      const t = $("#bitBuscar").value.replace(/[,()*%\\"]/g, " ").replace(/\s+/g, " ").trim();
+      if (t) q = q.or(`etiqueta.ilike."*${t}*",motivo.ilike."*${t}*",quien.ilike."*${t}*"`);
+      const { data, error } = await q;
+      if (error) throw error;
+      BIT.filas = mas ? BIT.filas.concat(data) : data;
+      BIT.fin = data.length < 50;
+      msg.className = "msg"; msg.textContent = BIT.filas.length ? "" : "No hay movimientos con esos filtros.";
+      pintarBitacora();
+    } catch (e) {
+      msg.className = "msg msg--error"; msg.textContent = errTxt(e);
+    } finally { BIT.cargando = false; }
+  }
+  function pintarBitacora() {
+    let dia = "";
+    $("#listaBit").innerHTML = BIT.filas.map((a) => {
+      const d = fechaCR(a.creado, { dateStyle: "full" });
+      const cab = d !== dia ? `<li class="bit-dia">${U.esc(d)}</li>` : "";
+      dia = d;
+      return `${cab}<li class="bit-item${a.origen === "venta borrada" || a.origen === "venta anulada" ? " bit-item--alerta" : ""}">
+        <time>${fechaCR(a.creado, { timeStyle: "short" })}</time>
+        <div><p>${frase(a)}</p>${detalleBit(a)}</div></li>`;
+    }).join("");
+    $("#btnMasBit").hidden = BIT.fin;
+  }
+  $("#bitQue").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-bq]");
+    if (!b) return;
+    BIT.que = b.dataset.bq;
+    $$("#bitQue [data-bq]").forEach((x) => x.setAttribute("aria-checked", String(x === b)));
+    cargarBitacora();
+  });
+  ["#bitQuien", "#bitDesde", "#bitHasta"].forEach((id) => $(id).addEventListener("change", () => cargarBitacora()));
+  let bitTimer;
+  $("#bitBuscar").addEventListener("input", () => { clearTimeout(bitTimer); bitTimer = setTimeout(() => cargarBitacora(), 350); });
+  $("#btnMasBit").addEventListener("click", () => cargarBitacora(true));
 
   // ---------- avisos por Telegram ----------
   async function cargarAvisos() {
@@ -1153,7 +1350,7 @@
     if (!$("#boxFE").hidden) pintarFEVenta();
     $("#btnAnularVenta").hidden = !p || p.estado === "anulada" || !!V.local || !!V.soloLectura;
     $(".imprimir").hidden = !p;
-    $("#btnBorrarVenta").hidden = V.local ? false : (!p || p.estado !== "abierta" || V.pagos.length > 0 || !!V.soloLectura);
+    $("#btnBorrarVenta").hidden = !puedeBorrarVenta();
   }
 
   function pagoLocalHTML(g, n) {
@@ -1856,8 +2053,10 @@
         : ["enviado", "procesando"].includes(d.estado) ? "Enviado. Hacienda todavía lo está revisando: toque “Consultar” en un rato."
         : d.detalle || "Guardado, pero no llegó a Hacienda. Toque “Enviar de nuevo”.";
       if (d.estado === "rechazado" || d.estado === "firmado" || d.estado === "error") msg.className = "msg msg--error";
+      return d;
     } catch (e) {
       msg.className = "msg msg--error"; msg.textContent = errTxt(e);
+      return null;
     } finally {
       botones.forEach((b) => (b.disabled = false));
       pintarFEVenta();
@@ -3005,9 +3204,34 @@
     await abrirVenta(p.id); cargarVentas();
   });
 
+  // Ventas: se anulan (si tienen tiquete o factura electrónica, con nota de crédito).
+  // Borrar solo lo puede el administrador (v16), sin pagos ni comprobante electrónico, y queda en la bitácora.
+  function puedeBorrarVenta() {
+    const p = V?.pedido;
+    if (V?.local) return !V16 || YO?.rol === "administrador";
+    if (!p || V.soloLectura) return false;
+    if (!V16) return p.estado === "abierta" && V.pagos.length === 0;
+    return YO?.rol === "administrador" && V.pagos.length === 0 && !(V.fe || []).length && !V.factura;
+  }
+  // tiquete o factura electrónica de la venta que todavía no tiene nota de crédito
+  function feSinNota() {
+    const docs = V.fe || [];
+    return docs.find((d) => ["01", "04"].includes(d.tipo) && d.estado !== "rechazado" && !d.anulado
+      && !docs.some((n) => n.tipo === "03" && n.referencia_id === d.id && n.estado !== "rechazado")) || null;
+  }
   $("#btnAnularVenta").addEventListener("click", async () => {
-    const motivo = prompt("¿Por qué se anula esta venta? (queda registrado)");
+    const doc = V10 ? feSinNota() : null;
+    if (doc && doc.estado !== "aceptado") {
+      return toast(`Hacienda todavía no ha aceptado ${doc.tipo === "01" ? "la factura electrónica" : "el tiquete electrónico"} de esta venta. Cuando lo acepte, se anula con nota de crédito.`.replace("Cuando lo acepte", doc.tipo === "01" ? "Cuando la acepte" : "Cuando lo acepte"), true);
+    }
+    const motivo = prompt(doc ? `Esta venta tiene ${doc.tipo === "01" ? "factura electrónica" : "tiquete electrónico"} N.º ${numeroFE(doc)}: se anula con una nota de crédito por el total (la ve Hacienda).\n\n¿Por qué se anula?`
+      : "¿Por qué se anula esta venta? (queda registrado)");
     if (motivo === null) return;
+    if (motivo.trim().length < 5) return toast("Escriba el motivo (al menos 5 letras).", true);
+    if (doc) {
+      const nc = await accionFE({ accion: "anular", documento_id: doc.id, motivo: motivo.trim().slice(0, 180) }, "Emitiendo la nota de crédito…");
+      if (!nc || nc.tipo !== "03" || nc.estado === "rechazado") return toast("No se pudo hacer la nota de crédito, así que la venta no se anuló. Vea el mensaje en Comprobante electrónico.", true);
+    }
     const { error } = await db.from("pedidos").update({ estado: "anulada", motivo_anulacion: motivo.trim().slice(0, 300) }).eq("id", V.pedido.id);
     if (error) return toast(errTxt(error), true);
     toast("Venta anulada");
@@ -3024,8 +3248,16 @@
       pintarVentas(); estadoRedPanel();
       return;
     }
-    if (!confirm("¿Borrar esta venta? No tiene pagos.")) return;
-    const { error } = await db.from("pedidos").delete().eq("id", V.pedido.id);
+    let error;
+    if (V16) {
+      const motivo = prompt("Borrar la venta la quita del sistema; queda solo en la bitácora con todo lo que tenía.\n\n¿Por qué se borra? (si fue una venta real, mejor anúlela)");
+      if (motivo === null) return;
+      if (motivo.trim().length < 5) return toast("Escriba el motivo (al menos 5 letras).", true);
+      ({ error } = await db.rpc("borrar_venta", { p_pedido: V.pedido.id, p_motivo: motivo.trim().slice(0, 300) }));
+    } else {
+      if (!confirm("¿Borrar esta venta? No tiene pagos.")) return;
+      ({ error } = await db.from("pedidos").delete().eq("id", V.pedido.id));
+    }
     if (error) return toast(errTxt(error), true);
     $("#dlgVenta").close();
     toast("Venta borrada");
