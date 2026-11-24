@@ -69,7 +69,7 @@ export function revisarEmisor(e: Partial<Emisor> | null): string[] {
   if (!/^0[1-4]$/.test(e.tipo_id || "")) faltan.push("tipo de identificación");
   if (!/^[0-9]{9,12}$/.test(e.identificacion || "")) faltan.push("cédula del emisor");
   if (!e.nombre || e.nombre.length < 3) faltan.push("nombre o razón social");
-  if (!/^[0-9]{6}$/.test(e.actividad || "")) faltan.push("código de actividad económica (6 dígitos)");
+  if (!/^([0-9]{6}|[0-9]{4}\.[0-9])$/.test(e.actividad || "")) faltan.push("código de actividad económica (6 caracteres, como 6201.0 o 620100)");
   if (!/^[1-7]$/.test(e.provincia || "") || !/^[0-9]{2}$/.test(e.canton || "") || !/^[0-9]{2}$/.test(e.distrito || "")) faltan.push("provincia, cantón y distrito");
   if (!e.otras_senas || e.otras_senas.length < 5) faltan.push("otras señas (dirección)");
   if (!e.correo || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e.correo)) faltan.push("correo del emisor");
