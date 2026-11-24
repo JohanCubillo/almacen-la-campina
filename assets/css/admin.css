@@ -437,6 +437,14 @@ html:not(.panel-ok) body { visibility: hidden; }
 .sin-v16 .v16 { display: none !important; }
 .sin-v17 .v17 { display: none !important; }
 .sin-v18 .v18 { display: none !important; }
+/* lo hecho sin internet */
+.banda-red[data-tipo="error"] { background: var(--peligro); color: #fff; }
+.pend-lista { list-style: none; margin: .5rem 0 0; padding: 0; max-height: 55vh; overflow: auto; }
+.pend { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; padding: .65rem 0; border-bottom: 1px solid var(--borde); }
+.pend__txt { flex: 1 1 18rem; min-width: 0; }
+.pend__txt small { display: block; color: var(--gris); margin-top: .15rem; }
+.pend--mal .pend__txt small { color: var(--peligro); font-weight: 600; }
+.pend__acc { display: flex; gap: .5rem; align-items: center; }
 .venta__apartado { flex-basis: 100%; display: grid; gap: .4rem; }
 .venta__apartado .fecha-caja { justify-self: start; }
 .saldo-cli { display: block; color: var(--gris); font-size: .8rem; }

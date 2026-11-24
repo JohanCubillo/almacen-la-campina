@@ -133,11 +133,15 @@ function lineasXml(lineas: Linea[]) {
   });
 }
 
-function cabecera(tipo: string, numero: number, fecha: Date, e: Emisor) {
+// situación 1 = normal; 3 = hecho sin internet (la clave ya se dio en la compu: se arma igual con su código de seguridad)
+export type SinInternet = { seguridad: string };
+function cabecera(tipo: string, numero: number, fecha: Date, e: Emisor, sinInternet?: SinInternet | null) {
   if (!(numero >= 1 && numero <= 9999999999)) falla("Consecutivo fuera de rango.");
+  if (sinInternet && !/^[0-9]{8}$/.test(sinInternet.seguridad)) falla("Código de seguridad no válido.");
   const clave = buildClave({
     date: fecha, taxpayerId: e.identificacion, branch: e.sucursal, pos: e.terminal,
-    documentType: tipo, sequence: numero, situation: "1",
+    documentType: tipo, sequence: numero, situation: sinInternet ? "3" : "1",
+    ...(sinInternet ? { securityCode: sinInternet.seguridad } : {}),
   } as never);
   return {
     clave,
@@ -164,7 +168,7 @@ export type Comprobante = {
 // Tiquete (04) o factura (01) de una venta
 export function armarComprobante(op: {
   tipo: "01" | "04"; numero: number; emisor: Emisor; lineas: Linea[]; pagos?: Pago[];
-  receptor?: Receptor | null; credito?: { dias: number } | null; fecha?: Date;
+  receptor?: Receptor | null; credito?: { dias: number } | null; fecha?: Date; sinInternet?: SinInternet | null;
 }): Comprobante {
   const faltan = revisarEmisor(op.emisor);
   if (faltan.length) falla("Faltan datos del emisor: " + faltan.join(", ") + ".");
@@ -178,7 +182,7 @@ export function armarComprobante(op: {
   const resumenFactura: Record<string, unknown> = { ...resumen };
   if (!op.credito) resumenFactura.medioPago = repartirPagos(op.pagos, resumen.totalComprobante);
   const doc: Record<string, unknown> = {
-    ...cabecera(op.tipo, op.numero, fecha, op.emisor),
+    ...cabecera(op.tipo, op.numero, fecha, op.emisor, op.sinInternet),
     ...(receptor ? { receptor } : {}),
     condicionVenta: op.credito ? "02" : "01",
     ...(op.credito ? { plazoCredito: String(dias) } : {}),

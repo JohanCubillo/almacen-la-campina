@@ -703,6 +703,7 @@
           <h3 class="subt">Estado de cuenta</h3>
           <label class="check"><input type="checkbox" id="cliSoloSaldo" checked /> Solo lo pendiente</label>
         </div>
+        <p class="ayuda" id="cliSinRed" hidden></p>
         <div class="items-wrap">
           <table class="items">
             <thead><tr><th>Fecha</th><th>Venta</th><th class="num">Total</th><th class="num">Abonado</th><th class="num">Saldo</th><th>Vence</th></tr></thead>
@@ -877,6 +878,19 @@
     </div>
   </dialog>
 
+  <!-- Lo hecho sin internet que falta enviar -->
+  <dialog id="dlgPendientes" class="dlg dlg--ancho" aria-labelledby="pendTitulo">
+    <div class="dlg__form">
+      <h2 id="pendTitulo">Hecho sin internet, por enviar</h2>
+      <p class="ayuda">Se manda solo, en el orden en que se hizo, cuando hay conexión. Lo que no se pudo enviar sale en rojo con el motivo: corríjalo y toque <b>Intentar otra vez</b>, o descártelo.</p>
+      <ul class="pend-lista" id="listaPendientes"></ul>
+      <div class="dlg__btns">
+        <button type="button" class="btn btn--linea" id="btnCerrarPendientes">Cerrar</button>
+        <button type="button" class="btn btn--negro" id="btnEnviarPendientes">Enviar ahora</button>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Pasar saldos de crédito de Moriah -->
   <dialog id="dlgSaldos" class="dlg dlg--ancho" aria-labelledby="saldosTitulo">
     <div class="dlg__form">
@@ -1046,6 +1060,7 @@
           <button type="button" class="btn btn--sm btn--negro" id="btnFETiquete">Emitir tiquete</button>
           <button type="button" class="btn btn--sm btn--linea" id="btnFEFactura">Emitir factura</button>
         </div>
+        <p class="ayuda" id="feSinRedInfo" hidden></p>
         <p class="msg" id="feMsg" role="status"></p>
       </section>
 

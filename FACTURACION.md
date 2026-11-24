@@ -101,6 +101,8 @@ Los secretos también se pueden poner con `npx supabase secrets set NOMBRE=valor
 
 > Desde v17, la función también la pueden usar los empleados: emitir con el permiso "Ventas y cobros" y hacer notas de crédito con "Anular ventas". Si la función ya estaba publicada antes de ese cambio, vuelva a publicarla con el `index.ts` nuevo.
 
+> Desde v19 la función también firma y manda los **comprobantes hechos sin internet** (ver *Sin internet* más abajo). Vuelva a publicarla con el `index.ts` y el `comprobante.ts` nuevos después de correr `v19_sin_internet.sql`.
+
 > Desde v18, un pago con **cheque** sale en el comprobante como medio de pago 03 (cheque). Si la función ya estaba publicada, vuelva a publicarla con el `comprobante.ts` nuevo; mientras tanto el cheque sale como "otro medio de pago". Lo *abonado en Moriah* también sale como "otro medio de pago". Los saldos pasados de Moriah no se facturan (ya se facturaron allá).
 
 ## 6. Encender en el panel
@@ -126,16 +128,28 @@ La numeración de pruebas y la de producción van aparte, así que lo que se hiz
 - **IVA de cada producto:** por defecto 13 %. Se cambia en **Productos → Editar → IVA del producto**, por ejemplo al 1 % de insumos agropecuarios. Si hay duda, que la confirme el contador.
 - **CABYS:** cada renglón tiene que venir de un producto con CABYS. Los del inventario de Moriah ya lo traen. Un *renglón libre* no se puede facturar, salvo el envío a domicilio.
 - **Ventas a crédito** (pestaña Crédito, v13): el comprobante sale con condición 02 y el plazo en días hasta el vencimiento de la venta, sin medio de pago.
-- **Medio de pago:** sale de los pagos anotados en la venta: SINPE Móvil 06, efectivo 01, tarjeta 02, transferencia 04. Si no hay pagos, va como efectivo.
+- **Medio de pago:** sale de los pagos anotados en la venta: SINPE Móvil 06, efectivo 01, tarjeta 02, cheque 03, transferencia 04. Si no hay pagos, va como efectivo.
 - **Si no llega a Hacienda** porque se cayó el internet o Hacienda no respondió, el comprobante queda **guardado y firmado** con su número. **Enviar de nuevo** manda exactamente el mismo XML, sin hacer otro.
 - **Si Hacienda lo rechaza,** el panel muestra el motivo. Se corrige el dato y se vuelve a emitir; sale con otro número.
 - **Anular con nota de crédito** anula todo el comprobante (código 01). Cuando Hacienda la acepta, la venta se puede volver a facturar.
 - **XML:** cada comprobante tiene su botón para descargar el XML firmado y la respuesta de Hacienda. Hacienda pide guardarlos; el **respaldo** del panel los incluye.
 
+## Sin internet (situación 3)
+
+Necesita `supabase/v19_sin_internet.sql` y la función `facturar` publicada otra vez con los archivos nuevos.
+
+- **Cada compu tiene su terminal.** La primera vez que alguien con permiso de ventas entra con internet en una compu, el panel le aparta una terminal propia (00011, 00012, …) y números por adelantado: 50 para tiquetes y 20 para facturas. Se reponen solos cada vez que hay internet y quedan menos de 20 y 8. La terminal 00002 la sigue usando la función con internet, así **ningún número choca**.
+- **Sin internet**, en la venta sale **Hacer tiquete sin internet** (o factura). Antes de hacerlo, el panel revisa lo mismo que va a revisar Hacienda: CABYS de cada producto, precios, datos del cliente para factura. El comprobante queda con su **clave de 50 dígitos**, situación **3 = sin internet**, la fecha y hora de la venta y su consecutivo. El recibo impreso lleva la clave y dice *Emitido sin internet: pendiente de envío a Hacienda*.
+- **Cuando vuelve la conexión**, la compu lo manda sola: la función arma el XML con **esa misma clave y esa misma fecha**, revisa que el número estuviera apartado para esa compu, lo firma y lo envía. Después sale como cualquier otro (aceptado, rechazado, *Enviar de nuevo*).
+- **Plazo:** el reglamento (art. 21) da **2 días hábiles** para que llegue a Hacienda. La banda de arriba y **Ver pendientes** muestran la fecha límite. Si el internet del almacén no vuelve a tiempo, conecte la compu al **hotspot de un celular** un rato para que se envíe.
+- **Ojo con la firma:** el reglamento pide que el comprobante sin internet se genere *con su mecanismo de seguridad* en el momento de la venta. Aquí la clave y la fecha se fijan en el momento, pero la **firma se pone al volver la conexión** (la llave solo vive en Supabase, nunca en la compu). **Confírmelo con el contador** antes de usarlo en producción.
+- Si se anula sin internet una venta que tiene comprobante, la nota de crédito se hace sola cuando Hacienda acepte el comprobante; después se anula la venta.
+- No borre los datos del navegador de la compu de la caja con cosas pendientes: ahí están los comprobantes hechos sin internet hasta que se envían.
+
 ## Lo que todavía no hace
 
 - No envía el PDF y el XML al correo del cliente. Por ahora el cliente recibe el recibo impreso y el XML se descarga desde la venta.
-- **Contingencia** (facturar sin internet con numeración de contingencia): por ahora, si no hay internet, se espera y se usa *Enviar de nuevo*.
+- **Contingencia con comprobantes preimpresos** (situación 2): no hace falta mientras la compu funcione; sin internet se usa la situación 3 (arriba).
 - **Aceptar o rechazar facturas de proveedores** (mensaje receptor).
 
 ## Sin facturación encendida

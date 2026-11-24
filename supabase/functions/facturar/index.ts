@@ -4,6 +4,9 @@
 //  La llama el panel (administrador, o empleado con permiso "ventas"/"anular"). Acciones (POST JSON):
 //   { accion: "probar" }                                  → revisa datos y entra a Hacienda (no envía nada)
 //   { accion: "emitir", pedido_id, tipo: "04"|"01", credito_dias? } → tiquete o factura de una venta
+//   { accion: "emitir_sin_internet", pedido_id, tipo, clave, fecha, credito_dias? }
+//        → el comprobante que la compu hizo sin internet (situación 3): se arma con SU clave y SU fecha,
+//          se firma y se manda ahora. El número tiene que estar reservado para esa compu (fe_bloques).
 //   { accion: "consultar", documento_id }                 → pregunta el estado a Hacienda
 //   { accion: "enviar", documento_id }                    → reenvía el mismo XML si no llegó
 //   { accion: "anular", documento_id, motivo }            → nota de crédito que anula el comprobante
@@ -145,11 +148,12 @@ Deno.serve(async (req) => {
       return resp({ ok: true, documento: data });
     }
 
-    async function guardarFirmado(c: ReturnType<typeof armarComprobante>, firmado: string, pedidoId: number, receptor: unknown, referenciaId: number | null) {
+    async function guardarFirmado(c: ReturnType<typeof armarComprobante>, firmado: string, pedidoId: number, receptor: unknown, referenciaId: number | null,
+                                  extra: Record<string, unknown> = {}) {
       const { data, error } = await db.from("fe_documentos").insert({
         pedido_id: pedidoId, tipo: c.tipo, ambiente: em!.ambiente, clave: c.clave, consecutivo: c.consecutivo,
         fecha_emision: c.fechaEmision, receptor, total: c.total, impuesto: c.impuesto, datos: c.doc,
-        xml_firmado: firmado, estado: "firmado", referencia_id: referenciaId, creado_por: quien?.user?.id ?? null,
+        xml_firmado: firmado, estado: "firmado", referencia_id: referenciaId, creado_por: quien?.user?.id ?? null, ...extra,
       }).select("id,clave,tipo,fecha_emision,datos,xml_firmado,intentos,pedido_id,referencia_id").single();
       if (error) {
         if (error.code === "23505") throw new ErrorComprobante("Esta venta ya tiene un comprobante. Actualice la venta.");
@@ -158,17 +162,11 @@ Deno.serve(async (req) => {
       return data;
     }
 
-    // ---------- emitir tiquete o factura ----------
-    if (b.accion === "emitir") {
-      const pedidoId = Number(b.pedido_id), tipo = String(b.tipo) as "01" | "04";
-      if (!(pedidoId > 0) || !["01", "04"].includes(tipo)) return resp({ ok: false, error: "Datos incompletos." }, 400);
-      const { data: ya } = await db.from("fe_documentos").select("id").eq("pedido_id", pedidoId).eq("ambiente", em.ambiente)
-        .in("tipo", ["01", "04"]).neq("estado", "rechazado").eq("anulado", false).maybeSingle();
-      if (ya) return await devolver(ya.id);
-
+    // productos, pagos y cliente de una venta, listos para el comprobante
+    async function datosVenta(pedidoId: number, tipo: "01" | "04", anuladaSirve = false) {
       const { data: p, error: eP } = await db.from("pedidos").select("id,codigo,estado,cliente_nombre").eq("id", pedidoId).single();
       if (eP) throw eP;
-      if (p.estado === "anulada") return resp({ ok: false, error: "La venta está anulada." });
+      if (p.estado === "anulada" && !anuladaSirve) throw new ErrorComprobante("La venta está anulada.");
       const { data: items, error: eI } = await db.from("pedido_items")
         .select("descripcion,cantidad,precio_unit,producto_id,productos(cabys,codigo,iva_codigo,unidad)").eq("pedido_id", pedidoId).order("id");
       if (eI) throw eI;
@@ -176,8 +174,8 @@ Deno.serve(async (req) => {
         const pr = i.productos as { cabys: string | null; codigo: string | null; iva_codigo: string; unidad: string | null } | null;
         const desc = String(i.descripcion);
         if (!pr && /^env[ií]o/i.test(desc)) {
-          if (!em.cabys_envio) throw new ErrorComprobante("Falta el CABYS del servicio de envío (Datos del negocio → Facturación electrónica).");
-          return { cabys: em.cabys_envio, detalle: desc, cantidad: Number(i.cantidad), precio: Number(i.precio_unit), iva_codigo: "08", servicio: true };
+          if (!em!.cabys_envio) throw new ErrorComprobante("Falta el CABYS del servicio de envío (Datos del negocio → Facturación electrónica).");
+          return { cabys: em!.cabys_envio, detalle: desc, cantidad: Number(i.cantidad), precio: Number(i.precio_unit), iva_codigo: "08", servicio: true };
         }
         if (!pr) throw new ErrorComprobante(`“${desc}” no es un producto del catálogo. Para facturarlo, cámbielo por el producto (con su CABYS).`);
         if (!pr.cabys) throw new ErrorComprobante(`“${desc}” no tiene CABYS. Póngaselo en Productos → Editar.`);
@@ -191,17 +189,65 @@ Deno.serve(async (req) => {
       let receptor = null;
       if (tipo === "01") {
         const { data: f } = await db.from("facturas").select("tipo_id,identificacion,nombre,correo").eq("pedido_id", pedidoId).maybeSingle();
-        if (!f) return resp({ ok: false, error: "Para factura, primero anote los datos del cliente en “El cliente pide factura”." });
+        if (!f) throw new ErrorComprobante("Para factura, primero anote los datos del cliente en “El cliente pide factura”.");
         receptor = f;
       }
+      return { lineas, pagos: pagos || [], receptor };
+    }
+
+    // ---------- emitir tiquete o factura ----------
+    if (b.accion === "emitir") {
+      const pedidoId = Number(b.pedido_id), tipo = String(b.tipo) as "01" | "04";
+      if (!(pedidoId > 0) || !["01", "04"].includes(tipo)) return resp({ ok: false, error: "Datos incompletos." }, 400);
+      const { data: ya } = await db.from("fe_documentos").select("id").eq("pedido_id", pedidoId).eq("ambiente", em.ambiente)
+        .in("tipo", ["01", "04"]).neq("estado", "rechazado").eq("anulado", false).maybeSingle();
+      if (ya) return await devolver(ya.id);
+      const { lineas, pagos, receptor } = await datosVenta(pedidoId, tipo);
       const dias = Number(b.credito_dias || 0);
       // primero se arma y valida; el número se reserva solo si todo está bien
-      armarComprobante({ tipo, numero: 1, emisor: em, lineas, pagos: pagos || [], receptor, credito: dias ? { dias } : null });
+      armarComprobante({ tipo, numero: 1, emisor: em, lineas, pagos, receptor, credito: dias ? { dias } : null });
       const { data: numero, error: eN } = await db.rpc("fe_reservar", { p_ambiente: em.ambiente, p_tipo: tipo, p_sucursal: em.sucursal, p_terminal: em.terminal });
       if (eN) throw eN;
-      const c = armarComprobante({ tipo, numero: Number(numero), emisor: em, lineas, pagos: pagos || [], receptor, credito: dias ? { dias } : null });
+      const c = armarComprobante({ tipo, numero: Number(numero), emisor: em, lineas, pagos, receptor, credito: dias ? { dias } : null });
       const firmado = await firmar(c.xml, s.p12!, s.pin);
       const doc = await guardarFirmado(c, firmado, pedidoId, receptor, null);
+      if (tipo === "01") await db.from("facturas").update({ clave: c.clave, consecutivo: c.consecutivo, estado: "enviada" }).eq("pedido_id", pedidoId);
+      await enviarYConsultar(doc);
+      return await devolver(doc.id);
+    }
+
+    // ---------- comprobante hecho sin internet (situación 3) ----------
+    if (b.accion === "emitir_sin_internet") {
+      const pedidoId = Number(b.pedido_id), tipo = String(b.tipo) as "01" | "04", clave = String(b.clave || "");
+      if (!(pedidoId > 0) || !["01", "04"].includes(tipo) || !/^[0-9]{50}$/.test(clave)) return resp({ ok: false, error: "Datos incompletos." }, 400);
+      // ya llegó antes (el envío anterior se cortó después de guardarlo)
+      const { data: mismo } = await db.from("fe_documentos").select("id").eq("clave", clave).maybeSingle();
+      if (mismo) return await devolver(mismo.id);
+      // 506 · ddmmaa · cédula(12) · sucursal(3) · terminal(5) · tipo(2) · número(10) · situación(1) · seguridad(8)
+      const sucursal = clave.slice(21, 24), terminal = clave.slice(24, 29), numero = Number(clave.slice(31, 41));
+      if (clave.slice(29, 31) !== tipo || clave.charAt(41) !== "3") return resp({ ok: false, error: "La clave no es de un comprobante sin internet." }, 400);
+      if (clave.slice(9, 21) !== String(em.identificacion).padStart(12, "0")) {
+        return resp({ ok: false, error: "La clave tiene otra cédula de emisor: ¿se cambiaron los datos del negocio después de hacerlo?" });
+      }
+      const { data: bloque } = await db.from("fe_bloques").select("dispositivo").eq("terminal", terminal).eq("tipo", tipo).eq("ambiente", em.ambiente)
+        .eq("sucursal", sucursal).lte("desde", numero).gte("hasta", numero).limit(1).maybeSingle();
+      if (!bloque) return resp({ ok: false, error: `El número ${numero} de la terminal ${terminal} no estaba reservado para facturar sin internet (${em.ambiente}).` });
+      const fecha = new Date(String(b.fecha || ""));
+      if (Number.isNaN(fecha.getTime()) || fecha.getTime() > Date.now() + 10 * 60e3 || fecha.getTime() < Date.now() - 30 * 864e5) {
+        return resp({ ok: false, error: "La fecha del comprobante no es válida." });
+      }
+      const { data: ya } = await db.from("fe_documentos").select("id,clave").eq("pedido_id", pedidoId).eq("ambiente", em.ambiente)
+        .in("tipo", ["01", "04"]).neq("estado", "rechazado").eq("anulado", false).maybeSingle();
+      if (ya) return resp({ ok: false, error: "Esta venta ya tiene otro comprobante electrónico; el que se hizo sin internet no se mandó." });
+      // si se anuló mientras tanto, igual se manda (el cliente ya tiene su tiquete) y luego va la nota de crédito
+      const { lineas, pagos, receptor } = await datosVenta(pedidoId, tipo, true);
+      const dias = Number(b.credito_dias || 0);
+      const c = armarComprobante({ tipo, numero, emisor: { ...em, sucursal, terminal }, lineas, pagos, receptor,
+                                   credito: dias ? { dias } : null, fecha, sinInternet: { seguridad: clave.slice(42) } });
+      if (c.clave !== clave) return resp({ ok: false, error: "La clave hecha sin internet no coincide con la fecha o los datos del almacén." });
+      const firmado = await firmar(c.xml, s.p12!, s.pin);
+      const doc = await guardarFirmado(c, firmado, pedidoId, receptor, null, { situacion: "3", dispositivo: bloque.dispositivo });
+      await db.from("fe_dispositivos").update({ usado_at: new Date().toISOString() }).eq("id", bloque.dispositivo);
       if (tipo === "01") await db.from("facturas").update({ clave: c.clave, consecutivo: c.consecutivo, estado: "enviada" }).eq("pedido_id", pedidoId);
       await enviarYConsultar(doc);
       return await devolver(doc.id);

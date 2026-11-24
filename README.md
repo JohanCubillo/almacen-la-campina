@@ -29,17 +29,18 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 15. **SQL Editor → New query** → pegar `supabase/v16_bitacora.sql` → **Run**. Bitácora con nombres y "antes → después", pestaña *Bitácora*, usuarios con rol, y las ventas ya no se borran: se anulan (con nota de crédito si tienen comprobante electrónico). Solo el administrador borra, con motivo.
 16. **SQL Editor → New query** → pegar `supabase/v17_permisos.sql` → **Run**. Empleados con usuario y permisos (el administrador les marca qué pueden usar). Después publique la función **`usuarios`** (ver *Usuarios y permisos* más abajo).
 17. **SQL Editor → New query** → pegar `supabase/v18_cheque_saldos_apartados.sql` → **Run** (después de v17). Pago con **cheque**, **pasar los saldos de crédito de Moriah** y **apartados**. Ver *Pasar de Moriah: saldos de crédito y apartados* más abajo.
-18. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
-19. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
-20. Registrar al administrador (el dueño):
+18. **SQL Editor → New query** → pegar `supabase/v19_sin_internet.sql` → **Run** (después de v18). Trabajar **sin internet**: crédito, apartados, abonos, caja y comprobantes electrónicos que se mandan solos al volver la conexión. Ver *Sin internet* más abajo.
+19. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
+20. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
+21. Registrar al administrador (el dueño):
    ```sql
    insert into public.admins (user_id, rol)
    select id, 'administrador' from auth.users where email = 'correo-del-admin@ejemplo.com'
    on conflict (user_id) do update set rol = excluded.rol;
    ```
    Los empleados ya no se agregan así: el administrador los crea desde el panel (ver *Usuarios y permisos*). (Antes de correr v16 se usa el SQL viejo, sin `rol`.)
-21. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
-22. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
+22. Ajustes de seguridad del Dashboard: ver **SEGURIDAD.md** (sobre todo **desactivar registros nuevos**).
+23. `assets/js/config.js` lleva la **Project URL** y la **Publishable key** (`sb_publishable_…`). **Nunca** la secret / service_role.
 
 ## 2. Primer ingreso al panel
 
@@ -273,10 +274,17 @@ Ojo: las fotos de Google son de otros (fábricas y tiendas). Mejor usar las de l
 ## Sin internet
 
 - **Tienda:** la página y el catálogo abren aunque no haya señal (con los precios de la última visita). Si el cliente envía el pedido sin internet, queda guardado en su teléfono y se manda solo cuando vuelve la conexión; ahí recibe su código.
-- **Panel:** si se va el internet se pueden hacer **ventas nuevas**, anotarles pagos e **imprimir el recibo** (sale con un número temporal `SIN-0001`). Quedan en la lista como *Por enviar* y se mandan solas cuando vuelve la conexión, cada una con su código real. Si una no se puede enviar (por ejemplo, un comprobante repetido) queda marcada en rojo para corregirla.
-- Las ventas que ya existían se pueden **ver** sin internet (las que se abrieron antes en esa compu), pero no cambiar. Verificar pagos, anular, entregar, productos y reportes necesitan internet.
-- Para abrir el panel sin internet, en esa compu se tuvo que entrar con internet (contraseña + código) en las últimas 12 horas. Para mandar las ventas guardadas hay que volver a entrar con internet.
-- **Salir** borra de la compu la copia de ventas y clientes; las ventas sin enviar no se borran.
+- **Panel:** si se va el internet (aunque el router siga prendido), arriba sale una banda negra y se sigue trabajando. Todo queda en la compu y se **manda solo, en orden**, cuando vuelve la conexión. Con v19:
+  - **Ventas nuevas** de contado, **a crédito** (revisa el límite con lo último que se bajó) o **apartadas**, con sus pagos y el recibo impreso (número temporal `SIN-0001`; el código real llega al enviarla).
+  - **Comprobante electrónico sin internet** (tiquete o factura) con su clave de 50 dígitos: ver **FACTURACION.md → Sin internet**.
+  - En ventas que ya existían (las abiertas se copian solas a la compu cada 10 minutos): **cobrar**, marcar **visto en el banco**, **entregar** y **anular** (si tiene comprobante, la nota de crédito se hace sola al volver la señal).
+  - **Abonos** de crédito y marcarlos vistos en el banco. El saldo del cliente se ve con lo pendiente ya rebajado.
+  - **Caja:** abrir, entradas y salidas, y **cerrar** con el conteo. Sin internet las cifras son aproximadas (la última copia más lo hecho en la compu); al volver la señal se guardan con la hora real y el cuadre exacto queda en **Cierres anteriores**.
+- **Ver pendientes** (en la banda) lista todo lo que falta enviar, con lo que no se pudo enviar en rojo y el motivo: se corrige y se toca **Intentar otra vez**, o se descarta. Nada se repite si un envío se corta a medio camino.
+- Lo que sigue necesitando internet: editar productos de una venta ya enviada, pasarla a crédito o apartado, anular pagos o abonos, inventario, productos, reportes, bitácora y usuarios.
+- Para abrir el panel sin internet, en esa compu se tuvo que entrar con internet (contraseña + código) en los **últimos 3 días**. Ojo: sin internet no se puede saber si a un empleado lo desactivaron; esa compu lo deja entrar hasta que vuelva la conexión.
+- **Salir** borra de la compu la copia de ventas y clientes; lo que falta enviar no se borra.
+- **Recomendado:** un celular con datos para compartir internet (hotspot). Si el internet del almacén se cae por mucho tiempo, conecte la compu un rato para que todo se envíe (los comprobantes tienen 2 días hábiles).
 
 **Rutina diaria:** Caja SINPE → comparar el total con la app del banco → verificar uno por uno → no entregar lo que esté *Por verificar*. Fin de mes: **Descargar mes (CSV)**.
 
@@ -303,7 +311,7 @@ assets/productos/  fotos de productos (WebP 800×800)
 assets/vendor/     supabase-js 2.119.2 (local, sin CDN)
 assets/fonts/      Barlow / Barlow Condensed (OFL)
 assets/img/        logo, íconos de la app, og.jpg (imagen para compartir)
-supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql, v14_caja.sql, v15_mas_vendidos.sql, v16_bitacora.sql, v17_permisos.sql, v18_cheque_saldos_apartados.sql
+supabase/          schema.sql, v4_mejoras.sql, productos_iniciales.sql, precios_aproximados.sql, v4_datos.sql, v5_sin_internet.sql, v6_espacio.sql, v7_monto_completo.sql, v8_consultas.sql, v9_inventario.sql, v10_facturacion.sql, v11_precios.sql, v12_inventario.sql, v13_credito.sql, v14_caja.sql, v15_mas_vendidos.sql, v16_bitacora.sql, v17_permisos.sql, v18_cheque_saldos_apartados.sql, v19_sin_internet.sql
 supabase/functions/facturar/   función que firma y envía los comprobantes a Hacienda
 herramientas/      prueba de facturación en la compu (prueba-hacienda.mjs)
 sw.js              copia de la página para abrirla sin internet

@@ -37,8 +37,13 @@
   //  SIN INTERNET: copia de datos, permiso y ventas por enviar
   // =========================================================
   const LS_COLA = "lc_ventas_sin_red_v1", LS_COPIA = "lc_copia_panel_v1", LS_PERMISO = "lc_panel_sin_red_v1", LS_NUM = "lc_sin_red_num_v1";
-  const HORAS_SIN_RED = 12;
+  // lo demás que se hace sin internet (pagos, entregas, anulaciones, abonos, caja, comprobantes) y se manda después, en orden
+  const LS_ACC = "lc_acciones_sin_red_v1", LS_ENVIADAS = "lc_ventas_enviadas_v1";
+  // comprobantes electrónicos sin internet: identificador de esta compu y sus números reservados (no se borran al salir)
+  const LS_DISP = "lc_dispositivo_v1", LS_FE_RED = "lc_fe_sin_red_v1";
+  const HORAS_SIN_RED = 72;  // sin internet se puede volver a entrar hasta 3 días después de la última vez con internet
   let SIN_RED = false;     // panel abierto sin conexión (con la copia de la última vez)
+  let V19 = false;         // la base acepta crédito, caja y comprobantes sin internet (v19_sin_internet.sql)
   let V9 = false;          // la base tiene código y existencia en productos (v9_inventario.sql)
   let V10 = false;         // la base tiene facturación electrónica (v10_facturacion.sql)
   let FE = null;           // datos del emisor (fe_emisor)
@@ -50,8 +55,8 @@
   let V16 = false;         // bitácora con nombres y roles (v16_bitacora.sql)
   let YO = null, USUARIOS = [];   // usuario conectado y usuarios del panel (v16)
   // Qué puede la persona que entró (v17). null = base sin v17: todo como administrador.
-  let ACCESO = null, V17 = false;
-  let V18 = false;         // cheque, saldos de Moriah y apartados (v18_cheque_saldos_apartados.sql)   // V17: la base tiene empleados con permisos (v17_permisos.sql)
+  let ACCESO = null, V17 = false;   // V17: la base tiene empleados con permisos (v17_permisos.sql)
+  let V18 = false;         // cheque, saldos de Moriah y apartados (v18_cheque_saldos_apartados.sql)
   // pestañas y pantallas: sin v17 todos los del panel las ven, como antes
   const soyAdministrador = () => !ACCESO || ACCESO.rol === "administrador";
   // borrar ventas y cambiar roles: sin v17 se usa el rol de v16
@@ -77,7 +82,7 @@
       const c = copia.leer(), det = c.detalles || {};
       det[id] = { ...d, t: Date.now() };
       const ids = Object.keys(det).sort((a, b) => det[b].t - det[a].t);
-      ids.slice(60).forEach((x) => delete det[x]);          // solo las últimas 60 ventas abiertas
+      ids.slice(150).forEach((x) => delete det[x]);         // solo las últimas 150 ventas
       c.detalles = det; ponerLS(LS_COPIA, c);
     },
     borrar() { try { localStorage.removeItem(LS_COPIA); localStorage.removeItem(LS_PERMISO); } catch { /* */ } }
@@ -92,13 +97,54 @@
   };
   const numTemporal = () => { const n = (Number(leerLS(LS_NUM, 0)) || 0) + 1; ponerLS(LS_NUM, n); return "SIN-" + String(n).padStart(4, "0"); };
 
+  // ¿se puede hablar con la base ahora? (el panel abierto sin internet espera a que se vuelva a entrar)
+  // CAIDA: la compu dice que tiene red (el router está prendido) pero no llega a internet: se cayó el proveedor
+  let CAIDA = false, REDOK = false;
+  const enLinea = () => !SIN_RED && navigator.onLine && !CAIDA;
+  function sinSenal(e) {
+    if (e && U.esErrorRed(e) && navigator.onLine && !SIN_RED && !CAIDA) { CAIDA = true; pintarBandaRed(); }
+  }
+  // cada rato (y al volver la red) se prueba si de verdad hay internet
+  async function probarRed() {
+    if (!navigator.onLine) return;
+    let ok = false;
+    try { const r = await conTiempo(db.from("ajustes").select("clave").limit(1), 8000); ok = !r.error || !U.esErrorRed(r.error); } catch { ok = false; }
+    if (SIN_RED) { if (ok !== REDOK) { REDOK = ok; pintarBandaRed(); } return; }
+    if (ok) { CAIDA = false; pintarBandaRed(); enviarCola(); }
+    else if (!CAIDA) { CAIDA = true; pintarBandaRed(); }
+  }
+  // Acciones hechas sin internet: { id, tipo, venta?: {id} | {uuid, temp}, datos, cuando, desc, error?, espera? }
+  const acciones = {
+    leer: () => { const l = leerLS(LS_ACC, []); return Array.isArray(l) ? l : []; },
+    escribir: (l) => ponerLS(LS_ACC, l),
+    agregar(tipo, datos, extra = {}) {
+      const a = { tipo, datos, cuando: new Date().toISOString(), ...extra, id: extra.id || crypto.randomUUID() };
+      const l = acciones.leer(); l.push(a);
+      return acciones.escribir(l) ? a : null;
+    },
+    guardar(a) { const l = acciones.leer(), i = l.findIndex((x) => x.id === a.id); if (i >= 0) { l[i] = a; acciones.escribir(l); } },
+    quitar(id) { acciones.escribir(acciones.leer().filter((x) => x.id !== id)); },
+    deVenta(ref) { const env = leerLS(LS_ENVIADAS, {}); return acciones.leer().filter((a) => a.venta && mismaVenta(a.venta, ref, env)); }
+  };
+  const mismaVenta = (a, b, env) => !!a && !!b && ((a.id && b.id && Number(a.id) === Number(b.id)) || (a.uuid && b.uuid && a.uuid === b.uuid)
+    || (a.uuid && b.id && Number((env || leerLS(LS_ENVIADAS, {}))[a.uuid]?.id) === Number(b.id)));
+  // ventas hechas sin internet que ya llegaron: número temporal → venta de verdad
+  function anotarEnviada(uuid, d) {
+    const m = leerLS(LS_ENVIADAS, {});
+    m[uuid] = { id: d.id, codigo: d.codigo, t: Date.now() };
+    const ks = Object.keys(m).sort((a, b) => m[b].t - m[a].t);
+    ks.slice(300).forEach((k) => delete m[k]);
+    ponerLS(LS_ENVIADAS, m);
+  }
+  const porEnviar = () => cola.leer().length + acciones.leer().length;
+
   // consulta con respaldo: si no hay internet, devuelve la copia guardada
   async function consulta(clave, q) {
     if (SIN_RED) { const d = copia.leer()[clave]; return d !== undefined ? { data: d, error: null, deCopia: true } : { data: null, error: { message: "Failed to fetch" } }; }
     let r;
     try { r = await q; } catch (e) { r = { data: null, error: e }; }
     if (!r.error) { copia.poner(clave, r.data); return r; }
-    if (U.esErrorRed(r.error)) { const d = copia.leer()[clave]; if (d !== undefined) return { data: d, error: null, deCopia: true }; }
+    if (U.esErrorRed(r.error)) { sinSenal(r.error); const d = copia.leer()[clave]; if (d !== undefined) return { data: d, error: null, deCopia: true }; }
     return r;
   }
 
@@ -106,26 +152,53 @@
     return Promise.race([Promise.resolve(p), new Promise((_, rej) => setTimeout(() => rej({ message: "timeout" }), ms))]);
   }
 
-  function estadoRedPanel() {
-    const n = cola.leer().filter((r) => !r.error).length;
-    if (!navigator.onLine) {
-      U.banda(`Sin internet. Puede hacer ventas nuevas e imprimirlas: se guardan en esta compu y se envían solas cuando vuelva la conexión.${n ? ` Por enviar: ${n}.` : ""}`);
-    } else if (SIN_RED) {
-      U.banda(`Volvió el internet.${n ? ` Entre de nuevo para enviar ${n === 1 ? "la venta guardada" : `las ${n} ventas guardadas`}.` : ""}`, "ok", { texto: "Entrar", accion: () => location.reload() });
-    } else {
-      const b = $("#bandaRed");
-      if (b && !b.hidden && !b.dataset.fija) U.banda("");
-      enviarCola();
+  // un comprobante hecho sin internet tiene que llegar a Hacienda a más tardar 2 días hábiles después (reglamento, art. 21)
+  function limiteHacienda(iso) {
+    let f = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(new Date(iso)), n = 0;
+    while (n < 2) {
+      f = new Date(new Date(f + "T12:00:00-06:00").getTime() + 864e5).toISOString().slice(0, 10);
+      const dia = new Date(f + "T12:00:00-06:00").getUTCDay();
+      if (dia !== 0 && dia !== 6) n++;
     }
+    return f;
+  }
+  function avisoHacienda() {
+    const fe = acciones.leer().filter((a) => a.tipo === "fe");
+    if (!fe.length) return "";
+    const lim = fe.map((a) => limiteHacienda(a.cuando)).sort()[0];
+    const txt = new Date(lim + "T12:00:00-06:00").toLocaleDateString("es-CR", { weekday: "long", day: "numeric", month: "long", timeZone: TZ });
+    return ` ${fe.length === 1 ? "Hay 1 comprobante electrónico sin enviar: tiene" : `Hay ${fe.length} comprobantes electrónicos sin enviar: tienen`} que llegar a Hacienda a más tardar el ${txt}.`;
+  }
+  function pintarBandaRed() {
+    const n = porEnviar(), malas = cola.leer().filter((r) => r.error).length + acciones.leer().filter((a) => a.error).length;
+    const ver = n ? { texto: "Ver pendientes", accion: abrirPendientes } : null;
+    const b = $("#bandaRed");
+    if (!navigator.onLine || CAIDA || (SIN_RED && !REDOK)) {
+      U.banda(`Sin internet. Puede seguir vendiendo, cobrando, entregando y usar la caja: todo queda en esta compu y se envía solo cuando vuelva la conexión.${n ? ` Por enviar: ${n}.` : ""}${avisoHacienda()}`, "sin", ver);
+    } else if (SIN_RED) {
+      U.banda(`Volvió el internet.${n ? ` Entre de nuevo para enviar lo pendiente (${n}).` : ""}`, "ok", { texto: "Entrar", accion: () => location.reload() });
+    } else if (malas) {
+      U.banda(`${malas === 1 ? "Una cosa hecha" : `${malas} cosas hechas`} sin internet no se ${malas === 1 ? "pudo" : "pudieron"} enviar.${avisoHacienda()}`, "error", ver);
+    } else if (n) {
+      U.banda(`Enviando lo que se hizo sin internet (${n}).${avisoHacienda()}`, "sin", ver);
+    } else if (b && !b.hidden && !b.dataset.fija) U.banda("");
+  }
+  function estadoRedPanel(e) {
+    if (e?.type === "offline") CAIDA = false;          // sin red del todo: lo dice navigator.onLine
+    pintarBandaRed();
+    if (e?.type === "online") { probarRed(); return; }
+    if (enLinea()) enviarCola();
   }
 
   // =========================================================
   //  ACCESO: contraseña → (registrar MFA) → código → panel
   // =========================================================
   async function siguientePaso() {
-    let session = null;
-    try { ({ data: { session } } = await db.auth.getSession()); } catch { /* sin conexión */ }
+    let session = null, sErr = null;
+    try { ({ data: { session }, error: sErr } = await db.auth.getSession()); } catch (e) { sErr = e; }
     if (!navigator.onLine) return entrarSinRed();
+    // la sesión venció y no se pudo renovar porque no hay internet (aunque la compu tenga red)
+    if (!session && sErr && (U.esErrorRed(sErr) || sErr.name === "AuthRetryableFetchError")) return entrarSinRed();
     if (!session) return vista("vLogin");
 
     // ¿quién es y qué puede? (v17). Sin v17: todos son administradores con autenticador.
@@ -201,8 +274,8 @@
 
   async function salir(motivo) {
     if (!motivo) {
-      const n = cola.leer().length;
-      if (n && !confirm(`Hay ${n} venta(s) hechas sin internet que todavía no se han enviado. Quedan guardadas en esta compu y se envían la próxima vez que entre. ¿Salir?`)) return;
+      const n = porEnviar();
+      if (n && !confirm(`Hay ${n} ${n === 1 ? "cosa hecha" : "cosas hechas"} sin internet que todavía no se han enviado. Quedan guardadas en esta compu y se envían la próxima vez que entre. ¿Salir?`)) return;
       copia.borrar();      // al salir a propósito se borra la copia de ventas y clientes de esta compu
     }
     try { await db.auth.signOut(); } catch { /* ya no hay sesión */ }
@@ -263,8 +336,13 @@
     panelListo = true;
     vigilarInactividad();
     pintarDiasHorario();
-    if (sinRed) { V4 = !!copia.leer().v4; V9 = !!copia.leer().v9; }
-    else {
+    if (sinRed) {
+      const c = copia.leer(), vs = c.versiones || {};
+      V4 = !!c.v4; V9 = !!c.v9;
+      V10 = !!vs.V10; V12 = !!vs.V12; V13 = !!vs.V13; V14 = !!vs.V14; V18 = !!vs.V18; V19 = !!vs.V19;
+      FE = c.fe || null;
+      if (V13) cargarClientes();
+    } else {
       let r;
       try { r = await db.from("avisos").select("id").limit(1); } catch (e) { r = { error: e }; }
       V4 = r.error && U.esErrorRed(r.error) ? !!copia.leer().v4 : !r.error;
@@ -298,6 +376,15 @@
       let r18;
       try { r18 = await db.from("pedidos").select("apartado").limit(1); } catch (e) { r18 = { error: e }; }
       V18 = !r18.error;
+      let r19;
+      try { r19 = await db.from("fe_dispositivos").select("id").limit(1); } catch (e) { r19 = { error: e }; }
+      V19 = !r19.error;
+      // para poder abrir el panel sin internet con lo mismo que tiene la base
+      if (!r16.error || !U.esErrorRed(r16.error)) {
+        copia.poner("versiones", { V10, V12, V13, V14, V18, V19 });
+        copia.poner("fe", FE ? { activo: FE.activo, ambiente: FE.ambiente, identificacion: FE.identificacion, sucursal: FE.sucursal,
+          terminal: FE.terminal, cabys_envio: FE.cabys_envio, tipo_id: FE.tipo_id, nombre: FE.nombre } : null);
+      }
     }
     document.documentElement.classList.toggle("sin-v14", !V14);
     document.documentElement.classList.toggle("sin-v16", !V16);
@@ -328,11 +415,14 @@
     addEventListener("online", estadoRedPanel);
     addEventListener("offline", estadoRedPanel);
     estadoRedPanel();
+    prepararFESinRed();
     irA(new URLSearchParams(location.search).get("ir"));
     setInterval(() => {
       if (document.hidden) return;
+      if (navigator.onLine && (CAIDA || SIN_RED)) probarRed();
       enviarCola();
-      if (!SIN_RED && navigator.onLine && !$("#dlgVenta").open) {
+      if (enLinea()) prepararFESinRed();          // sin red de nuevo: solo revisa lo que le queda a esta compu
+      if (enLinea() && !$("#dlgVenta").open) {
         if (puede("ventas") || puede("caja")) { cargarVentas(); contarPorVerificar(); }
         if (puede("preguntas")) cargarPreguntas();
       }
@@ -482,7 +572,8 @@
   // ---------- PRODUCTOS ----------
   // copia liviana para usar sin internet (con miles de productos no cabe todo)
   const productoCorto = (p) => ({ id: p.id, nombre: p.nombre, codigo: p.codigo, precio: p.precio, unidad: p.unidad, categoria_id: p.categoria_id,
-    activo: p.activo, agotado: p.agotado, destacado: p.destacado, existencia: p.existencia });
+    activo: p.activo, agotado: p.agotado, destacado: p.destacado, existencia: p.existencia,
+    cabys: p.cabys, iva_codigo: p.iva_codigo, precio_oferta: p.precio_oferta, oferta_hasta: p.oferta_hasta });
   async function cargarProductos() {
     let data = null, error = null;
     if (SIN_RED) data = copia.leer().productos || null;
@@ -1186,7 +1277,12 @@
     if (V18) qv = qv.eq("saldo_inicial", false);       // lo que se debía en Moriah está en Crédito, no es venta
     const { data, error, deCopia } = await consulta("ventas", qv.order("created_at", { ascending: false }).limit(500));
     if (error) { pintarVentas(); return toast(errTxt(error), true); }
-    ventas = data;
+    const accs = acciones.leer().filter((a) => a.venta), env = accs.length ? leerLS(LS_ENVIADAS, {}) : {};
+    ventas = !accs.length ? data || [] : (data || []).map((v) => {
+      const mias = accs.filter((a) => mismaVenta(a.venta, { id: v.id }, env));
+      return mias.length ? conPendientes(v, null, mias) : v;
+    });
+    if (!deCopia) copiarAbiertas();
     if (!deCopia) {
       let cn;
       try { cn = await db.from("comprobantes_cliente").select("pedido_id").eq("estado", "nuevo"); } catch { cn = {}; }
@@ -1202,6 +1298,72 @@
   }
 
   const esNuevo = (v) => v.estado !== "anulada" && (!v.revisado || compNuevos.has(v.id));
+
+  // ---------- cómo queda una venta con lo que se hizo sin internet y todavía no se envía ----------
+  const estadoPagoDe = (total, reg, ver) => (reg <= 0 ? "sin_pago" : reg < total ? "parcial" : ver < reg ? "por_verificar" : reg > total ? "sobrepago" : "pagado");
+  const refVenta = () => (V.local ? { uuid: V.local, temp: V.pedido?.codigo } : V.pedido?.id ? { id: V.pedido.id } : null);
+  function conPendientes(v, ref, accs = ref ? acciones.deVenta(ref) : []) {
+    if (!accs.length) return v;
+    const x = { ...v, pendiente: accs.map((a) => a.tipo) };
+    for (const a of accs) {
+      if (a.tipo === "pago") {
+        x.pagado_registrado = Number(x.pagado_registrado) + Number(a.datos.monto);
+        if (a.datos.verificado) x.pagado_verificado = Number(x.pagado_verificado) + Number(a.datos.monto);
+      }
+      if (a.tipo === "verificar") x.pagado_verificado = Number(x.pagado_verificado) + Number(a.datos.monto || 0);
+      if (a.tipo === "entregar" && x.estado === "abierta") { x.estado = "entregada"; x.entregada_at = a.cuando; }
+      if (a.tipo === "anular") { x.estado = "anulada"; x.motivo_anulacion = a.datos.motivo; }
+    }
+    x.estado_pago = estadoPagoDe(Number(x.total), Number(x.pagado_registrado), Number(x.pagado_verificado));
+    return x;
+  }
+  // pagos de la venta + los anotados sin internet (todavía en la compu)
+  function pagosConPendientes(pagos, ref) {
+    const accs = ref ? acciones.deVenta(ref) : [];
+    const ver = new Set(accs.filter((a) => a.tipo === "verificar").map((a) => String(a.datos.pago_id)));
+    return (pagos || []).map((g) => (ver.has(String(g.id)) ? { ...g, verificado: true, pendiente: true } : g))
+      .concat(accs.filter((a) => a.tipo === "pago").map((a) => ({ ...a.datos, id: "acc:" + a.id, pendiente: true, error: a.error })));
+  }
+  // vuelve a armar la venta abierta con lo pendiente (después de anotar algo sin internet)
+  function aplicarPendientesVenta() {
+    if (!V?.base) return;
+    const ref = refVenta();
+    V.pedido = conPendientes(V.base.pedido, ref);
+    V.pagos = V.local ? V.base.pagos : pagosConPendientes(V.base.pagos, ref);
+  }
+  // comprobantes hechos sin internet que todavía no llegan a la base
+  const fePendientes = () => { const ref = V && refVenta(); return ref ? acciones.deVenta(ref).filter((a) => a.tipo === "fe") : []; };
+  const docSinRed = (a) => ({ id: "acc:" + a.id, tipo: a.datos.tipo, ambiente: FE?.ambiente, clave: a.datos.clave, consecutivo: a.datos.consecutivo,
+    fecha_emision: a.datos.fecha, total: a.datos.total, impuesto: null, estado: "sin_internet", receptor: a.datos.receptor || null,
+    detalle: a.error ? "No se pudo enviar: " + a.error : null, anulado: false, sinRed: true });
+
+  // Con internet se guarda una copia de las ventas abiertas (productos, pagos y comprobantes),
+  // para poder cobrarlas, entregarlas o anularlas si se va la señal.
+  let copiaAbiertasT = 0;
+  async function copiarAbiertas() {
+    if (!enLinea() || Date.now() - copiaAbiertasT < 10 * 60e3) return;
+    copiaAbiertasT = Date.now();
+    const ids = ventas.filter((v) => v.estado === "abierta").slice(0, 120).map((v) => v.id);
+    if (!ids.length) return;
+    try {
+      const [pe, it, pg, fe, fa] = await Promise.all([
+        db.from("pedidos").select("*").in("id", ids),
+        db.from("pedido_items").select("*").in("pedido_id", ids).order("id"),
+        db.from("pagos").select("*").in("pedido_id", ids).order("fecha"),
+        V10 && FE?.activo ? db.from("v_fe_documentos").select("*").in("pedido_id", ids).order("id") : Promise.resolve({ data: [] }),
+        V4 ? db.from("facturas").select("*").in("pedido_id", ids) : Promise.resolve({ data: [] })
+      ]);
+      if (pe.error || it.error || pg.error) return;
+      const c = copia.leer(), det = c.detalles || {};
+      for (const p of pe.data) {
+        if (det[p.id] && det[p.id].t > copiaAbiertasT - 60e3) continue;           // se acaba de abrir: esa copia es más nueva
+        det[p.id] = { pedido: p, items: it.data.filter((i) => i.pedido_id === p.id), pagos: pg.data.filter((g) => g.pedido_id === p.id),
+          fe: (fe.data || []).filter((d) => d.pedido_id === p.id), factura: (fa.data || []).find((f) => f.pedido_id === p.id) || null, t: copiaAbiertasT - 120e3 };
+      }
+      Object.keys(det).sort((a, b) => det[b].t - det[a].t).slice(150).forEach((k) => delete det[k]);
+      c.detalles = det; ponerLS(LS_COPIA, c);
+    } catch { /* se intenta en la próxima vuelta */ }
+  }
   const esApartado = (v) => !!v.apartado && v.estado === "abierta";
   const apartadoVencido = (v) => esApartado(v) && v.apartado_vence < hoyCR() && v.total - v.pagado_registrado > 0;
 
@@ -1222,6 +1384,12 @@
     $("#cifrasVentas").innerHTML = cifras.map(([t, n, s]) => `<div><dt>${t}</dt><dd>${n}${s ? `<small>${s}</small>` : ""}</dd></div>`).join("");
   }
 
+  // etiquetas de lo hecho sin internet en una venta (por enviar o con problema)
+  function etqPendientes(accs) {
+    const n = { fe: "Comprobante sin internet", entregar: "Entrega por enviar", anular: "Anulación por enviar", pago: "Pago por enviar", verificar: "Verificación por enviar" };
+    return [...new Set(accs.map((a) => a.tipo))].filter((t) => n[t])
+      .map((t) => `<span class="etq ${accs.some((a) => a.tipo === t && a.error) ? "etq--error" : "etq--por_verificar"}">${n[t]}</span>`).join(" ");
+  }
   function pintarVentas() {
     const q = $("#vBuscar").value.trim().toLowerCase();
     const pasa = {
@@ -1244,6 +1412,9 @@
           <span class="etiquetas">
             ${r.error ? `<span class="etq etq--error">No se pudo enviar: ${U.esc(r.error)}</span>` : '<span class="etq etq--por_verificar">Por enviar</span>'}
             <span class="etq">Hecha sin internet</span>
+            ${r.venta.credito ? `<span class="etq">Crédito · ${U.esc(r.venta.credito.nombre || "")}</span>` : ""}
+            ${r.venta.apartado_vence ? `<span class="etq">Apartado · hasta ${U.esc(fechaCorta(r.venta.apartado_vence))}</span>` : ""}
+            ${etqPendientes(acciones.deVenta({ uuid: r.id }))}
           </span>
         </div>
         <div class="fila__monto"><b>${fmt(t.total)}</b>${t.total - t.registrado > 0 ? `<small>Falta ${fmt(t.total - t.registrado)}</small>` : ""}</div>
@@ -1266,6 +1437,7 @@
             ${v.credito && v.estado !== "anulada" && v.total - v.pagado_registrado > 0 && v.vence < hoyCR() ? '<span class="etq etq--error">Vencida</span>' : ""}
             ${esApartado(v) ? `<span class="etq">Apartado${v.apartado_vence ? " · hasta " + U.esc(fechaCorta(v.apartado_vence)) : ""}</span>` : ""}
             ${apartadoVencido(v) ? '<span class="etq etq--error">Se pasó la fecha</span>' : ""}
+            ${v.pendiente ? etqPendientes(acciones.deVenta({ id: v.id })) : ""}
           </span>
         </div>
         <div class="fila__monto"><b>${fmt(v.total)}</b>${v.estado !== "anulada" && saldo > 0 ? `<small>Falta ${fmt(saldo)}</small>` : ""}</div>
@@ -1302,8 +1474,13 @@
 
   function abrirDeCopia(id) {
     const det = (copia.leer().detalles || {})[id];
-    if (!det) { toast("Sin internet: esta venta no se ha abierto antes en esta compu. Se podrá ver cuando vuelva la conexión.", true); return; }
-    V = { pedido: det.pedido, items: det.items.map((i) => ({ ...i })), pagos: det.pagos, comps: [], factura: det.factura || null, dirty: false, soloLectura: true };
+    if (!det) { toast("Sin internet: esta venta no está en la copia de esta compu. Se podrá abrir cuando vuelva la conexión.", true); return; }
+    V = { pedido: det.pedido, items: det.items.map((i) => ({ ...i })), pagos: det.pagos, comps: [], factura: det.factura || null, fe: det.fe || [],
+      dirty: false, copia: true, base: { pedido: det.pedido, pagos: det.pagos } };
+    V.cond = det.pedido.apartado ? "apartado" : det.pedido.credito ? "credito" : "contado";
+    V.apVence = det.pedido.apartado_vence || null;
+    V.credCli = det.pedido.cliente_id ? clientes.find((c) => c.id === det.pedido.cliente_id) || null : null;
+    aplicarPendientesVenta();
     const f = $("#formVenta");
     f.cliente_nombre.value = det.pedido.cliente_nombre;
     f.cliente_telefono.value = det.pedido.cliente_telefono || "";
@@ -1330,7 +1507,9 @@
     if (V4) { try { fac = await db.from("facturas").select("*").eq("pedido_id", id).maybeSingle(); } catch { fac = { data: null }; } }
     let fe = { data: [] };
     if (V10 && FE?.activo) { try { fe = await db.from("v_fe_documentos").select("*").eq("pedido_id", id).order("id"); } catch { fe = { data: [] }; } }
-    V = { pedido: p.data, items: it.data.map((i) => ({ ...i })), pagos: pg.data, comps: cc.data, factura: fac.data || null, fe: fe.data || [], dirty: false };
+    V = { pedido: p.data, items: it.data.map((i) => ({ ...i })), pagos: pg.data, comps: cc.data, factura: fac.data || null, fe: fe.data || [], dirty: false,
+      base: { pedido: p.data, pagos: pg.data } };
+    aplicarPendientesVenta();
     V.cond = p.data.apartado ? "apartado" : p.data.credito ? "credito" : "contado";
     V.apVence = p.data.apartado_vence || null;
     V.credCli = null;
@@ -1339,7 +1518,7 @@
     V.orig = new Map();
     if (p.data.estado !== "anulada") for (const i of it.data) if (i.producto_id) V.orig.set(i.producto_id, (V.orig.get(i.producto_id) || 0) + Number(i.cantidad));
     await refrescarExistencias(it.data.map((i) => i.producto_id));
-    copia.detalle(id, { pedido: p.data, items: it.data, pagos: pg.data, factura: fac.data || null });
+    copia.detalle(id, { pedido: p.data, items: it.data, pagos: pg.data, factura: fac.data || null, fe: fe.data || [] });
     if (!p.data.revisado) {
       db.from("pedidos").update({ revisado: true }).eq("id", id).then(({ error }) => { if (!error) { const v = ventas.find((x) => x.id === id); if (v) v.revisado = true; } });
     }
@@ -1351,7 +1530,7 @@
     if (!$("#dlgVenta").open) $("#dlgVenta").showModal();
   }
 
-  const itemsEditables = () => !V.soloLectura && (!V.pedido || !!V.local || (V.pedido.estado === "abierta" && Number(V.pedido.pagado_verificado) === 0));
+  const itemsEditables = () => !V.copia && (!V.pedido || (!!V.local && V.pedido.estado === "abierta") || (V.pedido.estado === "abierta" && Number(V.pedido.pagado_verificado) === 0));
 
   // ---------- ventas hechas sin internet (guardadas en esta compu) ----------
   function totalesLocal(v) {
@@ -1361,16 +1540,29 @@
     return { total, registrado, verificado };
   }
   function pedidoLocal(rec) {
-    const t = totalesLocal(rec.venta);
-    const estado_pago = t.registrado <= 0 ? "sin_pago" : t.registrado < t.total ? "parcial"
-      : t.verificado < t.registrado ? "por_verificar" : t.registrado > t.total ? "sobrepago" : "pagado";
-    return { id: null, codigo: rec.temp, estado: "abierta", estado_pago, total: t.total, pagado_registrado: t.registrado, pagado_verificado: t.verificado,
-      cliente_nombre: rec.venta.cliente_nombre, cliente_telefono: rec.venta.cliente_telefono, nota: rec.venta.nota, created_at: rec.venta.fecha, local: true };
+    const t = totalesLocal(rec.venta), cr = rec.venta.credito;
+    const p = { id: null, codigo: rec.temp, estado: "abierta", estado_pago: estadoPagoDe(t.total, t.registrado, t.verificado), total: t.total,
+      pagado_registrado: t.registrado, pagado_verificado: t.verificado,
+      cliente_nombre: rec.venta.cliente_nombre, cliente_telefono: rec.venta.cliente_telefono, nota: rec.venta.nota, created_at: rec.venta.fecha, local: true,
+      credito: !!cr, cliente_id: cr?.cliente_id || null, vence: cr?.vence || null,
+      apartado: !!rec.venta.apartado_vence, apartado_vence: rec.venta.apartado_vence || null };
+    return conPendientes(p, { uuid: rec.id });
+  }
+  // a crédito o apartado sin internet (la base lo recibe junto con la venta, v19)
+  function condLocal() {
+    if (!V19) return {};
+    if (V.cond === "credito" && V.credCli) return { credito: { cliente_id: V.credCli.id, nombre: V.credCli.nombre, vence: sumarDias(hoyCR(), Number(V.credCli.plazo_dias) || 30) } };
+    if (V.cond === "apartado" && V.apVence) return { apartado_vence: V.apVence };
+    return {};
   }
   function abrirLocal(id) {
     const rec = cola.buscar(id);
     if (!rec) { toast("Esa venta ya se envió."); cargarVentas(); return; }
-    V = { local: rec.id, pedido: pedidoLocal(rec), items: rec.venta.items.map((i) => ({ ...i })), pagos: rec.venta.pagos || [], comps: [], factura: null, dirty: false };
+    V = { local: rec.id, pedido: pedidoLocal(rec), items: rec.venta.items.map((i) => ({ ...i })), pagos: rec.venta.pagos || [], comps: [], factura: rec.venta.factura || null, dirty: false };
+    V.base = { pedido: V.pedido, pagos: V.pagos };
+    V.cond = rec.venta.credito ? "credito" : rec.venta.apartado_vence ? "apartado" : "contado";
+    V.apVence = rec.venta.apartado_vence || null;
+    V.credCli = rec.venta.credito ? clientes.find((c) => c.id === rec.venta.credito.cliente_id) || { id: rec.venta.credito.cliente_id, nombre: rec.venta.credito.nombre, saldo: 0, plazo_dias: 30, activo: true } : null;
     const f = $("#formVenta");
     f.cliente_nombre.value = rec.venta.cliente_nombre;
     f.cliente_telefono.value = rec.venta.cliente_telefono || "";
@@ -1380,11 +1572,12 @@
   }
   function guardarLocal(d, items) {
     const viejo = V.local ? cola.buscar(V.local) : null;
+    const { credito, apartado_vence, ...resto } = viejo?.venta || {};
     const rec = viejo
-      ? { ...viejo, error: null, venta: { ...viejo.venta, ...d, items } }
-      : { id: V.uuid || crypto.randomUUID(), temp: numTemporal(), venta: { ...d, fecha: new Date().toISOString(), items, pagos: [] } };
+      ? { ...viejo, error: null, venta: { ...resto, ...d, items, ...condLocal() } }
+      : { id: V.uuid || crypto.randomUUID(), temp: numTemporal(), venta: { ...d, fecha: new Date().toISOString(), items, pagos: [], ...condLocal() } };
     if (!cola.guardar(rec)) { $("#ventaMsg").textContent = "No hay espacio en esta compu para guardar la venta."; return false; }
-    toast(navigator.onLine && !SIN_RED ? "Venta guardada en esta compu. Se enviará en un momento." : "Sin internet: venta guardada en esta compu. Se enviará sola cuando vuelva la conexión.");
+    toast(enLinea() ? "Venta guardada en esta compu. Se enviará en un momento." : "Sin internet: venta guardada en esta compu. Se enviará sola cuando vuelva la conexión.");
     abrirLocal(rec.id);
     pintarVentas();
     estadoRedPanel();
@@ -1393,9 +1586,9 @@
 
   let enviandoCola = false;
   async function enviarCola() {
-    if (SIN_RED || enviandoCola || !navigator.onLine || !V5) return;
+    if (!enLinea() || enviandoCola || !V5) return;
     const l = cola.leer().filter((r) => !r.error);
-    if (!l.length) return;
+    if (!l.length) return enviarAcciones();
     enviandoCola = true;
     let ok = 0, malas = 0;
     try {
@@ -1403,7 +1596,7 @@
         if (V && V.local === rec.id && V.dirty) continue;          // la está editando: se manda después
         let r;
         try { r = await conTiempo(db.rpc("registrar_venta_sin_internet", { p_id: rec.id, p_venta: rec.venta }), 20000); } catch (e) { r = { error: e }; }
-        if (r.error && U.esErrorRed(r.error)) break;
+        if (r.error && U.esErrorRed(r.error)) { sinSenal(r.error); break; }
         if (r.error && r.error.code === "PGRST202") {
           V5 = false;
           U.banda("Hay ventas hechas sin internet, pero falta correr supabase/v5_sin_internet.sql en Supabase para poder enviarlas.");
@@ -1411,14 +1604,203 @@
           break;
         }
         if (r.error) { cola.guardar({ ...rec, error: errTxt(r.error) }); malas++; continue; }
+        anotarEnviada(rec.id, r.data);
         cola.quitar(rec.id); ok++;
+        (r.data.avisos || []).forEach((m) => toast(`${r.data.codigo}: ${m}`, true));
         if (V && V.local === rec.id && $("#dlgVenta").open) await abrirVenta(r.data.id);
       }
     } finally { enviandoCola = false; }
-    if (ok) { toast(ok === 1 ? "Se envió 1 venta hecha sin internet." : `Se enviaron ${ok} ventas hechas sin internet.`); await cargarVentas(); }
+    if (ok) { toast(ok === 1 ? "Se envió 1 venta hecha sin internet." : `Se enviaron ${ok} ventas hechas sin internet.`); await cargarVentas(); if (V13) cargarClientes(); }
     if (malas) toast(`${malas === 1 ? "Una venta" : malas + " ventas"} sin internet no se pudo enviar. Ábrala en la lista para corregirla.`, true);
-    if (ok || malas) pintarVentas();
+    if (ok || malas) { pintarVentas(); pintarBandaRed(); }
+    await enviarAcciones();
   }
+
+  // ---------- lo demás hecho sin internet: se manda en orden cuando vuelve la conexión ----------
+  async function idVenta(ref) {
+    if (ref.id) return { id: Number(ref.id) };
+    const e = leerLS(LS_ENVIADAS, {})[ref.uuid];
+    if (e) return { id: e.id };
+    if (cola.buscar(ref.uuid)) return { espera: "Espera a que se envíe la venta." };
+    const { data, error } = await db.from("pedidos").select("id,codigo").eq("offline_id", ref.uuid).maybeSingle();
+    if (error) return { error };
+    if (!data) return { error: { message: "La venta ya no existe (se borró antes de enviarse)." } };
+    anotarEnviada(ref.uuid, data);
+    return { id: data.id };
+  }
+  // la función "facturar" avisa la falta de internet con su propio mensaje
+  async function fe(cuerpo) {
+    try { return { d: (await llamarFE(cuerpo)).documento }; }
+    catch (e) { return { error: /^Sin internet/.test(e.message) ? { message: "Failed to fetch" } : e }; }
+  }
+  const quedaEnHacienda = (d) => (d.estado === "rechazado" ? { listo: true } : d.estado === "aceptado" ? { listo: true, aceptado: true } : { listo: false });
+  const ENVIAR = {
+    async pago(a, id) {
+      const r = await db.from("pagos").insert({ ...a.datos, pedido_id: id, offline_id: a.id }).select("id").single();
+      if (r.error?.code === "23505") return /offline/.test(r.error.message) ? {} : { error: { message: `El comprobante ${a.datos.referencia || ""} ya está registrado en otra venta.` } };
+      return r.error ? { error: r.error } : {};
+    },
+    async verificar(a) {
+      const r = await db.from("pagos").update({ verificado: true }).eq("id", a.datos.pago_id);
+      return r.error ? { error: r.error } : {};
+    },
+    async entregar(a, id) {
+      const { data: p, error } = await db.from("pedidos").select("estado").eq("id", id).single();
+      if (error) return { error };
+      if (p.estado === "entregada") return {};
+      if (p.estado === "anulada") return { error: { message: "La venta está anulada: no se marcó entregada." } };
+      const r = await db.from("pedidos").update({ estado: "entregada" }).eq("id", id);
+      return r.error ? { error: r.error } : {};
+    },
+    // si tiene tiquete o factura electrónica, primero la nota de crédito (cuando Hacienda acepte el comprobante)
+    async anular(a, id) {
+      const { data: p, error } = await db.from("pedidos").select("estado").eq("id", id).single();
+      if (error) return { error };
+      if (p.estado === "anulada") return {};
+      if (V10) {
+        const { data: docs, error: e2 } = await db.from("v_fe_documentos").select("*").eq("pedido_id", id).order("id");
+        if (e2) return { error: e2 };
+        const vivo = (docs || []).find((d) => ["01", "04"].includes(d.tipo) && d.estado !== "rechazado" && !d.anulado);
+        if (vivo) {
+          const nc = (docs || []).find((d) => d.tipo === "03" && d.referencia_id === vivo.id && d.estado !== "rechazado");
+          const revisar = (d) => fe({ accion: ["firmado", "error"].includes(d.estado) ? "enviar" : "consultar", documento_id: d.id });
+          if (!nc && vivo.estado !== "aceptado") {
+            const r = await revisar(vivo);
+            if (r.error) return { error: r.error };
+            if (!quedaEnHacienda(r.d).listo) return { espera: "Esperando que Hacienda acepte el comprobante para hacerle la nota de crédito." };
+            if (quedaEnHacienda(r.d).aceptado) return { espera: "Hacienda ya aceptó el comprobante: la nota de crédito sale en el próximo envío." };
+          } else if (!nc) {
+            const r = await fe({ accion: "anular", documento_id: vivo.id, motivo: String(a.datos.motivo).slice(0, 180) });
+            if (r.error) return { error: r.error };
+            if (r.d.estado === "rechazado") return { error: { message: "Hacienda rechazó la nota de crédito: " + (r.d.detalle || "vea el XML.") } };
+            if (r.d.estado !== "aceptado") return { espera: "Esperando que Hacienda acepte la nota de crédito." };
+          } else if (nc.estado !== "aceptado") {
+            const r = await revisar(nc);
+            if (r.error) return { error: r.error };
+            if (r.d.estado === "rechazado") return { error: { message: "Hacienda rechazó la nota de crédito: " + (r.d.detalle || "vea el XML.") } };
+            if (r.d.estado !== "aceptado") return { espera: "Esperando que Hacienda acepte la nota de crédito." };
+          }
+        }
+      }
+      const r = await db.from("pedidos").update({ estado: "anulada", motivo_anulacion: String(a.datos.motivo).slice(0, 300) }).eq("id", id);
+      return r.error ? { error: r.error } : {};
+    },
+    async fe(a, id) {
+      const { tipo, clave, fecha, credito_dias } = a.datos;
+      const r = await fe({ accion: "emitir_sin_internet", pedido_id: id, tipo, clave, fecha, ...(credito_dias ? { credito_dias } : {}) });
+      return r.error ? { error: r.error } : {};
+    },
+    async abono(a) {
+      const { error } = await db.rpc("registrar_abono", { p: { ...a.datos, offline_id: a.id } });
+      return error ? { error } : {};
+    },
+    async verificar_abono(a) {
+      const { error } = await db.rpc("verificar_abono", { p_id: a.datos.abono_id });
+      return error ? { error } : {};
+    },
+    async caja_abrir(a) {
+      const { error } = await db.rpc("abrir_caja", { p_fondo: a.datos.fondo, p_cuando: a.cuando, p_id: a.id });
+      return error ? { error } : {};
+    },
+    async caja_mover(a) {
+      const { error } = await db.rpc("mover_caja", { p_tipo: a.datos.tipo, p_monto: a.datos.monto, p_motivo: a.datos.motivo, p_cuando: a.cuando, p_id: a.id });
+      return error ? { error } : {};
+    },
+    async caja_cerrar(a) {
+      const d = a.datos;
+      const { error } = await db.rpc("cerrar_caja", { p_turno: d.turno || null, p_contado: d.contado, p_conteo: d.conteo || null, p_nota: d.nota || null, p_cuando: a.cuando, p_id: a.id });
+      return error ? { error } : {};
+    }
+  };
+  // lo que va en orden: lo de una misma venta, la caja y los abonos de un mismo cliente
+  const filaDe = (a) => (a.venta ? (a.venta.uuid || "v" + a.venta.id) : a.tipo.startsWith("caja_") ? "caja" : a.tipo === "abono" ? "cli" + a.datos.cliente_id : null);
+  let enviandoAcc = false;
+  async function enviarAcciones() {
+    if (!enLinea() || enviandoAcc || !acciones.leer().length) return;
+    enviandoAcc = true;
+    let hechas = 0, malas = 0, caja = false, cred = false;
+    const trabadas = new Set();
+    try {
+      for (const a of acciones.leer()) {
+        const fila = filaDe(a);
+        if (fila && trabadas.has(fila)) continue;
+        if (a.error) { if (fila) trabadas.add(fila); continue; }
+        let res = null, id = null;
+        try {
+          if (a.venta) { const v = await idVenta(a.venta); if (v.error || v.espera) res = v; else id = v.id; }
+          if (!res) res = (await ENVIAR[a.tipo](a, id)) || {};
+        } catch (e) { res = { error: e }; }
+        if (res.error && U.esErrorRed(res.error)) { sinSenal(res.error); break; }   // se fue otra vez: sigue después
+        if (res.espera) { if (a.espera !== res.espera) acciones.guardar({ ...a, espera: res.espera }); if (fila) trabadas.add(fila); continue; }
+        if (res.error) { acciones.guardar({ ...a, error: errTxt(res.error), espera: null }); malas++; if (fila) trabadas.add(fila); continue; }
+        acciones.quitar(a.id); hechas++;
+        if (a.tipo.startsWith("caja_")) caja = true;
+        if (a.tipo === "abono" || a.tipo === "verificar_abono") cred = true;
+      }
+    } finally { enviandoAcc = false; }
+    if (hechas) {
+      toast(hechas === 1 ? "Se envió 1 cosa hecha sin internet." : `Se enviaron ${hechas} cosas hechas sin internet.`);
+      cargarVentas(); contarPorVerificar();
+      if (caja) cargarTurno();
+      if (cred && V13) cargarClientes().then(pintarClientes);
+      if ($("#dlgVenta").open && V?.pedido?.id && !V.dirty) abrirVenta(V.pedido.id);
+    }
+    if (malas) toast(`${malas === 1 ? "Una cosa hecha" : malas + " cosas hechas"} sin internet no se ${malas === 1 ? "pudo" : "pudieron"} enviar: vea “Pendientes”.`, true);
+    pintarBandaRed();
+    if ($("#dlgPendientes").open) pintarPendientes();
+  }
+
+  function abrirPendientes() { pintarPendientes(); if (!$("#dlgPendientes").open) $("#dlgPendientes").showModal(); }
+  function pintarPendientes() {
+    const hora = (iso) => fechaCR(iso, { dateStyle: "short", timeStyle: "short" });
+    const estado = (x) => (x.error ? `No se pudo enviar: ${U.esc(x.error)}` : x.espera ? U.esc(x.espera) : "Por enviar");
+    const filas = [
+      ...cola.leer().map((r) => ({ cuando: r.venta.fecha, html: `<li class="pend ${r.error ? "pend--mal" : ""}">
+        <div class="pend__txt"><b>Venta ${U.esc(r.temp)} · ${U.esc(r.venta.cliente_nombre)} · ${fmt(totalesLocal(r.venta).total)}</b>
+          <small>${hora(r.venta.fecha)} · ${estado(r)}</small></div>
+        <div class="pend__acc">${r.error ? `<button type="button" class="btn btn--sm btn--negro" data-pend-otra-venta="${U.esc(r.id)}">Intentar otra vez</button>` : ""}
+          <button type="button" class="btn btn--sm btn--linea" data-pend-venta="${U.esc(r.id)}">Abrir</button></div></li>` })),
+      ...acciones.leer().map((a) => ({ cuando: a.cuando, html: `<li class="pend ${a.error ? "pend--mal" : ""}">
+        <div class="pend__txt"><b>${U.esc(a.desc || a.tipo)}</b>
+          <small>${hora(a.cuando)} · ${estado(a)}${a.tipo === "fe" ? ` · tiene que llegar a Hacienda a más tardar el ${U.esc(fechaCorta(limiteHacienda(a.cuando)))}` : ""}</small></div>
+        <div class="pend__acc">${a.error ? `<button type="button" class="btn btn--sm btn--negro" data-pend-otra="${a.id}">Intentar otra vez</button>` : ""}
+          <button type="button" class="enlace enlace--peligro" data-pend-quitar="${a.id}">Descartar</button></div></li>` }))
+    ].sort((x, y) => new Date(x.cuando) - new Date(y.cuando));
+    $("#listaPendientes").innerHTML = filas.map((f) => f.html).join("") || `<li class="vacio-adm">No hay nada pendiente: todo se envió.</li>`;
+    const b = $("#btnEnviarPendientes");
+    b.hidden = !filas.length;
+    b.disabled = !navigator.onLine;
+    b.textContent = !navigator.onLine ? "Sin internet" : SIN_RED ? "Entrar para enviar" : "Enviar ahora";
+  }
+  $("#btnCerrarPendientes").addEventListener("click", () => $("#dlgPendientes").close());
+  $("#btnEnviarPendientes").addEventListener("click", async () => {
+    if (SIN_RED) return location.reload();
+    $("#btnEnviarPendientes").disabled = true;
+    await enviarCola();
+    pintarPendientes();
+  });
+  $("#listaPendientes").addEventListener("click", (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.pendVenta) { $("#dlgPendientes").close(); return abrirLocal(b.dataset.pendVenta); }
+    if (b.dataset.pendOtraVenta) {
+      const r = cola.buscar(b.dataset.pendOtraVenta); if (r) cola.guardar({ ...r, error: null });
+      pintarPendientes(); pintarBandaRed(); enviarCola();
+    }
+    if (b.dataset.pendOtra) {
+      const a = acciones.leer().find((x) => x.id === b.dataset.pendOtra); if (a) acciones.guardar({ ...a, error: null, espera: null });
+      pintarPendientes(); pintarBandaRed(); enviarCola();
+    }
+    if (b.dataset.pendQuitar) {
+      const a = acciones.leer().find((x) => x.id === b.dataset.pendQuitar); if (!a) return;
+      const txt = a.tipo === "fe"
+        ? "OJO: el cliente ya tiene el recibo con la clave de este comprobante. Si lo descarta, nunca llega a Hacienda. ¿Descartarlo de todos modos?"
+        : `¿Descartar “${a.desc || a.tipo}”? No se va a enviar.`;
+      if (!confirm(txt)) return;
+      acciones.quitar(a.id);
+      pintarPendientes(); pintarBandaRed(); cargarVentas();
+      if (a.tipo.startsWith("caja_")) cargarTurno();
+    }
+  });
 
   // ---------- existencia dentro de la venta ----------
   // precio más bajo con que se puede vender un producto sin permiso de precios (el normal o la oferta vigente)
@@ -1435,7 +1817,7 @@
   // cuánto se puede vender en esta venta: la existencia + lo que esta misma venta ya había descontado
   function disponible(id) {
     const p = prodDe(id);
-    if (!V12 || !p || p.existencia == null || V.soloLectura) return Infinity;
+    if (!V12 || !p || p.existencia == null || V.copia) return Infinity;
     return Number(p.existencia) + (V.local ? 0 : (V.orig?.get(id) || 0));
   }
   const usadoEnVenta = (id, salvo) => V.items.reduce((t, i) => t + (i.producto_id === id && i !== salvo ? Number(i.cantidad) || 0 : 0), 0);
@@ -1456,13 +1838,16 @@
     const p = V.pedido, edit = itemsEditables();
     $("#ventaTitulo").textContent = p ? p.cliente_nombre : "Nueva venta";
     $("#ventaCodigo").textContent = p ? p.codigo : "";
+    const pend = p?.pendiente || [];
+    const etqPend = (pend.includes("anular") ? ' <span class="etq etq--por_verificar">Anulación por enviar</span>' : "")
+      + (pend.includes("entregar") ? ' <span class="etq etq--por_verificar">Entrega por enviar</span>' : "")
+      + (pend.includes("pago") || pend.includes("verificar") ? ' <span class="etq etq--por_verificar">Pagos por enviar</span>' : "");
+    const etqVenta = (x) => (x.estado === "anulada" ? `<span class="etq">Anulada</span> ${U.esc(x.motivo_anulacion || "")}`
+      : `<span class="etq etq--${x.estado_pago}">${ETQ_PAGO[x.estado_pago]}</span>${x.estado === "entregada" ? ` <span class="etq etq--ok">Entregada ${fechaCR(x.entregada_at, { dateStyle: "short" })}</span>` : ""}`
+        + (x.saldo_inicial ? ' <span class="etq">Saldo anterior de Moriah</span>' : esApartado(x) ? ' <span class="etq">Apartado</span>' : x.credito && x.local ? ' <span class="etq">A crédito</span>' : ""));
     $("#ventaEstado").innerHTML = V.local
-      ? `<span class="etq etq--por_verificar">Por enviar</span> <span class="etq">Hecha sin internet</span>${cola.buscar(V.local)?.error ? ` <span class="etq etq--error">${U.esc(cola.buscar(V.local).error)}</span>` : ""}`
-      : V.soloLectura ? `<span class="etq">Sin internet: copia de la última conexión, solo para ver</span>`
-      : p
-      ? (p.estado === "anulada" ? `<span class="etq">Anulada</span> ${U.esc(p.motivo_anulacion || "")}`
-        : `<span class="etq etq--${p.estado_pago}">${ETQ_PAGO[p.estado_pago]}</span>${p.estado === "entregada" ? ` <span class="etq etq--ok">Entregada ${fechaCR(p.entregada_at, { dateStyle: "short" })}</span>` : ""}`
-          + (p.saldo_inicial ? ' <span class="etq">Saldo anterior de Moriah</span>' : esApartado(p) ? ' <span class="etq">Apartado</span>' : ""))
+      ? `<span class="etq etq--por_verificar">Por enviar</span> <span class="etq">Hecha sin internet</span>${cola.buscar(V.local)?.error ? ` <span class="etq etq--error">${U.esc(cola.buscar(V.local).error)}</span>` : ""} ${etqVenta(p)}${etqPend}`
+      : p ? (V.copia ? `<span class="etq">Sin internet: copia de la última conexión</span> ` : "") + etqVenta(p) + etqPend
       : "Sin guardar";
 
     $("#itemsVenta").innerHTML = V.items.map((i, n) => `
@@ -1479,8 +1864,8 @@
     pintarCondicion();
 
     const cerrada = p && p.estado !== "abierta";
-    $("#btnGuardarVenta").hidden = !!(p && p.estado === "anulada") || !!V.soloLectura;
-    $("#btnCobrarWa").hidden = !p || !!V.local || !!V.soloLectura || p.estado === "anulada" || (Number(p.total) > 0 && Number(p.pagado_registrado) >= Number(p.total));
+    $("#btnGuardarVenta").hidden = !!(p && p.estado === "anulada") || !!V.copia;
+    $("#btnCobrarWa").hidden = !p || !!V.local || !!V.copia || p.estado === "anulada" || (Number(p.total) > 0 && Number(p.pagado_registrado) >= Number(p.total));
     $("#ventaMsg").textContent = "";
 
     // comprobantes enviados por el cliente
@@ -1503,14 +1888,13 @@
       </div>
     </li>`).join("");
 
-    if (!V.soloLectura) cargarMiniaturas();
+    if (!V.copia && enLinea()) cargarMiniaturas();
 
     // pagos
     $("#ventaSaldo").textContent = p ? `· Total ${fmt(p.total)} · Registrado ${fmt(p.pagado_registrado)} · Verificado ${fmt(p.pagado_verificado)}` : "";
     $("#pagosVenta").innerHTML = p ? (V.pagos.map(V.local ? pagoLocalHTML : pagoHTML).join("") || `<li class="vacio-adm">Sin pagos registrados.</li>`) : `<li class="vacio-adm">Guarde la venta para registrar pagos.</li>`;
-    $("#dlgVenta").classList.toggle("solo-ver", !!V.soloLectura);
-    $$("#formVenta input").forEach((i) => (i.disabled = !!V.soloLectura));
-    $("#boxPago").hidden = !p || p.estado === "anulada" || !!V.soloLectura;
+    $$("#formVenta input").forEach((i) => (i.disabled = !!V.copia || p?.estado === "anulada"));
+    $("#boxPago").hidden = !p || p.estado === "anulada";
     $("#boxPago").open = false;
     const saldoReg = p ? Math.max(0, p.total - p.pagado_registrado) : 0;
     const fp = $("#formPago");
@@ -1525,27 +1909,28 @@
     $("#pagoMsg").textContent = "";
     pintarFormaPago();
 
-    $("#btnEntregar").hidden = !p || cerrada || !!V.local || !!V.soloLectura;
+    $("#btnEntregar").hidden = !p || cerrada;
     $("#formPago").comprobante.disabled = !!V.local;
 
     // entrega, listo y factura
     const ent = $("#ventaEntrega");
     ent.hidden = !p || !V4;
-    if (V.local || V.soloLectura) ent.hidden = true;
+    if (V.local) ent.hidden = true;
     else if (p && V4) {
       ent.innerHTML = (p.entrega === "envio"
         ? `<b>Envío a ${U.esc(p.zona || "domicilio")}</b>${p.direccion ? ": " + U.esc(p.direccion) : ""}`
         : "<b>Retira en el almacén</b>") +
         (p.listo_at ? ` <span class="etq etq--ok">Listo desde ${fechaCR(p.listo_at, { dateStyle: "short", timeStyle: "short" })}</span>` : "");
     }
-    $("#btnListo").hidden = !p || p.estado !== "abierta" || !V4 || !!V.local || !!V.soloLectura;
+    $("#btnListo").hidden = !p || p.estado !== "abierta" || !V4 || !!V.local || !!V.copia || !enLinea();
     $("#btnListo").textContent = p?.listo_at ? "Avisar otra vez que está listo" : "Avisar que está listo";
     // un saldo que viene de Moriah ya se facturó allá
-    $("#boxFactura").hidden = !p || !V4 || !!V.local || !!V.soloLectura || !!p.saldo_inicial;
+    // sin internet: los datos para factura de una venta hecha en la compu se guardan con ella
+    $("#boxFactura").hidden = !p || !V4 || !!V.copia || (!!V.local && !V19) || !!p.saldo_inicial;
     if (!$("#boxFactura").hidden) pintarFactura();
-    $("#boxFE").hidden = !p || !V10 || !FE?.activo || !!V.local || !!V.soloLectura || !!p.saldo_inicial;
+    $("#boxFE").hidden = !p || !V10 || !FE?.activo || !!p.saldo_inicial;
     if (!$("#boxFE").hidden) pintarFEVenta();
-    $("#btnAnularVenta").hidden = !p || p.estado === "anulada" || !!V.local || !!V.soloLectura || !puede("anular");
+    $("#btnAnularVenta").hidden = !p || p.estado === "anulada" || !puede("anular");
     $(".imprimir").hidden = !p;
     $("#btnBorrarVenta").hidden = !puedeBorrarVenta();
   }
@@ -1559,10 +1944,19 @@
         <span>${fechaCR(g.fecha)}</span>
         <span>${g.verificado ? '<span class="etq etq--pagado">Recibido</span>' : '<span class="etq etq--por_verificar">Por verificar</span>'} <small>se envía con la venta</small></span>
       </div>
-      <div class="pago__acc"><button type="button" class="enlace enlace--peligro" data-quitar-pago-local="${n}">Quitar</button></div>
+      <div class="pago__acc">${g.verificado ? "" : `<button type="button" class="btn btn--sm btn--negro" data-verificar="${n}" data-monto="${g.monto}" data-ref="${U.esc(g.referencia || "")}">Ya lo vi en el banco</button>`}
+        <button type="button" class="enlace enlace--peligro" data-quitar-pago-local="${n}">Quitar</button></div>
     </li>`;
   }
   $("#pagosVenta").addEventListener("click", (e) => {
+    const q = e.target.closest("[data-quitar-pago-pend]");
+    if (q) {
+      e.stopImmediatePropagation();
+      if (!confirm("¿Quitar este pago? Todavía no se ha enviado.")) return;
+      acciones.quitar(q.dataset.quitarPagoPend);
+      aplicarPendientesVenta(); pintarVenta(); cargarVentas(); pintarBandaRed();
+      return;
+    }
     const b = e.target.closest("[data-quitar-pago-local]");
     if (!b || !V.local) return;
     e.stopImmediatePropagation();
@@ -1574,8 +1968,11 @@
   });
 
   function pagoHTML(g) {
+    const red = enLinea();
     const estado = g.anulado
       ? `<span class="etq">Anulado</span> <small>${U.esc(g.motivo_anulacion || "")}</small>`
+      : g.pendiente
+        ? `<span class="etq ${g.verificado ? "etq--pagado" : "etq--por_verificar"}">${g.verificado ? "Recibido" : "Por verificar"}</span> <span class="etq etq--por_verificar">Por enviar</span>${g.error ? ` <span class="etq etq--error">${U.esc(g.error)}</span>` : ""}`
       : g.verificado
         ? `<span class="etq etq--pagado">Verificado en banco</span> <small>${fechaCR(g.verificado_at, { dateStyle: "short", timeStyle: "short" })}</small>`
         : `<span class="etq etq--por_verificar">Por verificar</span>`;
@@ -1588,9 +1985,10 @@
         <span>${estado}</span>
       </div>
       <div class="pago__acc">
-        ${g.comprobante_path ? `<button type="button" class="btn btn--sm btn--linea" data-comp="${U.esc(g.comprobante_path)}">Ver comprobante</button>` : ""}
+        ${g.comprobante_path && red ? `<button type="button" class="btn btn--sm btn--linea" data-comp="${U.esc(g.comprobante_path)}">Ver comprobante</button>` : ""}
         ${!g.anulado && !g.verificado ? `<button type="button" class="btn btn--sm btn--negro" data-verificar="${g.id}" data-monto="${g.monto}" data-ref="${U.esc(g.referencia || "")}">Ya lo vi en el banco</button>` : ""}
-        ${!g.anulado ? `<button type="button" class="enlace enlace--peligro" data-anular-pago="${g.id}">Anular</button>` : ""}
+        ${!g.anulado && !g.pendiente && red ? `<button type="button" class="enlace enlace--peligro" data-anular-pago="${g.id}">Anular</button>` : ""}
+        ${g.pendiente && !V.local ? `<button type="button" class="enlace enlace--peligro" data-quitar-pago-pend="${U.esc(String(g.id).slice(4))}">Quitar</button>` : ""}
       </div>
     </li>`;
   }
@@ -1709,10 +2107,10 @@
     if (!items.length) { msg.textContent = "Agregue al menos un producto."; return false; }
     if (items.some((i) => i.precio_unit === 0) && !confirm("Hay renglones con precio ₡0. ¿Guardar así?")) return false;
 
-    if (V.soloLectura) return false;
+    if (V.copia) return false;
     const errCredito = revisarCredito(items) || revisarApartado();
     if (errCredito) { msg.textContent = errCredito; return false; }
-    if (V12 && !SIN_RED && navigator.onLine) await refrescarExistencias(items.map((i) => i.producto_id));
+    if (V12 && enLinea()) await refrescarExistencias(items.map((i) => i.producto_id));
     const pasados = [...new Set(items.filter((i) => i.producto_id).map((i) => i.producto_id))]
       .filter((id) => usadoEnVenta(id) > disponible(id));
     if (pasados.length) {
@@ -1723,7 +2121,7 @@
     // venta hecha sin internet que todavía no se envía: se actualiza en la compu
     if (V.local) return guardarLocal(d, items);
     // venta nueva sin conexión: se guarda en la compu
-    if (!V.pedido && (SIN_RED || !navigator.onLine)) return guardarLocal(d, items);
+    if (!V.pedido && !enLinea()) return guardarLocal(d, items);
 
     const btn = $("#btnGuardarVenta");
     btn.disabled = true; msg.textContent = "";
@@ -1734,7 +2132,7 @@
         const venta = { ...d, fecha: new Date().toISOString(), items, pagos: [] };
         let r;
         try { r = await conTiempo(db.rpc("registrar_venta_sin_internet", { p_id: V.uuid, p_venta: venta }), 15000); } catch (e) { r = { error: e }; }
-        if (r.error && U.esErrorRed(r.error)) return guardarLocal(d, items);
+        if (r.error && U.esErrorRed(r.error)) { sinSenal(r.error); return guardarLocal(d, items); }
         if (r.error && r.error.code === "PGRST202") V5 = false;        // base sin v5: se guarda como antes
         else if (r.error) throw r.error;
         else { await despuesDeGuardar(r.data.id, null); return true; }
@@ -1845,6 +2243,15 @@
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.correo)) { msg.textContent = "Revise el correo."; return; }
     if (d.consecutivo && !/^[0-9]{20}$/.test(d.consecutivo)) { msg.textContent = "El consecutivo tiene 20 dígitos."; return; }
     if (d.clave && !/^[0-9]{50}$/.test(d.clave)) { msg.textContent = "La clave numérica tiene 50 dígitos."; return; }
+    if (V.local) {
+      const rec = cola.buscar(V.local); if (!rec) return;
+      if (fePendientes().length) { msg.textContent = "Ya se hizo el comprobante de esta venta: los datos ya no se pueden cambiar."; return; }
+      rec.venta.factura = { tipo_id: d.tipo_id, identificacion: d.identificacion, nombre: d.nombre, correo: d.correo, estado: "pendiente", solicitada_por: "panel" };
+      rec.error = null; cola.guardar(rec);
+      toast("Datos para la factura guardados con la venta.");
+      abrirLocal(rec.id);
+      return;
+    }
     const r = V.factura
       ? await db.from("facturas").update(d).eq("id", V.factura.id)
       : await db.from("facturas").insert({ ...d, pedido_id: V.pedido.id, solicitada_por: "panel" });
@@ -1860,13 +2267,27 @@
   // lo que el cliente debe sin contar esta venta
   function deudaSinEsta(c) {
     const p = V.pedido;
-    const propia = p && p.credito && p.cliente_id === c.id && p.estado !== "anulada" ? Math.max(0, p.total - p.pagado_registrado) : 0;
-    return Math.max(0, Number(c.saldo) - propia);
+    const propia = p && !p.local && p.credito && p.cliente_id === c.id && p.estado !== "anulada" ? Math.max(0, p.total - p.pagado_registrado) : 0;
+    return Math.max(0, Number(c.saldo_base ?? c.saldo) - propia + deudaSinEnviar(c.id, V.local));
+  }
+  // lo que el cliente debe por ventas a crédito hechas sin internet (menos sus abonos sin enviar)
+  function deudaSinEnviar(cliId, salvo) {
+    const enCompu = cola.leer().filter((r) => r.id !== salvo && Number(r.venta.credito?.cliente_id) === Number(cliId))
+      .reduce((t, r) => { const x = totalesLocal(r.venta); return t + Math.max(0, x.total - x.registrado); }, 0);
+    const abonos = acciones.leer().filter((a) => a.tipo === "abono" && Number(a.datos.cliente_id) === Number(cliId)).reduce((t, a) => t + Number(a.datos.monto), 0);
+    return enCompu - abonos;
   }
   const totalPendienteVenta = () => Math.max(0, actualizarTotal() - (V.pedido ? Number(V.pedido.pagado_registrado) : 0));
+  // sin internet: solo una venta nueva (que se guarda en la compu) se puede poner a crédito o como apartado
+  function revisarSinRed(que) {
+    if (enLinea() && !V.local) return "";
+    if (V.pedido && !V.local) return `Sin internet no se puede pasar una venta ya enviada a ${que}.`;
+    if (!V19) return `Para ${que === "crédito" ? "vender a crédito" : "apartar"} sin internet falta correr supabase/v19_sin_internet.sql en Supabase.`;
+    return "";
+  }
   function revisarCredito() {
     if (!V13 || V.cond !== "credito") return "";
-    if (V.local || SIN_RED || !navigator.onLine) return "Las ventas a crédito necesitan internet.";
+    const sr = revisarSinRed("crédito"); if (sr) return sr;
     const c = V.credCli;
     if (!c) return "Escoja el cliente de crédito (o cambie a Contado).";
     if (!c.activo) return `El crédito de ${c.nombre} está desactivado.`;
@@ -1877,7 +2298,7 @@
   // apartado: se guarda la mercadería y el cliente la va pagando; necesita su teléfono y una fecha límite
   function revisarApartado() {
     if (!V18 || V.cond !== "apartado") return "";
-    if (V.local || SIN_RED || !navigator.onLine) return "Los apartados necesitan internet.";
+    const sr = revisarSinRed("apartado"); if (sr) return sr;
     if (U.soloDigitos($("#formVenta").cliente_telefono.value).length < 8) return "Para apartar, ponga el teléfono del cliente (para avisarle).";
     if (!V.apVence) return "Ponga hasta qué fecha se le guarda el apartado.";
     if (V.apVence !== V.pedido?.apartado_vence) {
@@ -1912,12 +2333,14 @@
     cargarVentas();
   }
   function pintarCondicion() {
-    const p = V.pedido, edit = itemsEditables() && !V.local;
-    const online = !SIN_RED && navigator.onLine;
+    const p = V.pedido, nueva = !p || !!V.local;
+    // con internet, o sin internet en una venta nueva si la base ya tiene v19
+    const online = (enLinea() && !V.local) || (nueva && V19);
+    const edit = itemsEditables() && (!V.local || V19);
     const puedeCred = puede("credito") || !!p?.credito;
     // apartar (o quitarlo) se puede mientras la venta esté abierta, aunque ya tenga abonos
-    const puedeAp = V18 && !V.local && (!p || (p.estado === "abierta" && !p.saldo_inicial));
-    const ver = V13 && !V.local && !V.soloLectura && (p ? p.estado !== "anulada" || p.credito : true) && (online || p?.credito || p?.apartado)
+    const puedeAp = V18 && (!p || !!V.local || (p.estado === "abierta" && !p.saldo_inicial));
+    const ver = V13 && !V.copia && (p ? p.estado !== "anulada" || p.credito : true) && (online || p?.credito || p?.apartado)
       && (puedeCred || puedeAp || !!p?.apartado);
     $("#boxCondicion").hidden = !ver;
     if (!ver) return;
@@ -2024,14 +2447,29 @@
   let credFiltro = "saldo", CLI = null;
   async function cargarClientes() {
     if (!V13) return clientes;
-    const { data, error } = await db.from("v_clientes_credito").select("*").order("nombre");
-    if (error) { toast(errTxt(error), true); return clientes; }
-    clientes = data || [];
+    let r;
+    try { r = await consulta("clientes", conTiempo(db.from("v_clientes_credito").select("*").order("nombre"), 15000)); } catch (e) { r = { error: e }; }
+    if (r.error) {
+      if (U.esErrorRed(r.error)) { const c = copia.leer().clientes; if (c) { clientes = c.map((x) => ({ ...x })); ajustarSaldos(); } }
+      else toast(errTxt(r.error), true);
+      return clientes;
+    }
+    clientes = (r.data || []).map((x) => ({ ...x }));
+    ajustarSaldos();
     const vencidos = clientes.filter((c) => Number(c.vencido) > 0).length;
     $("#badgeCred").hidden = !vencidos; $("#badgeCred").textContent = vencidos;
     return clientes;
   }
+  // lo que cada cliente debe, con lo hecho sin internet que todavía no se envía
+  function ajustarSaldos() {
+    for (const c of clientes) {
+      if (c.saldo_base === undefined) c.saldo_base = Number(c.saldo);
+      c.saldo = Math.max(0, c.saldo_base + deudaSinEnviar(c.id, null));
+      if (c.limite != null) c.disponible = Math.max(0, Number(c.limite) - c.saldo);
+    }
+  }
   function pintarClientes() {
+    ajustarSaldos();
     const q = norm($("#credBuscar").value), qd = U.soloDigitos($("#credBuscar").value);
     const pasa = { saldo: (c) => c.activo && Number(c.saldo) > 0, vencidos: (c) => Number(c.vencido) > 0, todos: (c) => c.activo, inactivos: (c) => !c.activo }[credFiltro];
     const lista = clientes.filter(pasa).filter((c) => !q || norm(c.nombre).includes(q) || (qd.length >= 4 && (U.soloDigitos(c.identificacion).includes(qd) || U.soloDigitos(c.telefono).includes(qd))))
@@ -2091,11 +2529,28 @@
       <div><dt>Plazo</dt><dd>${c.plazo_dias} días<small>${c.activo ? "crédito activo" : "crédito desactivado"}</small></dd></div>`;
   }
   async function cargarCuentaCliente() {
-    const [v, a] = await Promise.all([
-      db.from("pedidos").select("id,codigo,created_at,total,pagado_registrado,vence,estado" + (V18 ? ",saldo_inicial,ref_anterior" : "")).eq("cliente_id", CLI.id).eq("credito", true).neq("estado", "anulada").order("created_at", { ascending: false }).limit(300),
-      db.from("abonos").select("*").eq("cliente_id", CLI.id).order("fecha", { ascending: false }).limit(100)
-    ]);
-    if (v.error || a.error) return toast(errTxt(v.error || a.error), true);
+    const id = CLI.id;
+    let v, a;
+    if (enLinea()) {
+      try {
+        [v, a] = await conTiempo(Promise.all([
+          db.from("pedidos").select("id,codigo,created_at,total,pagado_registrado,vence,estado" + (V18 ? ",saldo_inicial,ref_anterior" : "")).eq("cliente_id", id).eq("credito", true).neq("estado", "anulada").order("created_at", { ascending: false }).limit(300),
+          db.from("abonos").select("*").eq("cliente_id", id).order("fecha", { ascending: false }).limit(100)
+        ]), 15000);
+      } catch (e) { v = { error: e }; }
+    } else v = { error: { message: "Failed to fetch" } };
+    const err = v.error || a?.error;
+    if (err && !U.esErrorRed(err)) return toast(errTxt(err), true);
+    if (err) {
+      // sin internet: la copia de la última vez que se abrió esta cuenta
+      const c = (copia.leer().cuentas || {})[id];
+      cliVentas = c?.ventas || []; cliAbonos = c?.abonos || [];
+      $("#cliSinRed").hidden = false;
+      $("#cliSinRed").textContent = c ? `Sin internet: estado de cuenta del ${fechaCR(new Date(c.t).toISOString(), { dateStyle: "short", timeStyle: "short" })}. Los abonos que registre se envían al volver la conexión.`
+        : "Sin internet: el detalle de esta cuenta se ve con conexión. Igual puede registrar abonos: se envían al volver la conexión.";
+      return pintarCuentaCliente();
+    }
+    $("#cliSinRed").hidden = true;
     cliVentas = v.data; cliAbonos = a.data;
     let partes = [];
     if (cliAbonos.length) {
@@ -2103,11 +2558,20 @@
       partes = r.data || [];
     }
     for (const ab of cliAbonos) ab.partes = partes.filter((x) => x.abono_id === ab.id);
+    const c = copia.leer(), cu = c.cuentas || {};
+    cu[id] = { ventas: cliVentas, abonos: cliAbonos, t: Date.now() };
+    Object.keys(cu).sort((x, y) => cu[y].t - cu[x].t).slice(60).forEach((k) => delete cu[k]);
+    c.cuentas = cu; ponerLS(LS_COPIA, c);
     pintarCuentaCliente();
   }
   function pintarCuentaCliente() {
     const hoy = hoyCR(), solo = $("#cliSoloSaldo").checked;
-    const filas = cliVentas.filter((p) => !solo || p.total - p.pagado_registrado > 0);
+    // ventas a crédito hechas sin internet en esta compu (todavía no están en la base)
+    const locales = cola.leer().filter((r) => Number(r.venta.credito?.cliente_id) === Number(CLI.id)).map((r) => {
+      const t = totalesLocal(r.venta);
+      return { id: null, local: r.id, codigo: r.temp, created_at: r.venta.fecha, total: t.total, pagado_registrado: t.registrado, vence: r.venta.credito.vence };
+    });
+    const filas = locales.concat(cliVentas).filter((p) => !solo || p.total - p.pagado_registrado > 0);
     $("#cliVentas").innerHTML = filas.map((p) => {
       const saldo = Math.max(0, p.total - p.pagado_registrado), dias = p.vence ? diasEntre(hoy, p.vence) : null;
       const vence = !p.vence ? "" : saldo <= 0 ? U.esc(fechaCorta(p.vence))
@@ -2116,22 +2580,34 @@
         : U.esc(fechaCorta(p.vence));
       return `<tr class="${saldo <= 0 ? "pagada" : ""}">
         <td>${fechaCR(p.created_at, { dateStyle: "short" })}</td>
-        <td><button type="button" class="enlace" data-cli-venta="${p.id}">${U.esc(p.codigo)}</button>${p.saldo_inicial ? `<span class="saldo-cli">Saldo de Moriah${docMoriah(p) ? ` · doc. ${U.esc(docMoriah(p))}` : ""}</span>` : ""}</td>
+        <td>${p.local ? `<button type="button" class="enlace" data-cli-local="${U.esc(p.local)}">${U.esc(p.codigo)}</button><span class="saldo-cli">Hecha sin internet: por enviar</span>`
+          : `<button type="button" class="enlace" data-cli-venta="${p.id}">${U.esc(p.codigo)}</button>`}${p.saldo_inicial ? `<span class="saldo-cli">Saldo de Moriah${docMoriah(p) ? ` · doc. ${U.esc(docMoriah(p))}` : ""}</span>` : ""}</td>
         <td class="num">${fmt(p.total)}</td><td class="num">${fmt(p.pagado_registrado)}</td><td class="num"><b>${fmt(saldo)}</b></td>
         <td>${saldo <= 0 ? "Pagada" : vence}</td></tr>`;
     }).join("") || `<tr><td colspan="6" class="vacio-adm">${cliVentas.length ? "No debe nada." : "Todavía no tiene ventas a crédito."}</td></tr>`;
-    $("#cliAbonos").innerHTML = cliAbonos.map((ab) => {
-      const sinVer = ab.partes.some((x) => !x.verificado && !x.anulado);
+    const abPend = acciones.leer().filter((a) => a.tipo === "abono" && Number(a.datos.cliente_id) === Number(CLI.id));
+    const verPend = new Set(acciones.leer().filter((a) => a.tipo === "verificar_abono").map((a) => Number(a.datos.abono_id)));
+    $("#cliAbonos").innerHTML = abPend.map((a) => `<li class="pago">
+        <div class="pago__monto">${fmt(a.datos.monto)}<small>${ETQ_METODO[a.datos.metodo] || U.esc(a.datos.metodo)}</small></div>
+        <div class="pago__datos">
+          <span>${fechaCR(a.datos.fecha || a.cuando)}</span>
+          ${a.datos.referencia ? `<span>Comprobante <b>${U.esc(a.datos.referencia)}</b></span>` : ""}
+          <span><span class="etq etq--por_verificar">Por enviar</span> ${a.datos.verificado ? '<span class="etq etq--pagado">Recibido</span>' : '<span class="etq etq--por_verificar">Por verificar</span>'}${a.error ? ` <span class="etq etq--error">${U.esc(a.error)}</span>` : ""}</span>
+        </div>
+        <div class="pago__acc">${a.datos.verificado ? "" : `<button type="button" class="btn btn--sm btn--negro" data-verificar-abono="acc:${a.id}">Ya lo vi en el banco</button>`}
+          <button type="button" class="enlace enlace--peligro" data-quitar-abono-pend="${a.id}">Quitar</button></div>
+      </li>`).join("") + cliAbonos.map((ab) => {
+      const sinVer = (ab.partes || []).some((x) => !x.verificado && !x.anulado) && !verPend.has(Number(ab.id));
       return `<li class="pago ${ab.anulado ? "pago--anulado" : ""}">
         <div class="pago__monto">${fmt(ab.monto)}<small>${ETQ_METODO[ab.metodo] || U.esc(ab.metodo)}</small></div>
         <div class="pago__datos">
           <span>${fechaCR(ab.fecha)}</span>
           ${ab.referencia ? `<span>Comprobante <b>${U.esc(ab.referencia)}</b></span>` : ""}
-          <span>Abono ${ab.id}: ${ab.partes.map((x) => `${U.esc(x.pedidos?.codigo || "")} ${fmt(x.monto)}`).join(" · ")}</span>
-          ${ab.anulado ? `<span><span class="etq">Anulado</span> ${U.esc(ab.motivo_anulacion || "")}</span>` : sinVer ? '<span class="etq etq--por_verificar">Por verificar</span>' : '<span class="etq etq--pagado">Recibido</span>'}
+          <span>Abono ${ab.id}: ${(ab.partes || []).map((x) => `${U.esc(x.pedidos?.codigo || "")} ${fmt(x.monto)}`).join(" · ")}</span>
+          ${ab.anulado ? `<span><span class="etq">Anulado</span> ${U.esc(ab.motivo_anulacion || "")}</span>` : sinVer ? '<span class="etq etq--por_verificar">Por verificar</span>' : `<span class="etq etq--pagado">Recibido</span>${verPend.has(Number(ab.id)) ? ' <span class="etq etq--por_verificar">Por enviar</span>' : ""}`}
           ${ab.nota ? `<span>${U.esc(ab.nota)}</span>` : ""}
         </div>
-        <div class="pago__acc">${ab.anulado ? "" : `${sinVer ? `<button type="button" class="btn btn--sm btn--negro" data-verificar-abono="${ab.id}">Ya lo vi en el banco</button>` : ""}<button type="button" class="enlace enlace--peligro" data-anular-abono="${ab.id}">Anular</button>`}</div>
+        <div class="pago__acc">${ab.anulado ? "" : `${sinVer ? `<button type="button" class="btn btn--sm btn--negro" data-verificar-abono="${ab.id}">Ya lo vi en el banco</button>` : ""}${enLinea() ? `<button type="button" class="enlace enlace--peligro" data-anular-abono="${ab.id}">Anular</button>` : ""}`}</div>
       </li>`;
     }).join("") || `<li class="vacio-adm">Todavía no hay abonos.</li>`;
     const fa = $("#formAbono");
@@ -2142,6 +2618,8 @@
   }
   $("#cliSoloSaldo").addEventListener("change", pintarCuentaCliente);
   $("#cliVentas").addEventListener("click", (e) => {
+    const l = e.target.closest("[data-cli-local]");
+    if (l) { $("#dlgCliente").close(); return abrirLocal(l.dataset.cliLocal); }
     const b = e.target.closest("[data-cli-venta]"); if (!b) return;
     $("#dlgCliente").close(); abrirVenta(Number(b.dataset.cliVenta));
   });
@@ -2198,10 +2676,23 @@
     if (monto > Number(CLI.saldo) + 0.001) { msg.textContent = `Debe ${fmt(CLI.saldo)}: el abono no puede ser mayor.`; return; }
     if (["sinpe", "transferencia", "cheque"].includes(f.metodo.value) && !ref) { msg.textContent = f.metodo.value === "cheque" ? "Ponga el número del cheque." : "Ponga el número de comprobante."; return; }
     const fecha = f.fecha.value ? new Date(f.fecha.value + ":00-06:00").toISOString() : null;
+    // con su número de envío: si el internet se cae a medio camino y se manda otra vez, no se repite
+    const datos = { cliente_id: CLI.id, monto: String(Math.round(monto * 100) / 100), metodo: f.metodo.value, referencia: ref, fecha, nota: f.nota.value.trim(), verificado: f.verificado.checked,
+      ...(V19 ? { offline_id: crypto.randomUUID() } : {}) };
+    const abonoSinRed = () => {
+      if (!V19) { msg.className = "msg msg--error"; msg.textContent = "Para registrar abonos sin internet falta correr supabase/v19_sin_internet.sql."; return; }
+      const { offline_id, ...resto } = datos;
+      const a = acciones.agregar("abono", { ...resto, fecha: datos.fecha || new Date().toISOString() }, { id: offline_id, desc: `Abono de ${fmt(monto)} (${ETQ_METODO[datos.metodo] || datos.metodo}) · ${CLI.nombre}` });
+      if (!a) { msg.className = "msg msg--error"; msg.textContent = "No hay espacio en esta compu para guardarlo."; return; }
+      msg.textContent = ""; $("#boxAbono").open = false; f.reset();
+      toast("Sin internet: abono anotado en esta compu. Se aplica a sus ventas cuando vuelva la conexión.");
+      ajustarSaldos(); pintarCifrasCliente(); pintarCuentaCliente(); pintarClientes(); pintarBandaRed();
+    };
+    if (!enLinea()) return abonoSinRed();
     msg.className = "msg"; msg.textContent = "Registrando…";
-    const { data, error } = await db.rpc("registrar_abono", { p: {
-      cliente_id: CLI.id, monto: String(Math.round(monto * 100) / 100), metodo: f.metodo.value, referencia: ref, fecha, nota: f.nota.value.trim(), verificado: f.verificado.checked
-    } });
+    let data, error;
+    try { ({ data, error } = await conTiempo(db.rpc("registrar_abono", { p: datos }), 15000)); } catch (e) { error = e; }
+    if (error && U.esErrorRed(error) && V19) { sinSenal(error); return abonoSinRed(); }
     if (error) { msg.className = "msg msg--error"; msg.textContent = errTxt(error); return; }
     $("#boxAbono").open = false;
     toast(`Abono registrado. Se aplicó a ${data.aplicado.map((x) => `${x.codigo} (${fmt(x.monto)})`).join(", ")}. Ahora debe ${fmt(data.saldo_despues)}.`);
@@ -2209,7 +2700,24 @@
     cargarVentas();
   });
   $("#cliAbonos").addEventListener("click", async (e) => {
-    const v = e.target.closest("[data-verificar-abono]"), a = e.target.closest("[data-anular-abono]");
+    const v = e.target.closest("[data-verificar-abono]"), a = e.target.closest("[data-anular-abono]"), q = e.target.closest("[data-quitar-abono-pend]");
+    if (q) {
+      if (!confirm("¿Quitar este abono? Todavía no se ha enviado.")) return;
+      acciones.quitar(q.dataset.quitarAbonoPend);
+      ajustarSaldos(); pintarCifrasCliente(); pintarCuentaCliente(); pintarClientes(); pintarBandaRed();
+      return;
+    }
+    if (v && (String(v.dataset.verificarAbono).startsWith("acc:") || !enLinea())) {
+      if (!confirm("¿Confirma que ya vio este abono en la app del banco?")) return;
+      const id = String(v.dataset.verificarAbono);
+      if (id.startsWith("acc:")) {
+        const x = acciones.leer().find((y) => y.id === id.slice(4));
+        if (x) acciones.guardar({ ...x, datos: { ...x.datos, verificado: true } });
+      } else acciones.agregar("verificar_abono", { abono_id: Number(id) }, { desc: `Abono ${id} visto en el banco · ${CLI.nombre}` });
+      toast("Anotado. Se envía al volver la conexión.");
+      pintarCuentaCliente(); pintarBandaRed();
+      return;
+    }
     if (v) {
       const { error } = await db.rpc("verificar_abono", { p_id: Number(v.dataset.verificarAbono) });
       if (error) return toast(errTxt(error), true);
@@ -2461,35 +2969,38 @@
   const FE_TIPO = { "01": "Factura electrónica", "03": "Nota de crédito", "04": "Tiquete electrónico" };
   const FE_ESTADO = {
     firmado: ["Sin enviar", "etq--error"], enviado: ["Enviado a Hacienda", "etq--por_verificar"], procesando: ["Hacienda lo está revisando", "etq--por_verificar"],
-    aceptado: ["Aceptado por Hacienda", "etq--pagado"], rechazado: ["Rechazado por Hacienda", "etq--error"], error: ["Con error", "etq--error"]
+    aceptado: ["Aceptado por Hacienda", "etq--pagado"], rechazado: ["Rechazado por Hacienda", "etq--error"], error: ["Con error", "etq--error"],
+    sin_internet: ["Hecho sin internet: se envía a Hacienda al volver la conexión", "etq--por_verificar"]
   };
   async function llamarFE(cuerpo) {
     const { data, error } = await db.functions.invoke("facturar", { body: cuerpo });
     if (error) {
       let m = "";
       try { m = (await error.context.json()).error; } catch { /* sin detalle */ }
-      if (!m && U.esErrorRed(error)) m = "Sin internet: no se pudo hablar con Hacienda.";
+      if (!m && (U.esErrorRed(error) || error.name === "FunctionsFetchError" || /failed to send/i.test(error.message || ""))) m = "Sin internet: no se pudo hablar con Hacienda.";
       throw new Error(m || "No se pudo usar la facturación. ¿Está publicada la función “facturar” en Supabase?");
     }
     if (!data?.ok) throw new Error(data?.error || "No se pudo completar.");
     return data;
   }
   function feVigente() {
-    return (V.fe || []).find((d) => ["01", "04"].includes(d.tipo) && d.estado !== "rechazado" && !d.anulado && d.ambiente === FE?.ambiente);
+    return (V.fe || []).find((d) => ["01", "04"].includes(d.tipo) && d.estado !== "rechazado" && !d.anulado && d.ambiente === FE?.ambiente)
+      || fePendientes().map(docSinRed)[0];
   }
   function pintarFEVenta() {
-    const docs = (V.fe || []).filter((d) => d.ambiente === FE?.ambiente);
+    const docs = (V.fe || []).filter((d) => d.ambiente === FE?.ambiente).concat(fePendientes().map(docSinRed));
     $("#feDocs").innerHTML = docs.map((d) => {
       const [txt, cls] = FE_ESTADO[d.estado] || [d.estado, ""];
       const acc = [];
       if (["firmado", "error"].includes(d.estado)) acc.push(`<button type="button" class="btn btn--sm btn--negro" data-fe="enviar" data-id="${d.id}">Enviar de nuevo</button>`);
       if (["enviado", "procesando"].includes(d.estado)) acc.push(`<button type="button" class="btn btn--sm btn--linea" data-fe="consultar" data-id="${d.id}">Consultar</button>`);
       if (d.estado === "aceptado" && d.tipo !== "03" && !d.anulado && puede("anular")) acc.push(`<button type="button" class="enlace enlace--peligro" data-fe="anular" data-id="${d.id}">Anular con nota de crédito</button>`);
-      acc.push(`<button type="button" class="enlace" data-fe="xml" data-id="${d.id}">XML</button>`);
+      if (!d.sinRed && enLinea()) acc.push(`<button type="button" class="enlace" data-fe="xml" data-id="${d.id}">XML</button>`);
+      if (d.sinRed) acc.push(`<button type="button" class="enlace" data-fe="pendientes">Ver pendientes</button>`);
       return `<li class="pago fe-doc ${d.anulado ? "pago--anulado" : ""}">
         <div class="pago__monto">${fmt(d.total)}<small>${FE_TIPO[d.tipo] || d.tipo}</small></div>
         <div class="pago__datos">
-          <span>N.º <b>${U.esc(d.consecutivo.slice(-10).replace(/^0+/, ""))}</b> · ${fechaCR(d.fecha_emision, { dateStyle: "short", timeStyle: "short" })}</span>
+          <span>N.º <b>${U.esc(d.consecutivo.slice(-10).replace(/^0+/, ""))}</b> · ${fechaCR(d.fecha_emision, { dateStyle: "short", timeStyle: "short" })}${d.sinRed || String(d.clave).charAt(41) === "3" ? " · sin internet" : ""}</span>
           <span><span class="etq ${cls}">${txt}</span>${d.anulado ? ' <span class="etq">Anulado</span>' : ""}${d.ambiente === "pruebas" ? ' <span class="etq">Pruebas</span>' : ""}</span>
           ${d.detalle ? `<span>${U.esc(d.detalle)}</span>` : ""}
           <span class="fe-doc__clave">Clave ${U.esc(d.clave)}</span>
@@ -2501,6 +3012,17 @@
     $("#feEmitir").hidden = !!vig || anulada;
     $("#btnFEFactura").disabled = !V.factura;
     $("#btnFEFactura").title = V.factura ? "" : "Primero anote los datos del cliente en “El cliente pide factura”.";
+    // sin internet el comprobante se hace aquí con su clave y se firma y manda al volver la señal
+    const sr = !enLinea() || !!V.local;
+    $("#btnFETiquete").textContent = sr ? "Hacer tiquete sin internet" : "Emitir tiquete";
+    $("#btnFEFactura").textContent = sr ? "Hacer factura sin internet" : "Emitir factura";
+    $("#feSinRedInfo").hidden = !sr;
+    if (sr) {
+      const st = feRed(), q = st?.ambiente === FE?.ambiente ? quedanFE(st, "04") : 0;
+      $("#feSinRedInfo").textContent = !V19 ? "Para hacer comprobantes sin internet falta correr supabase/v19_sin_internet.sql."
+        : q ? `Sin internet: el comprobante sale con su clave (situación “sin internet”) y se manda a Hacienda solo al volver la conexión. A esta compu le quedan ${q} números para tiquetes.`
+        : "Esta compu todavía no tiene números para facturar sin internet: se apartan solos la próxima vez que entre con internet.";
+    }
   }
   async function accionFE(cuerpo, espera) {
     if (V.dirty) { $("#feMsg").className = "msg msg--error"; $("#feMsg").textContent = "Primero guarde los cambios de la venta."; return; }
@@ -2531,8 +3053,89 @@
   }
   // venta a crédito: el comprobante sale con condición crédito y el plazo hasta el vencimiento
   const plazoFE = () => (V.pedido?.credito && V.pedido.vence ? { credito_dias: Math.max(1, diasEntre(String(V.pedido.created_at).slice(0, 10), V.pedido.vence)) } : {});
-  $("#btnFETiquete").addEventListener("click", () => accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "04", ...plazoFE() }, "Firmando y enviando el tiquete a Hacienda…"));
-  $("#btnFEFactura").addEventListener("click", () => accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "01", ...plazoFE() }, "Firmando y enviando la factura a Hacienda…"));
+  $("#btnFETiquete").addEventListener("click", () => (!enLinea() || V.local ? hacerFESinRed("04")
+    : accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "04", ...plazoFE() }, "Firmando y enviando el tiquete a Hacienda…")));
+  $("#btnFEFactura").addEventListener("click", () => (!enLinea() || V.local ? hacerFESinRed("01")
+    : accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "01", ...plazoFE() }, "Firmando y enviando la factura a Hacienda…")));
+
+  // ---------- comprobantes electrónicos sin internet ----------
+  // Con internet, cada compu aparta su terminal y números (50 tiquetes y 20 facturas; se reponen al bajar).
+  function idCompu() {
+    let id = leerLS(LS_DISP, null);
+    if (!id) { id = crypto.randomUUID(); ponerLS(LS_DISP, id); }
+    return id;
+  }
+  const feRed = () => leerLS(LS_FE_RED, null);
+  const quedanFE = (st, tipo) => (st?.rangos?.[tipo] || []).reduce((n, [a, b]) => n + Math.max(0, b - a + 1), 0);
+  const nombreCompu = () => `${String(navigator.userAgentData?.platform || navigator.platform || "Compu").slice(0, 20)} · ${ACCESO?.nombre || ACCESO?.usuario || ""}`.slice(0, 60);
+  async function prepararFESinRed() {
+    if (!enLinea() || !V19 || !V10 || !FE?.activo || !puede("ventas")) return;
+    let st = feRed();
+    // si cambió el ambiente, la sucursal o la cédula, los números viejos ya no sirven (la terminal sí)
+    if (st && (st.ambiente !== FE.ambiente || st.sucursal !== FE.sucursal || st.identificacion !== FE.identificacion)) st = { ...st, rangos: {} };
+    const pedirT = quedanFE(st, "04") < 20 ? 50 : 0, pedirF = quedanFE(st, "01") < 8 ? 20 : 0;
+    if (st?.terminal && !pedirT && !pedirF) return;
+    let r;
+    try { r = await db.rpc("fe_preparar_sin_internet", { p_dispositivo: idCompu(), p_nombre: nombreCompu(), p_tiquetes: pedirT, p_facturas: pedirF }); } catch { return; }
+    if (r.error || !r.data?.activo) return;
+    const d = r.data, rangos = { "04": [...(st?.rangos?.["04"] || [])], "01": [...(st?.rangos?.["01"] || [])] };
+    for (const t of ["04", "01"]) if (d.bloques?.[t]) rangos[t].push(d.bloques[t]);
+    ponerLS(LS_FE_RED, { terminal: d.terminal, sucursal: d.sucursal, ambiente: d.ambiente, identificacion: d.identificacion, rangos });
+  }
+  function tomarNumeroFE(tipo) {
+    const st = feRed(); if (!st) return null;
+    const r = (st.rangos?.[tipo] || []).filter(([a, b]) => a <= b);
+    if (!r.length) return null;
+    const numero = r[0][0];
+    r[0] = [numero + 1, r[0][1]];
+    st.rangos = { ...st.rangos, [tipo]: r.filter(([a, b]) => a <= b) };
+    return ponerLS(LS_FE_RED, st) ? { ...st, numero } : null;
+  }
+  // clave de 50 dígitos: 506 · ddmmaa · cédula · sucursal · terminal · tipo · número · 3 (sin internet) · código de seguridad
+  function claveSinInternet(st, tipo, numero, fecha) {
+    const pt = new Intl.DateTimeFormat("en-GB", { timeZone: TZ, day: "2-digit", month: "2-digit", year: "numeric" }).formatToParts(fecha);
+    const g = (t) => pt.find((x) => x.type === t).value;
+    const consecutivo = st.sucursal + st.terminal + tipo + String(numero).padStart(10, "0");
+    const seguridad = String(crypto.getRandomValues(new Uint32Array(1))[0] % 1e8).padStart(8, "0");
+    return { clave: "506" + g("day") + g("month") + g("year").slice(-2) + String(st.identificacion).padStart(12, "0") + consecutivo + "3" + seguridad, consecutivo };
+  }
+  // lo que Hacienda va a revisar se revisa ya: el cliente se lleva la clave en el papel
+  function revisarFESinRed(tipo) {
+    if (!V19) return "Para hacer comprobantes sin internet falta correr supabase/v19_sin_internet.sql en Supabase.";
+    const st = feRed();
+    if (!st?.terminal || st.ambiente !== FE?.ambiente) return "Esta compu no tiene números para facturar sin internet: se apartan solos la próxima vez que entre con internet.";
+    if (!quedanFE(st, tipo)) return `A esta compu se le acabaron los números para ${tipo === "01" ? "facturas" : "tiquetes"} sin internet (se reponen al volver la conexión).`;
+    if (V.dirty) return "Primero guarde la venta.";
+    if (feVigente()) return "Esta venta ya tiene comprobante electrónico.";
+    if (V.pedido.estado === "anulada") return "La venta está anulada.";
+    for (const it of V.items) {
+      const pr = prodDe(it.producto_id);
+      if (!pr && /^env[ií]o/i.test(it.descripcion)) { if (!FE.cabys_envio) return "Falta el CABYS del servicio de envío (Datos del negocio)."; continue; }
+      if (!pr) return `“${it.descripcion}” no es un producto del catálogo: para facturarlo cámbielo por el producto.`;
+      if (!/^[0-9]{13}$/.test(String(pr.cabys || ""))) return `“${pr.nombre}” no tiene CABYS (o esta compu no lo tiene guardado: entre con internet una vez para bajarlo).`;
+      if (!(Number(it.precio_unit) > 0) || !(Number(it.cantidad) > 0)) return `Revise el precio y la cantidad de “${it.descripcion}”.`;
+    }
+    if (tipo === "01" && !V.factura) return "Para factura, primero anote los datos del cliente en “El cliente pide factura”.";
+    return "";
+  }
+  function hacerFESinRed(tipo) {
+    const msg = $("#feMsg");
+    const err = revisarFESinRed(tipo);
+    if (err) { msg.className = "msg msg--error"; msg.textContent = err; return; }
+    const st = tomarNumeroFE(tipo);
+    if (!st) { msg.className = "msg msg--error"; msg.textContent = "No se pudo apartar el número en esta compu."; return; }
+    const p = V.pedido, fecha = new Date();
+    const { clave, consecutivo } = claveSinInternet(st, tipo, st.numero, fecha);
+    const desde = String(p.created_at || fecha.toISOString()).slice(0, 10);
+    const credito_dias = p.credito && p.vence ? Math.max(1, diasEntre(desde, String(p.vence).slice(0, 10))) : null;
+    const a = acciones.agregar("fe", { tipo, clave, consecutivo, fecha: fecha.toISOString(), total: actualizarTotal(), credito_dias,
+      receptor: tipo === "01" ? { tipo_id: V.factura.tipo_id, identificacion: V.factura.identificacion, nombre: V.factura.nombre, correo: V.factura.correo } : null },
+      { venta: refVenta(), desc: `${FE_TIPO[tipo]} sin internet N.º ${st.numero} · ${p.codigo} · ${p.cliente_nombre}` });
+    if (!a) { msg.className = "msg msg--error"; msg.textContent = "No hay espacio en esta compu para guardarlo."; return; }
+    msg.className = "msg"; msg.textContent = "Listo: imprima el recibo, lleva la clave del comprobante. Se manda a Hacienda solo cuando vuelva la conexión.";
+    pintarFEVenta(); pintarBandaRed();
+    if (confirm("Comprobante hecho sin internet. ¿Imprimir el recibo para el cliente?")) $("#btnImprimir").click();
+  }
   $("#feDocs").addEventListener("click", async (e) => {
     const b = e.target.closest("[data-fe]"); if (!b) return;
     const id = Number(b.dataset.id), acc = b.dataset.fe;
@@ -2546,6 +3149,7 @@
       return accionFE({ accion: "anular", documento_id: id, motivo: motivo.trim() }, "Emitiendo la nota de crédito…");
     }
     if (acc === "xml") return descargarXmlFE(id);
+    if (acc === "pendientes") return abrirPendientes();
   });
   async function descargarXmlFE(id) {
     const { data, error } = await db.from("fe_documentos").select("clave,xml_firmado,respuesta_xml").eq("id", id).single();
@@ -3169,6 +3773,9 @@
       return;
     }
     FE = data; pintarConfFE();
+    copia.poner("fe", { activo: FE.activo, ambiente: FE.ambiente, identificacion: FE.identificacion, sucursal: FE.sucursal,
+      terminal: FE.terminal, cabys_envio: FE.cabys_envio, tipo_id: FE.tipo_id, nombre: FE.nombre });
+    prepararFESinRed();
     msg.textContent = FE.activo ? `Guardado. Facturación encendida en ${FE.ambiente === "produccion" ? "PRODUCCIÓN" : "pruebas"}.` : "Guardado. La facturación está apagada.";
   });
   $("#btnProbarFE").addEventListener("click", async () => {
@@ -3249,6 +3856,7 @@
       fecha: f.fecha.value ? localCRaISO(f.fecha.value) : null,
       verificado: f.verificado.checked
     };
+    const oid = crypto.randomUUID();
     if (!(d.monto > 0)) { msg.textContent = "Escriba el monto del pago."; return; }
     if (d.metodo === "cheque" && !d.referencia) { msg.textContent = "Ponga el número del cheque: así no se registra dos veces."; f.referencia.focus(); return; }
     if (["sinpe", "transferencia"].includes(d.metodo) && !d.referencia) { msg.textContent = "Para SINPE o transferencia, el número de comprobante es obligatorio: así se evita usar el mismo comprobante dos veces."; f.referencia.focus(); return; }
@@ -3277,12 +3885,28 @@
       if (!confirm(`¿Anotar ${fmt(d.monto)} como abonado en Moriah? Rebaja lo que debe esta venta, pero no entra en la caja de hoy.`)) return;
     } else if (d.verificado && !confirm(d.metodo === "cheque" ? `¿Confirma que el banco ya pagó el cheque ${d.referencia} por ${fmt(d.monto)}?`
       : `¿Confirma que ve ${fmt(d.monto)} con el comprobante ${d.referencia || "(sin número)"} en la app del banco?`)) return;
+    // sin internet: queda en la compu y se manda solo al volver la conexión
+    const pagoSinRed = () => {
+      const { pedido_id, ...pago } = d;
+      const usada = d.referencia && acciones.leer().some((a) => a.tipo === "pago" && a.datos.metodo === d.metodo && String(a.datos.referencia || "").toUpperCase() === d.referencia.toUpperCase());
+      if (usada) { msg.textContent = "¡Alerta! Ese comprobante ya está anotado en otro pago hecho sin internet."; return; }
+      const a = acciones.agregar("pago", pago, { id: oid, venta: { id: p.id }, desc: `Pago de ${fmt(d.monto)} (${ETQ_METODO[d.metodo] || d.metodo}) · ${p.codigo} · ${p.cliente_nombre}` });
+      if (!a) { msg.textContent = "No hay espacio en esta compu para guardarlo."; return; }
+      f.reset(); $("#txtBanco").value = "";
+      toast("Sin internet: pago anotado en esta compu. Se envía solo cuando vuelva la conexión.");
+      aplicarPendientesVenta(); pintarVenta(); cargarVentas(); pintarBandaRed();
+    };
+    if (!enLinea()) {
+      if (!V19) { msg.textContent = "Para cobrar ventas ya enviadas sin internet falta correr supabase/v19_sin_internet.sql."; return; }
+      if (f.comprobante.files[0]) { msg.textContent = "Sin internet no se puede subir la foto del comprobante: quítela o súbala cuando vuelva la conexión."; return; }
+      return pagoSinRed();
+    }
 
     const btn = $("#btnGuardarPago");
     btn.disabled = true; msg.textContent = "";
     try {
       if (f.dataset.ruta) d.comprobante_path = f.dataset.ruta;
-      const r = await db.from("pagos").insert(d).select("id").single();
+      const r = await db.from("pagos").insert(V19 ? { ...d, offline_id: oid } : d).select("id").single();
       if (r.error) {
         if (r.error.code === "23505") {
           const dup = await db.from("pagos").select("pedidos(codigo,cliente_nombre)").ilike("referencia", d.referencia).eq("anulado", false).limit(1).maybeSingle();
@@ -3308,12 +3932,28 @@
       await abrirVenta(p.id);
       cargarVentas(); contarPorVerificar();
     } catch (err) {
+      if (U.esErrorRed(err) && V19 && !f.dataset.compId && !f.comprobante.files[0]) { sinSenal(err); btn.disabled = false; delete d.comprobante_path; return pagoSinRed(); }   // se cayó la señal
       msg.textContent = errTxt(err);
     } finally { btn.disabled = false; }
   });
 
   async function verificarPago(id, monto, ref) {
     if (!confirm(`¿Confirma que ve ${fmt(monto)}${ref ? ` con el comprobante ${ref}` : ""} en la app del banco?`)) return false;
+    // un pago anotado sin internet: se marca antes de mandarlo
+    if (String(id).startsWith("acc:")) {
+      const a = acciones.leer().find((x) => x.id === String(id).slice(4));
+      if (a) acciones.guardar({ ...a, datos: { ...a.datos, verificado: true } });
+      toast("Pago marcado como visto en el banco. Se envía al volver la conexión.");
+      return true;
+    }
+    if (!enLinea()) {
+      const v = V?.pedido;
+      acciones.agregar("verificar", { pago_id: Number(id), monto: Number(monto) }, { venta: v?.id ? { id: v.id } : undefined,
+        desc: `Pago de ${fmt(monto)} visto en el banco${ref ? ` (comprobante ${ref})` : ""}${v?.codigo ? ` · ${v.codigo}` : ""}` });
+      toast("Sin internet: queda anotado que lo vio en el banco. Se envía al volver la conexión.");
+      pintarBandaRed();
+      return true;
+    }
     const { error } = await db.from("pagos").update({ verificado: true }).eq("id", id);
     if (error) { toast(errTxt(error), true); return false; }
     toast("Pago verificado");
@@ -3326,7 +3966,7 @@
   let preguntas = [], filtroPreg = "nueva";
 
   async function cargarPreguntas() {
-    if (SIN_RED || !navigator.onLine) {
+    if (!enLinea()) {
       if ($("#tabPreg").getAttribute("aria-selected") === "true") $("#listaPreg").innerHTML = `<li class="vacio-adm">Sin internet: las preguntas se ven cuando vuelva la conexión.</li>`;
       return;
     }
@@ -3430,7 +4070,7 @@
   };
 
   $("#btnRespaldo").addEventListener("click", async () => {
-    if (SIN_RED || !navigator.onLine) return toast("Sin internet: el respaldo se hace cuando vuelva la conexión.", true);
+    if (!enLinea()) return toast("Sin internet: el respaldo se hace cuando vuelva la conexión.", true);
     const msg = $("#respaldoMsg"), btn = $("#btnRespaldo"), conFotos = $("#respaldoFotos").checked;
     btn.disabled = true; msg.className = "msg";
     try {
@@ -3514,7 +4154,7 @@
 
   async function cargarEspacio() {
     const txt = $("#espacioTxt");
-    if (SIN_RED || !navigator.onLine) { txt.textContent = "Sin internet: el espacio se puede ver cuando vuelva la conexión."; return; }
+    if (!enLinea()) { txt.textContent = "Sin internet: el espacio se puede ver cuando vuelva la conexión."; return; }
     let r;
     try { r = await db.rpc("espacio_archivos"); } catch (e) { r = { error: e }; }
     if (r.error) {
@@ -3637,7 +4277,19 @@
     const b = e.target.closest("button");
     if (!b) return;
     if (b.dataset.comp) return verComprobante(b.dataset.comp);
-    if (b.dataset.verificar) { if (await verificarPago(b.dataset.verificar, b.dataset.monto, b.dataset.ref)) { await abrirVenta(V.pedido.id); cargarVentas(); } }
+    if (b.dataset.verificar) {
+      if (V.local) {
+        // pago de una venta hecha sin internet: se marca dentro de la venta guardada
+        if (!confirm(`¿Confirma que ve ${fmt(b.dataset.monto)}${b.dataset.ref ? ` con el comprobante ${b.dataset.ref}` : ""} en la app del banco?`)) return;
+        const rec = cola.buscar(V.local), i = Number(b.dataset.verificar);
+        if (rec && rec.venta.pagos[i]) { rec.venta.pagos[i].verificado = true; rec.error = null; cola.guardar(rec); abrirLocal(rec.id); pintarVentas(); }
+        return;
+      }
+      if (!(await verificarPago(b.dataset.verificar, b.dataset.monto, b.dataset.ref))) return;
+      if (enLinea() && !String(b.dataset.verificar).startsWith("acc:")) await abrirVenta(V.pedido.id);
+      else { aplicarPendientesVenta(); pintarVenta(); }
+      cargarVentas();
+    }
     if (b.dataset.anularPago) {
       const motivo = prompt("Motivo de la anulación del pago (queda registrado):");
       if (motivo === null) return;
@@ -3688,6 +4340,14 @@
     if (p.apartado && Number(p.pagado_verificado) < Number(p.total))
       return toast(`Este apartado no está pagado completo (falta ${fmt(p.total - p.pagado_verificado)} pagado y verificado). Se entrega cuando termine de pagar.`, true);
     if (p.pagado_verificado < p.total && !confirm(`Esta venta no está pagada y verificada por completo (falta ${fmt(p.total - p.pagado_verificado)}). ¿Marcarla entregada igual?`)) return;
+    if (!enLinea() || V.local) {
+      if (V.dirty) return toast("Primero guarde los cambios de la venta.", true);
+      acciones.agregar("entregar", {}, { venta: refVenta(), desc: `Entregar ${p.codigo} · ${p.cliente_nombre}` });
+      toast(V.local ? "Entregada. Se envía junto con la venta." : "Sin internet: entregada. Se envía al volver la conexión.");
+      if (V.local) abrirLocal(V.local); else { aplicarPendientesVenta(); pintarVenta(); }
+      cargarVentas(); pintarVentas(); pintarBandaRed();
+      return;
+    }
     const { error } = await db.from("pedidos").update({ estado: "entregada" }).eq("id", p.id);
     if (error) return toast(errTxt(error), true);
     toast("Venta entregada");
@@ -3699,7 +4359,7 @@
   function puedeBorrarVenta() {
     const p = V?.pedido;
     if (V?.local) return esAdministradorReal();
-    if (!p || V.soloLectura) return false;
+    if (!p || V.copia || V.pedido?.pendiente) return false;
     if (!V16) return p.estado === "abierta" && V.pagos.length === 0;
     return esAdministradorReal() && V.pagos.length === 0 && !(V.fe || []).length && !V.factura;
   }
@@ -3710,6 +4370,20 @@
       && !docs.some((n) => n.tipo === "03" && n.referencia_id === d.id && n.estado !== "rechazado")) || null;
   }
   $("#btnAnularVenta").addEventListener("click", async () => {
+    if (!enLinea() || V.local) {
+      if (V.dirty) return toast("Primero guarde los cambios de la venta.", true);
+      const conFE = (V10 && feSinNota()) || fePendientes().length;
+      const motivo = prompt(conFE ? "Esta venta tiene comprobante electrónico: la nota de crédito se hace sola cuando vuelva la conexión (y Hacienda haya aceptado el comprobante). Después se anula la venta.\n\n¿Por qué se anula?"
+        : "¿Por qué se anula esta venta? (queda registrado)");
+      if (motivo === null) return;
+      if (motivo.trim().length < 5) return toast("Escriba el motivo (al menos 5 letras).", true);
+      const p = V.pedido;
+      acciones.agregar("anular", { motivo: motivo.trim().slice(0, 300) }, { venta: refVenta(), desc: `Anular ${p.codigo} · ${p.cliente_nombre}: ${motivo.trim().slice(0, 60)}` });
+      toast(V.local ? "Anulada. Se envía junto con la venta." : "Sin internet: la anulación se envía al volver la conexión.");
+      if (V.local) abrirLocal(V.local); else { aplicarPendientesVenta(); pintarVenta(); }
+      cargarVentas(); pintarVentas(); pintarBandaRed();
+      return;
+    }
     const doc = V10 ? feSinNota() : null;
     if (doc && doc.estado !== "aceptado") {
       return toast(`Hacienda todavía no ha aceptado ${doc.tipo === "01" ? "la factura electrónica" : "el tiquete electrónico"} de esta venta. Cuando lo acepte, se anula con nota de crédito.`.replace("Cuando lo acepte", doc.tipo === "01" ? "Cuando la acepte" : "Cuando lo acepte"), true);
@@ -3757,7 +4431,7 @@
 
   // ---------- caja SINPE ----------
   async function contarPorVerificar() {
-    if (SIN_RED || !navigator.onLine) return;
+    if (!enLinea()) return;
     let count = 0;
     try { ({ count } = await db.from("pagos").select("id", { count: "exact", head: true }).eq("verificado", false).eq("anulado", false)); } catch { return; }
     $("#badgeCaja").hidden = !count;
@@ -3766,6 +4440,11 @@
 
   async function cargarCaja() {
     cargarTurno();
+    if (!enLinea()) {
+      $("#resumenCaja").innerHTML = `<p class="ayuda">Sin internet: los SINPE del día y los pendientes de verificar se ven cuando vuelva la conexión. Puede verificar desde cada venta.</p>`;
+      $("#listaPorVerificar").innerHTML = $("#listaPagosDia").innerHTML = `<li class="vacio-adm">Sin internet.</li>`;
+      return;
+    }
     const dia = $("#cajaDia").value || hoyCR();
     $("#cajaDia").value = dia;
     $("#cajaDia").max = hoyCR();
@@ -3845,7 +4524,7 @@
     if (V4 && p.entrega === "envio") entrega = fila("Entrega", `Envío a ${U.esc(p.zona || "domicilio")}`) + (p.direccion ? `<div class="r-peq">${U.esc(p.direccion)}</div>` : "");
     else if (V4) entrega = fila("Entrega", "Retira en el almacén");
     // comprobantes electrónicos que salieron de esta venta (los rechazados no cuentan)
-    const feDocs = FE ? (V.fe || []).filter((d) => d.ambiente === FE.ambiente && d.estado !== "rechazado") : [];
+    const feDocs = FE ? (V.fe || []).filter((d) => d.ambiente === FE.ambiente && d.estado !== "rechazado").concat(fePendientes().map(docSinRed)) : [];
     const feFactura = feDocs.some((d) => d.tipo === "01");
     let electronico = "";
     if (feDocs.length) {
@@ -3859,7 +4538,8 @@
           ${Number(d.impuesto) > 0 ? fila("IVA incluido", fmt(d.impuesto)) : ""}
           <div class="r-peq">Consecutivo</div><div class="r-clave">${U.esc(d.consecutivo)}</div>
           <div class="r-peq">Clave</div><div class="r-clave">${U.esc(d.clave)}</div>
-          <div class="r-peq">${U.esc((FE_ESTADO[d.estado] || [d.estado])[0])}</div>`;
+          ${d.sinRed || String(d.clave).charAt(41) === "3" ? `<div class="r-peq">Emitido sin internet${d.sinRed ? ": pendiente de envío a Hacienda" : ""}</div>` : ""}
+          ${d.sinRed ? "" : `<div class="r-peq">${U.esc((FE_ESTADO[d.estado] || [d.estado])[0])}</div>`}`;
       }).join(`<div class="r-sep"></div>`);
     }
     // venta a crédito: a quién se le fía, cuándo vence y cómo queda su cuenta
@@ -3945,7 +4625,7 @@
   // saldo al día del cliente de crédito, para ponerlo en el recibo (si no hay internet, sale sin él)
   async function cuentaParaRecibo() {
     const p = V.pedido;
-    if (!V13 || !p?.credito || !p.cliente_id || V.local || SIN_RED || !navigator.onLine) return null;
+    if (!V13 || !p?.credito || !p.cliente_id || V.local || !enLinea()) return null;
     try {
       const r = await Promise.race([
         db.from("v_clientes_credito").select("nombre,tipo_id,identificacion,saldo,vencido").eq("id", p.cliente_id).maybeSingle(),
@@ -3970,8 +4650,10 @@
   const horaCR = (iso) => fechaCR(iso, { timeStyle: "short" });
   async function cargarTurno() {
     if (!V14) return;
-    if (SIN_RED || !navigator.onLine) { $("#turnoEstado").textContent = "Sin internet: la caja se abre y se cierra con conexión."; $("#formAbrirCaja").hidden = true; $("#turnoAbierto").hidden = true; return; }
-    const { data, error } = await db.from("caja_turnos").select("*").order("abierta_at", { ascending: false }).limit(31);
+    if (!enLinea()) return pintarCajaSinRed();
+    let data, error;
+    try { ({ data, error } = await conTiempo(db.from("caja_turnos").select("*").order("abierta_at", { ascending: false }).limit(31), 15000)); } catch (e) { error = e; }
+    if (error && U.esErrorRed(error)) { sinSenal(error); return pintarCajaSinRed(); }
     if (error) return toast(errTxt(error), true);
     TURNO = data.find((t) => t.estado === "abierta") || null;
     CIERRES = data.filter((t) => t.estado === "cerrada");
@@ -3989,6 +4671,73 @@
       TURNO_RES = r; pintarTurno(r);
     }
     pintarCierres();
+    // copia para seguir sin internet (lo que se cobre después se suma desde la compu)
+    copia.poner("caja", { turno: TURNO, res: TURNO_RES, cierres: CIERRES.slice(0, 10), t: Date.now() });
+    // lo hecho sin internet en la caja que todavía no llega
+    if (acciones.leer().some((a) => a.tipo.startsWith("caja_"))) pintarCajaSinRed(true);
+  }
+
+  // ---------- caja sin internet ----------
+  // Parte de la copia de la última conexión y le suma lo hecho en esta compu que todavía no se envía:
+  // apertura, entradas/salidas, cierre, ventas y pagos. Las cifras son aproximadas hasta que todo llegue.
+  function cajaSinRed() {
+    const c = copia.leer().caja || {};
+    let turno = c.turno ? { ...c.turno } : null, res = c.res ? JSON.parse(JSON.stringify(c.res)) : null;
+    const cierres = [...(c.cierres || [])];
+    const vacio = (fondo) => ({ fondo, ventas: { cantidad: 0, total: 0, a_credito: 0, de_contado: 0, apartados: 0, anuladas: 0 },
+      pagos: { efectivo: 0, sinpe: 0, sinpe_sin_verificar: 0, tarjeta: 0, transferencia: 0, cheque: 0, cheques: 0, abonos_credito: 0, cantidad: 0, total: 0 },
+      entradas: 0, salidas: 0, movimientos: [], efectivo_esperado: fondo });
+    const sumarPago = (g, fecha) => {
+      if (!turno || !res || new Date(fecha) < new Date(turno.abierta_at) || g.metodo === "anterior") return;
+      const m = Number(g.monto) || 0, k = g.metodo, p = res.pagos;
+      p[k] = Number(p[k] || 0) + m; p.total = Number(p.total || 0) + m; p.cantidad = Number(p.cantidad || 0) + 1;
+      if (k === "sinpe" && !g.verificado) p.sinpe_sin_verificar = Number(p.sinpe_sin_verificar || 0) + m;
+      if (k === "cheque") p.cheques = Number(p.cheques || 0) + 1;
+    };
+    const cuentaLoDemas = () => {
+      for (const r of cola.leer()) {
+        if (!turno || new Date(r.venta.fecha) < new Date(turno.abierta_at)) continue;
+        const t = totalesLocal(r.venta);
+        res.ventas.cantidad = Number(res.ventas.cantidad || 0) + 1; res.ventas.total = Number(res.ventas.total || 0) + t.total;
+        for (const g of r.venta.pagos || []) sumarPago(g, g.fecha || r.venta.fecha);
+      }
+      for (const a of acciones.leer()) {
+        if (a.tipo === "pago") sumarPago(a.datos, a.datos.fecha || a.cuando);
+        if (a.tipo === "abono") { sumarPago(a.datos, a.datos.fecha || a.cuando); if (turno && new Date(a.datos.fecha || a.cuando) >= new Date(turno.abierta_at)) res.pagos.abonos_credito = Number(res.pagos.abonos_credito || 0) + Number(a.datos.monto); }
+      }
+    };
+    let contado = false;
+    for (const a of acciones.leer().filter((x) => x.tipo.startsWith("caja_"))) {
+      if (a.tipo === "caja_abrir") { turno = { id: null, local: true, estado: "abierta", abierta_at: a.cuando, fondo: Number(a.datos.fondo) }; res = vacio(Number(a.datos.fondo)); }
+      if (a.tipo === "caja_mover" && res) {
+        res.movimientos.push({ tipo: a.datos.tipo, monto: Number(a.datos.monto), motivo: a.datos.motivo, fecha: a.cuando, local: true });
+        if (a.datos.tipo === "entrada") res.entradas = Number(res.entradas) + Number(a.datos.monto); else res.salidas = Number(res.salidas) + Number(a.datos.monto);
+      }
+      if (a.tipo === "caja_cerrar" && turno) {
+        cierres.unshift({ ...turno, id: null, local: true, estado: "cerrada", cerrada_at: a.cuando, resumen: a.datos.resumen || res, efectivo_esperado: a.datos.esperado,
+          efectivo_contado: a.datos.contado, diferencia: Number(a.datos.contado) - Number(a.datos.esperado), conteo: a.datos.conteo, nota: a.datos.nota });
+        turno = null; res = null; contado = true;
+      }
+    }
+    if (turno && res && !contado) cuentaLoDemas();
+    if (res) res.efectivo_esperado = Number(res.fondo) + Number(res.pagos.efectivo || 0) + Number(res.entradas || 0) - Number(res.salidas || 0);
+    return { turno, res, cierres };
+  }
+  function pintarCajaSinRed(conRed = false) {
+    const { turno, res, cierres } = cajaSinRed();
+    TURNO = turno; TURNO_RES = res; CIERRES = cierres;
+    const aviso = conRed ? "Hay movimientos de caja hechos sin internet que todavía no se envían." : "Sin internet: las cifras son aproximadas (la última copia más lo hecho en esta compu) y se ajustan solas al volver la conexión.";
+    if (!turno) {
+      $("#turnoEstado").innerHTML = `La caja está <b>cerrada</b>. <span class="vence-pronto">${U.esc(aviso)}</span>`;
+      $("#formAbrirCaja").hidden = false; $("#turnoAbierto").hidden = true;
+      const ult = cierres[0];
+      $("#formAbrirCaja").fondo.placeholder = ult ? String(Math.round(Number(ult.efectivo_contado))) : "20000";
+    } else {
+      $("#turnoEstado").innerHTML = `Abierta desde <b>${fechaCR(turno.abierta_at, { dateStyle: "short", timeStyle: "short" })}</b> · fondo ${fmt(turno.fondo)}. <span class="vence-pronto">${U.esc(aviso)}</span>`;
+      $("#formAbrirCaja").hidden = true; $("#turnoAbierto").hidden = false;
+      if (res) pintarTurno(res);
+    }
+    pintarCierres();
   }
   function pintarTurno(r) {
     const v = r.ventas, g = r.pagos;
@@ -4002,7 +4751,7 @@
     $("#turnoMovs").innerHTML = (r.movimientos || []).map((m) => `<li>${m.tipo === "salida" ? '<span class="inv-menos">Salida</span>' : '<span class="inv-mas">Entrada</span>'} ${fmt(m.monto)} · ${U.esc(m.motivo)} · ${horaCR(m.fecha)}</li>`).join("");
   }
   function pintarCierres() {
-    $("#listaCierres").innerHTML = CIERRES.map((t) => {
+    $("#listaCierres").innerHTML = CIERRES.map((t, i) => {
       const d = Number(t.diferencia), r = t.resumen || {};
       return `<li class="fila fila--pago">
         <div class="fila__monto"><b>${fmt(t.efectivo_contado)}</b><small>contado</small></div>
@@ -4011,19 +4760,28 @@
           <small>Ventas ${fmt(r.ventas?.total || 0)} · debía haber ${fmt(t.efectivo_esperado)}${t.nota ? " · " + U.esc(t.nota) : ""}</small>
           <span class="etiquetas"><span class="etq ${Math.abs(d) < 0.005 ? "etq--pagado" : "etq--error"}">${difTxt(d).replace(/^./, (c) => c.toUpperCase())}</span></span>
         </div>
-        <div class="fila__acc"><button type="button" class="btn btn--sm btn--linea" data-imprimir-cierre="${t.id}">Imprimir</button></div>
+        <div class="fila__acc">${t.local ? '<span class="etq etq--por_verificar">Por enviar</span>' : ""}<button type="button" class="btn btn--sm btn--linea" data-imprimir-cierre="${t.id ?? "l" + i}">Imprimir</button></div>
       </li>`;
     }).join("") || `<li class="vacio-adm">Todavía no hay cierres.</li>`;
   }
   $("#listaCierres").addEventListener("click", (e) => {
     const b = e.target.closest("[data-imprimir-cierre]"); if (!b) return;
-    const t = CIERRES.find((x) => x.id === Number(b.dataset.imprimirCierre)); if (t) imprimirHTML(cierreHTML(t));
+    const k = b.dataset.imprimirCierre;
+    const t = k.startsWith("l") ? CIERRES[Number(k.slice(1))] : CIERRES.find((x) => x.id === Number(k)); if (t) imprimirHTML(cierreHTML(t));
   });
   $("#btnActualizarTurno").addEventListener("click", cargarTurno);
   $("#formAbrirCaja").addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = e.currentTarget, v = f.fondo.value === "" ? Number(f.fondo.placeholder) : Number(f.fondo.value);
     if (!(v >= 0)) return toast("Escriba el fondo inicial.", true);
+    if (!enLinea()) {
+      if (!V19) return toast("Para usar la caja sin internet falta correr supabase/v19_sin_internet.sql.", true);
+      if (cajaSinRed().turno) return toast("Ya hay una caja abierta.", true);
+      acciones.agregar("caja_abrir", { fondo: v }, { desc: `Abrir caja con ${fmt(v)} de fondo` });
+      f.reset(); toast(`Sin internet: caja abierta con ${fmt(v)}. Se envía al volver la conexión.`);
+      pintarCajaSinRed(); pintarBandaRed();
+      return;
+    }
     const { error } = await db.rpc("abrir_caja", { p_fondo: v });
     if (error) return toast(errTxt(error), true);
     f.reset(); toast(`Caja abierta con ${fmt(v)} de fondo`);
@@ -4036,6 +4794,15 @@
     msg.className = "msg msg--error";
     if (!(monto > 0)) { msg.textContent = "Escriba el monto."; return; }
     if (motivo.length < 3) { msg.textContent = "Escriba el motivo."; return; }
+    if (!enLinea()) {
+      if (!V19) { msg.textContent = "Para usar la caja sin internet falta correr supabase/v19_sin_internet.sql."; return; }
+      if (!cajaSinRed().turno) { msg.textContent = "Primero abra la caja."; return; }
+      acciones.agregar("caja_mover", { tipo: f.tipo.value, monto, motivo }, { desc: `${f.tipo.value === "salida" ? "Salida" : "Entrada"} de caja ${fmt(monto)}: ${motivo}` });
+      f.reset(); msg.textContent = ""; $("#boxMovCaja").open = false;
+      toast("Sin internet: movimiento guardado. Se envía al volver la conexión.");
+      pintarCajaSinRed(); pintarBandaRed();
+      return;
+    }
     const { error } = await db.rpc("mover_caja", { p_tipo: f.tipo.value, p_monto: monto, p_motivo: motivo });
     if (error) { msg.textContent = errTxt(error); return; }
     f.reset(); msg.textContent = ""; $("#boxMovCaja").open = false;
@@ -4067,7 +4834,8 @@
       lin("Efectivo que debería haber", fmt(r.efectivo_esperado)) +
       (Number(g.sinpe_sin_verificar) > 0 ? `<div class="cred-alerta"><span>SINPE sin verificar</span><b>${fmt(g.sinpe_sin_verificar)}</b></div>` : "") +
       (Number(g.tarjeta) > 0 ? lin("Tarjeta (compare con el cierre del datáfono)", fmt(g.tarjeta)) : "") +
-      (Number(g.cheque) > 0 ? lin(`Cheques (${g.cheques}): no se cuentan con el efectivo`, fmt(g.cheque)) : "");
+      (Number(g.cheque) > 0 ? lin(`Cheques (${g.cheques}): no se cuentan con el efectivo`, fmt(g.cheque)) : "") +
+      (!enLinea() ? `<div class="cred-alerta"><span>Sin internet: lo que debería haber es aproximado. El cuadre exacto queda en “Cierres anteriores” al volver la conexión.</span></div>` : "");
     pintarDiferencia();
     $("#dlgCierre").showModal();
     $("#conteoBilletes input").focus();
@@ -4083,6 +4851,18 @@
     if (Number(TURNO_RES.pagos.sinpe_sin_verificar) > 0 && !confirm(`Hay ${fmt(TURNO_RES.pagos.sinpe_sin_verificar)} en SINPE sin verificar. ¿Cerrar de todos modos?`)) return;
     const conteo = {};
     $$("#conteoBilletes [data-billete]").forEach((i) => { if (Number(i.value) > 0) conteo[i.dataset.billete] = Math.round(Number(i.value)); });
+    if (!enLinea()) {
+      if (!V19) { msg.className = "msg msg--error"; msg.textContent = "Para cerrar la caja sin internet falta correr supabase/v19_sin_internet.sql."; return; }
+      const datos = { turno: TURNO.id || null, contado, conteo: Object.keys(conteo).length ? conteo : null, nota: f.nota.value.trim() || null,
+        esperado: Number(TURNO_RES.efectivo_esperado), resumen: TURNO_RES };
+      acciones.agregar("caja_cerrar", datos, { desc: `Cierre de caja (contado ${fmt(contado)})` });
+      $("#dlgCierre").close();
+      toast(`Sin internet: caja cerrada (${difTxt(d)}, aproximado). Se envía al volver la conexión.`);
+      pintarCajaSinRed(); pintarBandaRed();
+      const t = CIERRES[0];
+      if (t && confirm("¿Imprimir el cierre de caja?")) imprimirHTML(cierreHTML(t));
+      return;
+    }
     msg.className = "msg"; msg.textContent = "Cerrando…";
     const { error } = await db.rpc("cerrar_caja", { p_turno: TURNO.id, p_contado: contado, p_conteo: Object.keys(conteo).length ? conteo : null, p_nota: f.nota.value.trim() || null });
     if (error) { msg.className = "msg msg--error"; msg.textContent = errTxt(error); return; }
@@ -4105,6 +4885,7 @@
       </div>
       <div class="r-lin"></div>
       <div class="r-tit">CIERRE DE CAJA</div>
+      ${t.local ? `<div class="r-peq">Hecho sin internet: las cifras son aproximadas; el cuadre exacto queda en el sistema al volver la conexión.</div>` : ""}
       ${fila("Abrió", fechaCR(t.abierta_at, { dateStyle: "short", timeStyle: "short" }))}
       ${fila("Cerró", fechaCR(t.cerrada_at, { dateStyle: "short", timeStyle: "short" }))}
       <div class="r-lin"></div>

@@ -140,3 +140,14 @@ Los pedidos guardan nombre y teléfono de clientes y fotos de comprobantes. Usar
 - **Cheque:** como SINPE y transferencia, necesita número; queda por verificar hasta marcarlo.
 - Todo queda en la bitácora (el origen sale como "saldos de Moriah" o "apartado").
 - `resumen_caja` y `reporte_ventas` se reemplazan con los permisos de v17 ya puestos: si se corre otra vez un archivo viejo (v4, v14 o v17), hay que correr otra vez v18.
+
+## Sin internet (v19)
+
+- **Comprobantes sin internet:** la llave .p12 y su PIN **siguen solo** en los secretos de la función `facturar`; la compu nunca firma. La compu solo arma la clave (situación 3) con números que la base le apartó a su terminal (`fe_preparar_sin_internet`, permiso "ventas"). Al recibirla, la función revisa que el número esté en un bloque apartado para esa terminal (`fe_bloques`), que la cédula sea la del emisor y que la clave coincida con la fecha y los datos; si no, no la firma.
+- Las terminales y los bloques solo los ve el administrador y solo se escriben con la función. Cada terminal nueva queda en la bitácora.
+- **No se repite nada:** pagos, abonos, aperturas, movimientos y cierres de caja llevan un número de envío (`offline_id`, `p_id`): si llegan dos veces, la segunda no hace nada. Las ventas ya lo tenían (v5).
+- Las fechas que manda la compu se acotan en la base: ventas y pagos hasta 30 días atrás, caja hasta 7 días, nunca en el futuro; un cierre nunca antes de su apertura ni una apertura antes del último cierre.
+- Una venta a crédito hecha sin internet entra aunque al llegar pase el límite o el cliente esté desactivado (la venta ya se hizo): queda un aviso en la nota y la compu lo muestra. Hace falta el permiso "crédito" igual que con internet.
+- **Entrar sin internet:** hasta 3 días después de la última vez con internet en esa compu (antes 12 horas). Mientras no haya conexión, la compu no puede saber si a un empleado lo desactivaron; en cuanto vuelve, la base revisa todo de nuevo con su usuario y lo que no le toca se rechaza.
+- Lo pendiente vive en el navegador de la compu (localStorage). Quien use esa compu puede verlo; no hay contraseñas ni llaves ahí.
+- `abrir_caja`, `mover_caja` y `cerrar_caja` cambiaron de parámetros: si se corre otra vez v14 o v17, hay que correr otra vez v19.
