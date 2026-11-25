@@ -1032,11 +1032,12 @@
           <option value="usuario"${esEmp ? " selected" : ""}>Empleado</option></select></label>
         <button type="button" class="btn btn--sm btn--negro" data-guardar-usuario>Guardar</button>
         <small class="usu-fila__info">Entra con ${entra}${u.soy_yo ? " (usted)" : ""} · ${u.ultimo_ingreso ? `último ingreso ${fechaCR(u.ultimo_ingreso, { dateStyle: "short", timeStyle: "short" })}` : "todavía no ha entrado"}${u.activo === false ? " · <b>desactivado</b>" : ""}${esEmp ? "" : " · usa el autenticador"}</small>
-        ${v17 && esEmp ? `<fieldset class="permisos usu-fila__permisos" data-permisos>${casillasPermisos(u.permisos || [], !!u.pide_codigo)}</fieldset>
-        <div class="usu-fila__acc">
-          ${sintetico ? `<button type="button" class="enlace" data-clave-usuario>Cambiar contraseña</button>
-          <button type="button" class="enlace" data-renombrar-usuario>Cambiar usuario</button>` : ""}
-          <label class="check"><input type="checkbox" name="activo"${u.activo !== false ? " checked" : ""} /> Activo (puede entrar)</label>
+        ${v17 && esEmp ? `<fieldset class="permisos usu-fila__permisos" data-permisos>${casillasPermisos(u.permisos || [], !!u.pide_codigo)}</fieldset>` : ""}
+        ${v17 && (esEmp || (admin && !u.soy_yo)) ? `<div class="usu-fila__acc">
+          ${admin && !u.soy_yo ? `<button type="button" class="enlace" data-clave-usuario>Cambiar contraseña</button>` : ""}
+          ${esEmp && sintetico ? `<button type="button" class="enlace" data-renombrar-usuario>Cambiar usuario</button>` : ""}
+          ${admin && !u.soy_yo && (!esEmp || u.pide_codigo) ? `<button type="button" class="enlace" data-reiniciar-codigo>Reiniciar autenticador</button>` : ""}
+          ${esEmp ? `<label class="check"><input type="checkbox" name="activo"${u.activo !== false ? " checked" : ""} /> Activo (puede entrar)</label>` : ""}
         </div>` : ""}
       </li>`;
     }).join("");
@@ -1074,6 +1075,12 @@
       const clave = await pedirTexto(`Nueva contraseña para ${quien} (8 o más, con letras y números):`, claveNueva());
       if (clave === null) return;
       try { await llamarUsuarios({ accion: "clave", user_id: u.user_id, clave }); msgUsu(`Contraseña de ${quien} cambiada. Désela en persona.`); }
+      catch (err) { msgUsu(err.message, true); }
+      return cargarUsuarios();
+    }
+    if (e.target.closest("[data-reiniciar-codigo]")) {
+      if (!await preguntar(`Se le borra el autenticador a ${quien}. La próxima vez que entre, el panel le muestra un código QR nuevo para escanear con el celular.\n\nÚselo si perdió o cambió el celular.`, { titulo: "¿Reiniciar el autenticador?", si: "Reiniciar", peligro: true })) return;
+      try { await llamarUsuarios({ accion: "reiniciar_codigo", user_id: u.user_id }); msgUsu(`Listo: ${quien} va a escanear un código QR nuevo la próxima vez que entre.`); }
       catch (err) { msgUsu(err.message, true); }
       return cargarUsuarios();
     }

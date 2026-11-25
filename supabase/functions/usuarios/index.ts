@@ -4,7 +4,8 @@
 //
 //  Acciones (POST JSON, solo administrador con autenticador):
 //   { accion: "crear", usuario, nombre, clave, permisos: [...], pide_codigo }
-//   { accion: "clave", user_id, clave }        → nueva contraseña de un empleado
+//   { accion: "clave", user_id, clave }        → nueva contraseña (empleado u otro administrador)
+//   { accion: "reiniciar_codigo", user_id }    → borra su autenticador: al entrar escanea un QR nuevo
 //   { accion: "renombrar", user_id, usuario }  → cambia el usuario con que entra
 //
 //  Los empleados entran con "usuario"; por dentro su correo es
@@ -64,7 +65,15 @@ Deno.serve(async (req) => {
   let b: Record<string, unknown>;
   try { b = await req.json(); } catch { return resp({ ok: false, error: "Solicitud no válida." }, 400); }
 
-  // solo se tocan cuentas de empleados (los administradores cambian su contraseña ellos mismos)
+  // otra cuenta del panel que no sea la de quien llama (para contraseña y autenticador)
+  const { data: quienLlama } = await yo.auth.getUser();
+  async function otraCuenta(id: unknown) {
+    const uid = String(id ?? "");
+    if (!uid || uid === quienLlama?.user?.id) return null;
+    const { data } = await sb.from("admins").select("user_id,rol,usuario").eq("user_id", uid).maybeSingle();
+    return data || null;
+  }
+  // solo se tocan cuentas de empleados
   async function empleado(id: unknown) {
     const { data } = await sb.from("admins").select("user_id,rol,usuario").eq("user_id", String(id ?? "")).maybeSingle();
     return data && data.rol === "usuario" ? data : null;
@@ -101,14 +110,28 @@ Deno.serve(async (req) => {
 
     // ---------- nueva contraseña ----------
     if (b.accion === "clave") {
-      const e = await empleado(b.user_id);
-      if (!e) return resp({ ok: false, error: "Solo se le cambia la contraseña a un empleado." });
+      const e = await otraCuenta(b.user_id);
+      if (!e) return resp({ ok: false, error: "Esa cuenta no está en el panel (su propia contraseña se la cambia otro administrador)." });
       const malaClave = revisarClave(b.clave);
       if (malaClave) return resp({ ok: false, error: malaClave });
       const { error } = await sb.auth.admin.updateUserById(e.user_id, { password: String(b.clave) });
       if (error) return resp({ ok: false, error: traducir(error.message) });
       await yo.rpc("anotar_cuenta", { p_user: e.user_id });
       return resp({ ok: true });
+    }
+
+    // ---------- reiniciar el autenticador (perdió o cambió el celular) ----------
+    if (b.accion === "reiniciar_codigo") {
+      const e = await otraCuenta(b.user_id);
+      if (!e) return resp({ ok: false, error: "Esa cuenta no está en el panel (el suyo lo reinicia otro administrador)." });
+      const { data: fs, error: eL } = await sb.auth.admin.mfa.listFactors({ userId: e.user_id });
+      if (eL) return resp({ ok: false, error: traducir(eL.message) });
+      for (const f of fs?.factors || []) {
+        const { error } = await sb.auth.admin.mfa.deleteFactor({ id: f.id, userId: e.user_id });
+        if (error) return resp({ ok: false, error: traducir(error.message) });
+      }
+      await yo.rpc("anotar_cuenta", { p_user: e.user_id });
+      return resp({ ok: true, borrados: (fs?.factors || []).length });
     }
 
     // ---------- cambiar el usuario con que entra ----------
