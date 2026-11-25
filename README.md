@@ -202,6 +202,7 @@ Para facturar, cada producto necesita su **CABYS** (el código de Hacienda que d
   - Al escoger uno se puede poner **el mismo CABYS a los parecidos** que todavía no tienen (se marcan solos los más parecidos; revíselos).
   - El IVA del producto se pone según el CABYS. Si sale **0 %**, revíselo a mano.
 - En **Productos → Editar** también está el campo **CABYS** con **Buscar en Hacienda**.
+- **Al facturar una venta:** si algún producto no tiene CABYS, se abre ahí mismo para escogerlo; queda guardado en el producto y la factura sigue sola. (Solo con internet y con permiso de productos; si el empleado no tiene ese permiso, le avisa que se lo pida al administrador.)
 - Al importar el Excel de Moriah, el CABYS viene de la columna *Codigo Cabys*; si en Moriah está vacío, queda sin CABYS.
 
 Necesita la función `facturar` publicada otra vez (la búsqueda en Hacienda pasa por ella).

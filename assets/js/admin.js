@@ -3081,10 +3081,18 @@
   }
   // venta a crédito: el comprobante sale con condición crédito y el plazo hasta el vencimiento
   const plazoFE = () => (V.pedido?.credito && V.pedido.vence ? { credito_dias: Math.max(1, diasEntre(String(V.pedido.created_at).slice(0, 10), V.pedido.vence)) } : {});
-  $("#btnFETiquete").addEventListener("click", () => (!enLinea() || V.local ? hacerFESinRed("04")
-    : accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "04", ...plazoFE() }, "Firmando y enviando el tiquete a Hacienda…")));
-  $("#btnFEFactura").addEventListener("click", () => (!enLinea() || V.local ? hacerFESinRed("01")
-    : accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "01", ...plazoFE() }, "Firmando y enviando la factura a Hacienda…")));
+  $("#btnFETiquete").addEventListener("click", async () => {
+    if (!enLinea() || V.local) return hacerFESinRed("04");
+    if (V.dirty) return accionFE({}, "");
+    if (!(await asegurarCabys(V.items))) return;
+    accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "04", ...plazoFE() }, "Firmando y enviando el tiquete a Hacienda…");
+  });
+  $("#btnFEFactura").addEventListener("click", async () => {
+    if (!enLinea() || V.local) return hacerFESinRed("01");
+    if (V.dirty) return accionFE({}, "");
+    if (!(await asegurarCabys(V.items))) return;
+    accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "01", ...plazoFE() }, "Firmando y enviando la factura a Hacienda…");
+  });
 
   // ---------- comprobantes electrónicos sin internet ----------
   // Con internet, cada compu aparta su terminal y números (50 tiquetes y 20 facturas; se reponen al bajar).
@@ -3559,7 +3567,8 @@
   let CAB_OPC = {};
   function pintarCabys() {
     const p = CAB.prod;
-    $("#cabCuenta").textContent = CAB.modo === "lista" ? `${CAB.i + 1} de ${CAB.cola.length}` : "";
+    $("#cabCuenta").textContent = CAB.modo === "lista" ? `${CAB.i + 1} de ${CAB.cola.length}`
+      : CAB.modo === "venta" ? `Para facturar esta venta · ${CAB.i + 1} de ${CAB.cola.length}` : "";
     $("#cabProd").innerHTML = `<b>${U.esc(p.nombre)}</b><small>${[p.codigo && "Cód. " + p.codigo, p.unidad, U.colones(p.precio)].filter(Boolean).map(U.esc).join(" · ")}</small>`;
     const sug = parecidosConCabys(p);
     CAB_OPC = {};
@@ -3573,7 +3582,7 @@
     $("#cabTambienBox").hidden = !tam.length;
     $("#cabTambien").innerHTML = tam.map((o) => `<li><label class="check"><input type="checkbox" data-cab-tambien="${o.x.id}" ${o.pts >= 3 ? "checked" : ""} /> ${U.esc(o.x.nombre)}</label></li>`).join("");
     $("#btnCabGuardar").disabled = !CAB.sel;
-    $("#btnCabGuardar").textContent = CAB.modo === "lista" ? "Guardar y seguir" : "Usar este";
+    $("#btnCabGuardar").textContent = CAB.modo === "uno" ? "Usar este" : CAB.modo === "venta" && CAB.i + 1 >= CAB.cola.length ? "Guardar y facturar" : "Guardar y seguir";
     $("#btnCabSaltar").hidden = CAB.modo !== "lista";
   }
   async function buscarCabys(q) {
@@ -3636,9 +3645,30 @@
     for (const id of ids) { const x = productos.find((y) => y.id === id); if (x) Object.assign(x, d); }
     CAB.cola = CAB.cola.filter((x, k) => k <= CAB.i || !ids.includes(x.id));
     toast(`CABYS ${sel.codigo} puesto a ${ids.length} ${ids.length === 1 ? "producto" : "productos"}${sel.impuesto === 0 ? " · revise el IVA (tarifa 0)" : ""}`);
-    if (CAB.i + 1 >= CAB.cola.length) { $("#dlgCabys").close(); pintarProductos(); return toast("Listo: ya no quedan productos sin CABYS."); }
+    if (CAB.i + 1 >= CAB.cola.length) {
+      if (CAB.modo === "venta") CAB.ok = true;
+      $("#dlgCabys").close(); pintarProductos();
+      return CAB.modo === "venta" ? null : toast("Listo: ya no quedan productos sin CABYS.");
+    }
     CAB.i++; mostrarProductoCabys(); pintarProductos();
   });
+  // Al facturar: si un producto de la venta no tiene CABYS, se le pone ahí mismo y queda guardado en el producto
+  function asegurarCabys(items) {
+    const faltan = [];
+    for (const it of items) {
+      const pr = prodDe(it.producto_id);
+      if (pr && !/^[0-9]{13}$/.test(String(pr.cabys || "")) && !faltan.includes(pr)) faltan.push(pr);
+    }
+    if (!faltan.length) return Promise.resolve(true);
+    if (!puede("productos")) {
+      toast(`“${faltan[0].nombre}” no tiene CABYS. Pídale al administrador que se lo ponga (Productos → Poner CABYS).`, true);
+      return Promise.resolve(false);
+    }
+    CAB.modo = "venta"; CAB.cola = faltan; CAB.i = 0; CAB.ok = false;
+    mostrarProductoCabys(); $("#dlgCabys").showModal();
+    toast(faltan.length === 1 ? `“${faltan[0].nombre}” no tiene CABYS: escójalo y se guarda en el producto.` : `${faltan.length} productos de esta venta no tienen CABYS: escójalos y se guardan.`);
+    return new Promise((ok) => $("#dlgCabys").addEventListener("close", () => ok(CAB.ok), { once: true }));
+  }
   // =========================================================
   //  v21 · SALIDAS Y CONTEOS, COMPRAS, PROVEEDORES Y FACTURAS RECIBIDAS
   // =========================================================
