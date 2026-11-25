@@ -1647,7 +1647,7 @@
     V.cond = p.data.apartado ? "apartado" : p.data.credito ? "credito" : "contado";
     V.apVence = p.data.apartado_vence || null;
     V.credCli = null;
-    if (V13 && p.data.cliente_id) { if (!clientes.length) await cargarClientes(); V.credCli = clientes.find((c) => c.id === p.data.cliente_id) || null; }
+    if (V13 && p.data.cliente_id) { await cargarClientes(); V.credCli = clientes.find((c) => c.id === p.data.cliente_id) || null; }
     // lo que esta venta ya descontó del inventario (cuenta como disponible al editarla)
     V.orig = new Map();
     if (p.data.estado !== "anulada") for (const i of it.data) if (i.producto_id) V.orig.set(i.producto_id, (V.orig.get(i.producto_id) || 0) + Number(i.cantidad));
@@ -2521,7 +2521,7 @@
       if (!aviso && (quiere || tenia)) {
         const { error } = await db.rpc("poner_credito", { p_pedido: id, p_cliente: quiere });
         if (error) aviso = `La venta se guardó, pero ${quiere ? "no quedó a crédito" : "sigue a crédito"}: ${errTxt(error)}`;
-        cargarClientes();
+        await cargarClientes();
       }
       if (!aviso && apQuiere && (!apTenia || antes.apartado_vence !== V.apVence)) aviso = await ponerApartado(id, true, V.apVence);
     }
@@ -2573,7 +2573,8 @@
     const vence = p?.credito && p.vence ? p.vence : sumarDias(desde, c.plazo_dias);
     const partes = [`<b>${U.esc(c.nombre)}</b>`, `debe ${fmt(debe)} sin esta venta`];
     if (c.limite != null) partes.push(`límite ${fmt(c.limite)}`);
-    partes.push(`esta venta vence el ${U.esc(fechaCorta(vence))} (${c.plazo_dias} días)`);
+    const pagada = p && !V.local && p.estado !== "anulada" && Number(p.total) > 0 && Number(p.pagado_registrado) >= Number(p.total);
+    partes.push(pagada ? "esta venta ya está pagada" : `esta venta vence el ${U.esc(fechaCorta(vence))} (${c.plazo_dias} días)`);
     let alerta = "";
     if (!c.activo) alerta = "El crédito de este cliente está desactivado.";
     else if (c.limite != null && debe + esta > Number(c.limite)) alerta = `Con esta venta pasa el límite por ${fmt(debe + esta - c.limite)}.`;
