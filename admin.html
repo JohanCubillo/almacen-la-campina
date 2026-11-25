@@ -292,6 +292,18 @@
             </div>
           </div>
         </div>
+        <section class="tarjeta paq-contador" id="boxContador" aria-labelledby="titContador">
+          <div>
+            <h3 class="subt" id="titContador">Paquete del mes para el contador</h3>
+            <p class="ayuda">Un ZIP con un Excel (resumen de IVA, ventas, compras, clientes, proveedores, cobros, por cobrar, por pagar e inventario) y los XML del mes.</p>
+          </div>
+          <form class="paq-contador__form" id="formContador">
+            <label>Mes<input type="month" name="mes" required /></label>
+            <label class="check"><input type="checkbox" name="xml" checked /> Incluir los XML</label>
+            <button type="submit" class="btn btn--negro" id="btnContador">Descargar paquete</button>
+          </form>
+          <p class="msg" id="contadorMsg" role="status"></p>
+        </section>
         <p class="rep__rango" id="repRango"></p>
         <dl class="cifras" id="repCifras"></dl>
         <div class="rep__grid">

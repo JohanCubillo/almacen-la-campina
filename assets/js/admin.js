@@ -68,7 +68,7 @@
     ["inventario", "Inventario (entradas)"], ["productos", "Productos y fotos"], ["precios", "Cambiar precios"],
     ["reportes", "Reportes"], ["preguntas", "Preguntas de clientes"], ["compras", "Compras y proveedores"]
   ];
-  const PLANTILLAS = { caja: ["ventas", "caja", "credito"], inventario: ["inventario", "productos"] };
+  const PLANTILLAS = { caja: ["ventas", "caja", "credito"], inventario: ["inventario", "productos"], contador: ["reportes"] };
   let clientes = [];       // clientes de crédito con su saldo (v_clientes_credito)
   const MAX_LISTA_PROD = 150;
   let V5 = true;           // la base tiene registrar_venta_sin_internet
@@ -977,6 +977,7 @@
     <div class="permisos__rapidos">
       <button type="button" class="btn btn--sm btn--linea" data-plantilla="caja">Caja</button>
       <button type="button" class="btn btn--sm btn--linea" data-plantilla="inventario">Inventario</button>
+      <button type="button" class="btn btn--sm btn--linea" data-plantilla="contador">Contador</button>
       <button type="button" class="btn btn--sm btn--linea" data-plantilla="nada">Nada</button>
     </div>
     <div class="permisos__lista">${PERMISOS.map(([k, t]) => `<label class="check"><input type="checkbox" name="permiso" value="${k}"${marcados.includes(k) ? " checked" : ""} /> ${t}</label>`).join("")}</div>
@@ -3669,6 +3670,256 @@
     toast(faltan.length === 1 ? `“${faltan[0].nombre}” no tiene CABYS: escójalo y se guarda en el producto.` : `${faltan.length} productos de esta venta no tienen CABYS: escójalos y se guardan.`);
     return new Promise((ok) => $("#dlgCabys").addEventListener("close", () => ok(CAB.ok), { once: true }));
   }
+  // =========================================================
+  //  PAQUETE DEL MES PARA EL CONTADOR
+  // =========================================================
+  const TARIFA_PCT = { "01": 0, "02": 1, "03": 2, "04": 4, "05": 0, "06": 4, "07": 8, "08": 13, "09": 0.5, "10": 0, "11": 0 };
+  const TARIFA_NOM = { "08": "13 %", "07": "8 %", "04": "4 %", "06": "4 % (transitoria)", "03": "2 %", "02": "1 %", "09": "0,5 %",
+                       "01": "0 % (art. 32)", "05": "0 % (transitoria)", "11": "0 % sin crédito", "10": "Exento" };
+  const ORDEN_TARIFA = ["08", "07", "04", "06", "03", "02", "09", "01", "05", "11", "10"];
+  const TIPO_FE_NOM = { "01": "Factura", "03": "Nota de crédito", "04": "Tiquete" };
+  const ESTADO_FE_NOM = { aceptado: "Aceptado", rechazado: "Rechazado", firmado: "Sin enviar", enviado: "Enviado", procesando: "Procesando", error: "Con error" };
+  const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+  const fechaHora = (iso) => iso ? new Date(iso).toLocaleString("es-CR", { timeZone: TZ, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
+  async function todasLasFilas(armar) {
+    const out = [];
+    for (let d = 0; ; d += 1000) {
+      const { data, error } = await armar().range(d, d + 999);
+      if (error) throw error;
+      out.push(...data);
+      if (data.length < 1000) return out;
+    }
+  }
+  // base e IVA por tarifa de un comprobante emitido (lo que se firmó)
+  function tarifasEmitido(datos) {
+    const t = {};
+    for (const l of datos?.detalleServicio || []) {
+      const imp = (l.impuesto || [])[0] || {}, cod = imp.codigoTarifaIVA || "10";
+      const x = t[cod] || (t[cod] = { base: 0, iva: 0 });
+      x.base += Number(l.subTotal ?? l.montoTotal ?? 0);
+      x.iva += Number(l.impuestoNeto ?? imp.monto ?? 0);
+    }
+    return t;
+  }
+  // lo mismo de una factura de proveedor (su XML, 4.3 o 4.4)
+  function tarifasRecibido(xml) {
+    const t = {};
+    try {
+      const raiz = new DOMParser().parseFromString(xml, "application/xml").documentElement;
+      for (const l of [...(hijo(raiz, "DetalleServicio")?.children || [])].filter((x) => x.localName === "LineaDetalle")) {
+        const imp = [...l.children].find((c) => c.localName === "Impuesto");
+        let cod = imp ? (txt(imp, "CodigoTarifaIVA") || txt(imp, "CodigoTarifa")) : "10";
+        if (!cod) cod = imp ? "08" : "10";
+        const x = t[cod] || (t[cod] = { base: 0, iva: 0 });
+        x.base += Number(txt(l, "SubTotal") || txt(l, "MontoTotal") || 0);
+        x.iva += Number((imp && txt(imp, "Monto")) || 0);
+      }
+    } catch { /* XML raro: queda sin desglose */ }
+    return t;
+  }
+  const sumarTarifas = (a, b, signo = 1, tc = 1) => { for (const [k, v] of Object.entries(b)) { const x = a[k] || (a[k] = { base: 0, iva: 0 }); x.base += signo * v.base * tc; x.iva += signo * v.iva * tc; } return a; };
+  const tarifasOrden = (...objs) => ORDEN_TARIFA.filter((k) => objs.some((o) => o[k])).concat([...new Set(objs.flatMap(Object.keys))].filter((k) => !ORDEN_TARIFA.includes(k)));
+
+  $("#formContador").mes.value = (() => { const d = new Date(Date.now() - 864e5 * new Date().getDate()); return new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit" }).format(d); })();
+  $("#formContador").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#contadorMsg"), btn = $("#btnContador"), mes = f.mes.value, conXml = f.xml.checked;
+    if (!/^\d{4}-\d{2}$/.test(mes)) { msg.className = "msg msg--error"; msg.textContent = "Escoja el mes."; return; }
+    const [an, me] = mes.split("-").map(Number);
+    const sig = me === 12 ? `${an + 1}-01` : `${an}-${String(me + 1).padStart(2, "0")}`;
+    const desde = `${mes}-01T00:00:00-06:00`, hasta = `${sig}-01T00:00:00-06:00`, dDesde = `${mes}-01`, dHasta = `${sig}-01`;
+    const nombreMes = new Date(`${mes}-15T12:00:00-06:00`).toLocaleDateString("es-CR", { month: "long", year: "numeric", timeZone: TZ });
+    const amb = FE?.ambiente || "produccion";
+    btn.disabled = true; msg.className = "msg"; msg.textContent = "Juntando los datos del mes…";
+    const avisos = [];
+    const intentar = async (nombre, fn) => { try { return await fn(); } catch (err) { avisos.push(`${nombre}: ${errTxt(err)}`); return null; } };
+    try {
+      // ---- datos ----
+      const docs = await intentar("Comprobantes emitidos", () => todasLasFilas(() => db.from("fe_documentos")
+        .select("id,pedido_id,tipo,clave,consecutivo,fecha_emision,receptor,total,impuesto,estado,detalle,referencia_id,anulado,datos,pedidos(codigo,cliente_nombre)")
+        .eq("ambiente", amb).gte("fecha_emision", desde).lt("fecha_emision", hasta).order("fecha_emision"))) || [];
+      const recs = V21 ? (await intentar("Facturas de proveedores", () => todasLasFilas(() => db.from("fe_recibidos")
+        .select("id,clave,tipo_doc,emisor_id,emisor_nombre,consecutivo_doc,fecha_emision,moneda,tipo_cambio,total,impuesto,mensaje,condicion_impuesto,impuesto_acreditar,estado,ambiente,xml,xml_firmado,respuesta_xml")
+        .gte("fecha_emision", desde).lt("fecha_emision", hasta).order("fecha_emision"))) || []) : [];
+      const entradas = await intentar("Entradas de mercadería", () => todasLasFilas(() => db.from("entradas").select("*")
+        .gte("fecha", dDesde).lt("fecha", dHasta).eq("estado", "aplicada").order("fecha"))) || [];
+      const pagos = await intentar("Cobros", () => todasLasFilas(() => db.from("pagos").select("monto,metodo,fecha,anulado,verificado")
+        .gte("fecha", desde).lt("fecha", hasta).order("fecha"))) || [];
+      const porCobrar = V13 ? (await intentar("Por cobrar", () => todasLasFilas(() => db.from("v_clientes_credito").select("*").order("nombre"))) || []) : [];
+      const porPagar = V21 ? (await intentar("Por pagar", () => todasLasFilas(() => db.from("v_cuentas_pagar").select("*").order("vence"))) || []) : [];
+      const inv = await intentar("Inventario", () => todasLasFilas(() => db.from("productos").select("codigo,nombre,existencia,costo,precio,unidad,activo,cabys").not("existencia", "is", null).order("nombre"))) || [];
+      inv.splice(0, inv.length, ...inv.filter((p) => p.existencia != null && Number.isFinite(Number(p.existencia))));
+      msg.textContent = "Armando el Excel…";
+
+      // ---- ventas ----
+      const ventasT = {}, notasT = {}, porCliente = new Map();
+      const filasVen = docs.map((d) => {
+        const t = tarifasEmitido(d.datos), ok = d.estado === "aceptado", nc = d.tipo === "03";
+        if (ok) sumarTarifas(nc ? notasT : ventasT, t);
+        if (ok) {
+          const ced = d.receptor?.identificacion || "", k = ced || "consumidor";
+          const c = porCliente.get(k) || { nombre: ced ? d.receptor?.nombre || "" : "Consumidor final (tiquetes y facturas sin cédula)", ced, n: 0, base: 0, iva: 0, total: 0 };
+          const s = nc ? -1 : 1;
+          c.n += 1; c.total += s * Number(d.total); c.iva += s * Number(d.impuesto); c.base += s * (Number(d.total) - Number(d.impuesto));
+          porCliente.set(k, c);
+        }
+        return { d, t };
+      });
+      const tarVen = tarifasOrden(...filasVen.map((x) => x.t));
+      const hojaVentas = [["Fecha", "Tipo", "Consecutivo", "Venta", "Cliente", "Cédula", "Condición",
+        ...tarVen.flatMap((k) => TARIFA_PCT[k] > 0 ? [`Base ${TARIFA_NOM[k]}`, `IVA ${TARIFA_NOM[k]}`] : [`Venta ${TARIFA_NOM[k]}`]),
+        "IVA total", "Total", "Estado en Hacienda", "Cuenta para el IVA", "Clave", "Nota"]];
+      for (const { d, t } of filasVen) {
+        const s = d.tipo === "03" ? -1 : 1;
+        hojaVentas.push([fechaHora(d.fecha_emision), TIPO_FE_NOM[d.tipo] || d.tipo, d.consecutivo, d.pedidos?.codigo || "",
+          d.receptor?.nombre || d.pedidos?.cliente_nombre || "", d.receptor?.identificacion || "", d.datos?.condicionVenta === "02" ? "Crédito" : "Contado",
+          ...tarVen.flatMap((k) => TARIFA_PCT[k] > 0 ? [r2(s * (t[k]?.base || 0)), r2(s * (t[k]?.iva || 0))] : [r2(s * (t[k]?.base || 0))]),
+          r2(s * d.impuesto), r2(s * d.total), ESTADO_FE_NOM[d.estado] || d.estado, d.estado === "aceptado" ? "Sí" : "No",
+          d.clave, [d.anulado ? "Anulado con nota de crédito" : "", d.estado !== "aceptado" ? d.detalle || "" : ""].filter(Boolean).join(" · ")]);
+      }
+      const dinVen = []; for (let i = 7; i < hojaVentas[0].length - 4; i++) dinVen.push(i);
+
+      // ---- compras ----
+      const comprasT = {}, porProv = new Map(); let acreditable = 0;
+      const MSJ = { "1": "Aceptada", "2": "Aceptada en parte", "3": "Rechazada" };
+      const filasCom = recs.map((r) => {
+        const tc = Number(r.tipo_cambio) || 1, t = tarifasRecibido(r.xml), cuenta = r.mensaje !== "3" && r.tipo_doc !== "04";
+        const s = r.tipo_doc === "03" ? -1 : 1;
+        if (cuenta) {
+          sumarTarifas(comprasT, t, s, tc);
+          const p = porProv.get(r.emisor_id) || { nombre: r.emisor_nombre, ced: r.emisor_id, n: 0, base: 0, iva: 0, total: 0 };
+          p.n += 1; p.total += s * Number(r.total) * tc; p.iva += s * Number(r.impuesto) * tc; p.base += s * (Number(r.total) - Number(r.impuesto)) * tc;
+          porProv.set(r.emisor_id, p);
+        }
+        if (r.estado === "aceptado" && r.mensaje !== "3") acreditable += s * Number(r.impuesto_acreditar ?? 0) * tc;
+        return { r, t, tc, s };
+      });
+      const tarCom = tarifasOrden(...filasCom.map((x) => x.t));
+      const hojaCompras = [["Fecha", "Tipo", "Proveedor", "Cédula", "Consecutivo",
+        ...tarCom.flatMap((k) => TARIFA_PCT[k] > 0 ? [`Base ${TARIFA_NOM[k]}`, `IVA ${TARIFA_NOM[k]}`] : [`Compra ${TARIFA_NOM[k]}`]),
+        "IVA total", "Total (₡)", "Moneda", "Tipo de cambio", "Respuesta del almacén", "Condición del IVA", "IVA acreditable", "Respuesta en Hacienda", "Clave"]];
+      const COND = { "01": "Crédito completo", "02": "Crédito parcial", "03": "Bienes de capital", "04": "Gasto sin crédito", "05": "Proporcionalidad" };
+      for (const { r, t, tc, s } of filasCom) {
+        hojaCompras.push([fechaHora(r.fecha_emision), TIPO_DOC_REC[r.tipo_doc] || r.tipo_doc, r.emisor_nombre, r.emisor_id, r.consecutivo_doc || "",
+          ...tarCom.flatMap((k) => TARIFA_PCT[k] > 0 ? [r2(s * (t[k]?.base || 0) * tc), r2(s * (t[k]?.iva || 0) * tc)] : [r2(s * (t[k]?.base || 0) * tc)]),
+          r2(s * r.impuesto * tc), r2(s * r.total * tc), r.moneda, tc === 1 ? "" : tc,
+          r.mensaje ? MSJ[r.mensaje] : "Sin contestar", COND[r.condicion_impuesto] || "", r.impuesto_acreditar != null ? r2(s * r.impuesto_acreditar * tc) : "",
+          r.mensaje ? (ESTADO_FE_NOM[r.estado] || r.estado) + (r.ambiente === "pruebas" ? " (pruebas)" : "") : "", r.clave]);
+      }
+      const dinCom = []; for (let i = 5; i < 5 + tarCom.reduce((n, k) => n + (TARIFA_PCT[k] > 0 ? 2 : 1), 0) + 2; i++) dinCom.push(i);
+      dinCom.push(hojaCompras[0].indexOf("IVA acreditable"));
+
+      // ---- resumen ----
+      const R = [], neg = [];
+      const fila = (...c) => R.push(c), titulo = (t) => { neg.push(R.length); R.push([t]); };
+      fila("Paquete para el contador", nombreMes);
+      fila("Negocio", FE?.nombre || "", FE?.identificacion ? `Cédula ${FE.identificacion}` : "");
+      fila("Ambiente de facturación", amb === "produccion" ? "Producción" : "PRUEBAS (no cuenta para Hacienda)");
+      fila("Generado", fechaHora(new Date().toISOString()));
+      fila();
+      titulo("VENTAS · comprobantes aceptados por Hacienda");
+      neg.push(R.length); fila("Tarifa", "Base", "IVA");
+      const tarR = tarifasOrden(ventasT, notasT);
+      let vb = 0, vi = 0;
+      for (const k of tarR) {
+        const b = (ventasT[k]?.base || 0) - (notasT[k]?.base || 0), i = (ventasT[k]?.iva || 0) - (notasT[k]?.iva || 0);
+        vb += b; vi += i; fila(TARIFA_NOM[k] || k, r2(b), r2(i));
+      }
+      neg.push(R.length); fila("Total ventas (ya restadas las notas de crédito)", r2(vb), r2(vi));
+      const nNc = docs.filter((d) => d.tipo === "03" && d.estado === "aceptado").length;
+      fila("Notas de crédito restadas", nNc);
+      const malos = docs.filter((d) => d.estado !== "aceptado");
+      if (malos.length) fila("Comprobantes que NO cuentan (rechazados o sin respuesta)", malos.length, "Ver hoja Ventas");
+      fila();
+      titulo("COMPRAS · facturas electrónicas de proveedores (sin las rechazadas)");
+      neg.push(R.length); fila("Tarifa", "Base", "IVA");
+      let cb = 0, ci = 0;
+      for (const k of tarifasOrden(comprasT)) { cb += comprasT[k].base; ci += comprasT[k].iva; fila(TARIFA_NOM[k] || k, r2(comprasT[k].base), r2(comprasT[k].iva)); }
+      neg.push(R.length); fila("Total compras", r2(cb), r2(ci));
+      fila("IVA acreditable según lo contestado a Hacienda", "", r2(acreditable));
+      const sinContestar = recs.filter((r) => !r.mensaje && r.tipo_doc !== "04").length;
+      if (sinContestar) fila("Facturas de proveedores sin aceptar ni rechazar", sinContestar, "Contéstelas en Compras → Facturas recibidas");
+      const entSin = entradas.filter((x) => !x.recibido_id);
+      if (entSin.length) fila("Entradas de mercadería sin factura electrónica", entSin.length, "Ver hoja Entradas sin factura (no dan crédito de IVA)");
+      fila();
+      neg.push(R.length); fila("IVA de ventas menos IVA acreditable (referencia)", "", r2(vi - acreditable));
+      fila("Es una ayuda para la declaración. El contador revisa los datos y presenta la declaración en TRIBU-CR.");
+      fila();
+      titulo("COBROS DEL MES (pagos recibidos en ventas y abonos)");
+      neg.push(R.length); fila("Medio", "Cantidad", "Monto");
+      const porMetodo = {};
+      for (const p of pagos) if (!p.anulado) { const m = porMetodo[p.metodo] || (porMetodo[p.metodo] = { n: 0, m: 0 }); m.n++; m.m += Number(p.monto); }
+      let tc = 0;
+      for (const [k, v] of Object.entries(porMetodo).sort((a, b) => b[1].m - a[1].m)) { tc += v.m; fila(ETQ_METODO[k] || k, v.n, r2(v.m)); }
+      neg.push(R.length); fila("Total cobrado", "", r2(tc));
+      if (avisos.length) { fila(); titulo("No se pudieron leer"); avisos.forEach((a) => fila(a)); }
+
+      // ---- demás hojas ----
+      const filasCli = [["Cliente", "Cédula", "Comprobantes", "Base", "IVA", "Total"],
+        ...[...porCliente.values()].sort((a, b) => b.total - a.total).map((c) => [c.nombre, c.ced, c.n, r2(c.base), r2(c.iva), r2(c.total)])];
+      const filasProv = [["Proveedor", "Cédula", "Facturas", "Base", "IVA", "Total (₡)"],
+        ...[...porProv.values()].sort((a, b) => b.total - a.total).map((p) => [p.nombre, p.ced, p.n, r2(p.base), r2(p.iva), r2(p.total)])];
+      const filasEnt = [["Fecha", "Entrada", "Proveedor", "Documento", "Condición", "Costo de la mercadería", "Total de la factura", "Nota"],
+        ...entSin.map((x) => [x.fecha, x.id, x.proveedor || "", x.documento || "", x.condicion === "credito" ? "Crédito" : "Contado", r2(x.total_costo), x.total_factura != null ? r2(x.total_factura) : "", x.nota || ""])];
+      const filasCxc = [["Cliente", "Cédula", "Saldo", "Vencido", "Límite"],
+        ...porCobrar.filter((c) => Number(c.saldo) > 0).map((c) => [c.nombre, c.identificacion || "", r2(c.saldo), r2(c.vencido), c.limite != null ? r2(c.limite) : ""])];
+      filasCxc.push(["Total", "", r2(porCobrar.reduce((t, c) => t + Math.max(0, Number(c.saldo) || 0), 0))]);
+      const filasCxp = [["Proveedor", "Factura", "Fecha", "Vence", "Total", "Saldo", "Días vencida"],
+        ...porPagar.map((c) => [c.proveedor || "", c.documento || "", c.fecha, c.vence, r2(c.total_factura), r2(c.saldo), Math.max(0, Number(c.dias_vencida) || 0)])];
+      filasCxp.push(["Total", "", "", "", "", r2(porPagar.reduce((t, c) => t + Number(c.saldo), 0))]);
+      const filasInv = [["Código", "Producto", "Existencia", "Unidad", "Costo", "Valor al costo", "Precio de venta", "CABYS", "A la venta"],
+        ...inv.map((p) => [p.codigo || "", p.nombre, Number(p.existencia), p.unidad || "", p.costo != null ? r2(p.costo) : "", p.costo != null ? r2(Number(p.existencia) * Number(p.costo)) : "", p.precio != null ? r2(p.precio) : "", p.cabys || "", p.activo ? "Sí" : "No"])];
+      filasInv.push(["", "Total al costo (de los que tienen costo)", "", "", "", r2(inv.reduce((t, p) => t + (p.costo != null ? Number(p.existencia) * Number(p.costo) : 0), 0))]);
+      const nota = (filas, texto) => { filas.push([], [texto]); return filas; };
+
+      const xlsx = XlsxMini.libro([
+        { nombre: "Resumen IVA", filas: R, anchos: [58, 18, 18], dinero: [1, 2], negritas: neg },
+        { nombre: "Ventas", filas: hojaVentas, anchos: [17, 15, 22, 11, 30, 13, 10, ...tarVen.flatMap((k) => TARIFA_PCT[k] > 0 ? [14, 12] : [14]), 12, 14, 16, 10, 52, 40], dinero: dinVen },
+        { nombre: "Compras", filas: hojaCompras, anchos: [17, 16, 32, 13, 22, ...tarCom.flatMap((k) => TARIFA_PCT[k] > 0 ? [14, 12] : [14]), 12, 14, 8, 10, 18, 18, 14, 20, 52], dinero: dinCom },
+        { nombre: "Clientes", filas: filasCli, anchos: [40, 14, 13, 14, 12, 14], dinero: [3, 4, 5] },
+        { nombre: "Proveedores", filas: filasProv, anchos: [40, 14, 10, 14, 12, 14], dinero: [3, 4, 5] },
+        { nombre: "Entradas sin factura", filas: nota(filasEnt, "Mercadería que entró sin factura electrónica: no da crédito de IVA."), anchos: [11, 9, 30, 18, 10, 18, 16, 30], dinero: [5, 6] },
+        { nombre: "Por cobrar", filas: nota(filasCxc, "Saldos de crédito al momento de descargar (no al cierre del mes)."), anchos: [36, 14, 14, 14, 14], dinero: [2, 3, 4], negritas: [filasCxc.length - 1] },
+        { nombre: "Por pagar", filas: nota(filasCxp, "Saldos con proveedores al momento de descargar (no al cierre del mes)."), anchos: [32, 18, 11, 11, 14, 14, 12], dinero: [4, 5], negritas: [filasCxp.length - 1] },
+        { nombre: "Inventario", filas: nota(filasInv, "Existencias al momento de descargar. Para el cierre del año, descárguelo el 31 de diciembre al cerrar."), anchos: [16, 44, 11, 10, 12, 14, 14, 15, 9], dinero: [4, 5, 6], negritas: [filasInv.length - 1] }
+      ]);
+
+      // ---- ZIP con los XML ----
+      const archivos = [{ nombre: `contador-${mes}.xlsx`, datos: new Uint8Array(await xlsx.arrayBuffer()) }];
+      if (conXml) {
+        msg.textContent = "Bajando los XML…";
+        for (let k = 0; k < docs.length; k += 100) {
+          const ids = docs.slice(k, k + 100).map((d) => d.id);
+          const { data, error } = await db.from("fe_documentos").select("tipo,clave,xml_firmado,respuesta_xml").in("id", ids);
+          if (error) { avisos.push("XML emitidos: " + errTxt(error)); break; }
+          for (const d of data) {
+            const c = `emitidos/${TIPO_FE_NOM[d.tipo] || d.tipo}`;
+            if (d.xml_firmado) archivos.push({ nombre: `${c}/${d.clave}.xml`, datos: d.xml_firmado });
+            if (d.respuesta_xml) archivos.push({ nombre: `${c}/${d.clave}-respuesta-hacienda.xml`, datos: d.respuesta_xml });
+          }
+        }
+        for (const r of recs) {
+          archivos.push({ nombre: `recibidos/${r.clave}.xml`, datos: r.xml });
+          if (r.xml_firmado) archivos.push({ nombre: `recibidos/${r.clave}-respuesta-almacen.xml`, datos: r.xml_firmado });
+          if (r.respuesta_xml) archivos.push({ nombre: `recibidos/${r.clave}-respuesta-hacienda.xml`, datos: r.respuesta_xml });
+        }
+      }
+      archivos.push({ nombre: "LEAME.txt", datos: [
+        `Paquete para el contador · ${nombreMes}`, `${FE?.nombre || ""} ${FE?.identificacion ? "· cédula " + FE.identificacion : ""}`, "",
+        `contador-${mes}.xlsx: Resumen IVA, Ventas, Compras, Clientes, Proveedores, Entradas sin factura, Por cobrar, Por pagar, Inventario.`,
+        conXml ? "emitidos/: los comprobantes del almacén firmados y la respuesta de Hacienda de cada uno." : "",
+        conXml ? "recibidos/: las facturas de los proveedores, la respuesta del almacén (aceptar/rechazar) y la de Hacienda." : "",
+        amb === "pruebas" ? "\nOJO: la facturación está en PRUEBAS. Estos comprobantes no cuentan para Hacienda." : "",
+        avisos.length ? "\nNo se pudieron leer:\n" + avisos.join("\n") : ""
+      ].filter((x) => x !== "").join("\r\n") });
+      descargar(XlsxMini.zip(archivos, "application/zip"), `contador-${mes}.zip`);
+      msg.className = avisos.length ? "msg msg--error" : "msg";
+      msg.textContent = `Listo: ${docs.length} comprobantes emitidos y ${recs.length} facturas de proveedores de ${nombreMes}.` + (avisos.length ? ` Faltó: ${avisos.join(" · ")}` : "");
+    } catch (err) {
+      msg.className = "msg msg--error"; msg.textContent = errTxt(err);
+    } finally { btn.disabled = false; }
+  });
+
   // =========================================================
   //  v21 · SALIDAS Y CONTEOS, COMPRAS, PROVEEDORES Y FACTURAS RECIBIDAS
   // =========================================================

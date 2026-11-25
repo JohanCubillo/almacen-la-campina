@@ -207,6 +207,23 @@ Para facturar, cada producto necesita su **CABYS** (el código de Hacienda que d
 
 Necesita la función `facturar` publicada otra vez (la búsqueda en Hacienda pasa por ella).
 
+## Paquete del mes para el contador
+
+**Reportes → Paquete del mes para el contador:** se escoge el mes (sale el mes pasado) y baja un ZIP con:
+
+- **`contador-AAAA-MM.xlsx`**, con estas hojas:
+  - **Resumen IVA:** ventas por tarifa (base e IVA) de los comprobantes **aceptados** por Hacienda, ya restadas las notas de crédito; compras por tarifa de las facturas de proveedores (sin las rechazadas); IVA acreditable según lo contestado a Hacienda; la resta como referencia; avisos de comprobantes rechazados o sin respuesta, facturas sin contestar y entradas sin factura; cobros del mes por medio de pago.
+  - **Ventas:** cada tiquete, factura y nota de crédito del mes, con base e IVA por tarifa, estado en Hacienda y si cuenta o no.
+  - **Compras:** cada factura de proveedor con base e IVA por tarifa (leído de su XML), en colones aunque venga en dólares, la respuesta del almacén y el IVA acreditable.
+  - **Clientes** y **Proveedores:** totales del mes por cédula (para la declaración informativa).
+  - **Entradas sin factura:** mercadería que entró sin factura electrónica (no da crédito de IVA).
+  - **Por cobrar**, **Por pagar** e **Inventario** valorizado al costo, al momento de descargar (para el cierre del año, descárguelo el 31 de diciembre).
+- **`emitidos/`** y **`recibidos/`**: los XML del mes con las respuestas de Hacienda (se puede desmarcar *Incluir los XML*).
+
+Es una ayuda: el contador revisa y presenta la declaración. Si la facturación está en **Pruebas**, el paquete lo dice.
+
+Para darle acceso al contador: **Usuarios → Agregar** con la plantilla **Contador** (solo el permiso *Reportes*).
+
 ## Compras y proveedores (v21)
 
 Pestaña **Compras** (administrador o empleado con permiso *Compras y proveedores*):

@@ -584,3 +584,12 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 .cab__tambien { list-style: none; margin: .3rem 0 0; padding: 0; display: grid; gap: .15rem; max-height: 10rem; overflow: auto; font-size: .92rem; }
 #formCabysBuscar { display: flex; gap: .5rem; }
 #formCabysBuscar input { flex: 1; }
+/* Paquete del contador */
+.paq-contador { display: grid; gap: .5rem 1.5rem; grid-template-columns: minmax(0, 1fr) auto; align-items: end; margin-bottom: 1.25rem; }
+.paq-contador .ayuda { margin: .2rem 0 0; }
+.paq-contador__form { display: flex; gap: .75rem; align-items: flex-end; flex-wrap: wrap; }
+.paq-contador__form label:not(.check) { min-width: 11rem; }
+.paq-contador__form .check { margin: 0 0 .7rem; }
+.paq-contador .msg { grid-column: 1 / -1; margin: 0; }
+.paq-contador .msg:empty { display: none; }
+@media (max-width: 760px) { .paq-contador { grid-template-columns: 1fr; } }
