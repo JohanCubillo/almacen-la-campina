@@ -1362,6 +1362,31 @@
     </div>
   </dialog>
 
+  <dialog id="dlgReceptor" class="dlg" aria-labelledby="recepTit">
+    <form id="formReceptor" class="dlg__form" novalidate>
+      <h2 id="recepTit">Datos para la factura</h2>
+      <p class="ayuda">Los pide Hacienda. Escriba la cédula: si el cliente está inscrito, el nombre se llena solo.</p>
+      <div class="dos">
+        <label>Número de cédula<input name="identificacion" inputmode="numeric" maxlength="14" autocomplete="off" /></label>
+        <label>Tipo
+          <select name="tipo_id">
+            <option value="fisica">Cédula física</option>
+            <option value="juridica">Cédula jurídica</option>
+            <option value="dimex">DIMEX</option>
+            <option value="nite">NITE</option>
+          </select></label>
+      </div>
+      <p class="ayuda recep-busca" id="recepBusca" aria-live="polite"></p>
+      <label>Nombre o razón social<input name="nombre" maxlength="100" autocomplete="off" /></label>
+      <label>Correo del cliente<input name="correo" type="email" maxlength="120" autocomplete="off" /></label>
+      <p class="msg msg--error" id="recepMsg" role="alert"></p>
+      <div class="dlg__btns">
+        <button type="button" class="btn btn--linea" data-cerrar-dlg>Cancelar</button>
+        <button type="submit" class="btn btn--negro" id="btnRecepEmitir">Emitir factura</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="dlgPregunta" class="dlg dlg--pregunta" aria-labelledby="preguntaTit" aria-describedby="preguntaTxt">
     <form method="dialog" class="pregunta">
       <h2 id="preguntaTit" class="pregunta__tit"></h2>

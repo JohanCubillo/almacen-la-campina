@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
   const usuario = createClient(URL_SB, LLAVE_PUBLICA, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } });
   const accion = String(b.accion || "");
   const necesario = accion === "probar" ? null : accion === "anular" ? "anular" : accion.startsWith("recibido_") ? "compras"
-    : accion === "cabys" ? "productos" : "ventas";
+    : accion === "cabys" ? "productos" : accion === "contribuyente" ? "ventas" : "ventas";
   let permitido = false;
   if (necesario) {
     const r = await usuario.rpc("puede", { p_permiso: necesario });
@@ -99,6 +99,21 @@ Deno.serve(async (req) => {
         categorias: Array.isArray(x.categorias) ? (x.categorias as unknown[]).map(String).slice(-2) : [],
       })).filter((x) => /^[0-9]{13}$/.test(x.codigo));
       return resp({ ok: true, resultados });
+    }
+
+    // ---------- nombre de un cliente por su cédula (registro de Hacienda) ----------
+    if (accion === "contribuyente") {
+      const id = String(b.identificacion || "").replace(/\D/g, "");
+      if (!/^[0-9]{9,12}$/.test(id)) return resp({ ok: false, error: "Cédula inválida." });
+      let r: Response;
+      try { r = await fetch(`https://api.hacienda.go.cr/fe/ae?identificacion=${id}`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(10000) }); }
+      catch (e) { return resp({ ok: false, error: "No se pudo consultar a Hacienda: " + corto(e) }); }
+      if (r.status === 404) return resp({ ok: true, encontrado: false });
+      if (!r.ok) return resp({ ok: false, error: `Hacienda respondió ${r.status}.` });
+      const j = await r.json().catch(() => null) as Record<string, unknown> | null;
+      if (!j || !j.nombre) return resp({ ok: true, encontrado: false });
+      const TIPO: Record<string, string> = { "01": "fisica", "02": "juridica", "03": "dimex", "04": "nite" };
+      return resp({ ok: true, encontrado: true, nombre: String(j.nombre).trim().slice(0, 100), tipo_id: TIPO[String(j.tipoIdentificacion || "")] || null });
     }
 
     const { data: emisorFila, error: eE } = await db.from("fe_emisor").select("*").eq("id", 1).maybeSingle();
@@ -309,7 +324,7 @@ Deno.serve(async (req) => {
       let receptor = null;
       if (tipo === "01") {
         const { data: f } = await db.from("facturas").select("tipo_id,identificacion,nombre,correo").eq("pedido_id", pedidoId).maybeSingle();
-        if (!f) throw new ErrorComprobante("Para factura, primero anote los datos del cliente en “El cliente pide factura”.");
+        if (!f) throw new ErrorComprobante("Faltan los datos del cliente para la factura: toque “Emitir factura” y llénelos.");
         receptor = f;
       }
       return { lineas, pagos: pagos || [], receptor };

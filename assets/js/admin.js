@@ -3094,8 +3094,7 @@
     }).join("") || `<li class="vacio-adm">Esta venta todavía no tiene comprobante electrónico.</li>`;
     const vig = feVigente(), anulada = V.pedido?.estado === "anulada";
     $("#feEmitir").hidden = !!vig || anulada;
-    $("#btnFEFactura").disabled = !V.factura;
-    $("#btnFEFactura").title = V.factura ? "" : "Primero anote los datos del cliente en “El cliente pide factura”.";
+    $("#btnFEFactura").disabled = false;
     // sin internet el comprobante se hace aquí con su clave y se firma y manda al volver la señal
     const sr = !enLinea() || !!V.local;
     $("#btnFETiquete").textContent = sr ? "Hacer tiquete sin internet" : "Emitir tiquete";
@@ -3144,10 +3143,77 @@
     accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "04", ...plazoFE() }, "Firmando y enviando el tiquete a Hacienda…");
   });
   $("#btnFEFactura").addEventListener("click", async () => {
-    if (!enLinea() || V.local) return hacerFESinRed("01");
-    if (V.dirty) return accionFE({}, "");
-    if (!(await asegurarCabys(V.items))) return;
-    accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "01", ...plazoFE() }, "Firmando y enviando la factura a Hacienda…");
+    if (V.dirty && !V.local) return accionFE({}, "");
+    if ((!enLinea() || V.local) && V.factura) return hacerFESinRed("01");
+    abrirReceptor();
+  });
+
+  // ---------- datos del cliente para la factura ----------
+  const RE_ID = { fisica: /^[1-9][0-9]{8}$/, juridica: /^[0-9]{10}$/, dimex: /^[0-9]{11,12}$/, nite: /^[0-9]{10}$/ };
+  let recepAuto = false;          // el nombre lo puso Hacienda (si cambia la cédula, se cambia)
+  function abrirReceptor() {
+    const f = $("#formReceptor"), fac = V.factura, cli = V.credCli;
+    f.reset(); recepAuto = false;
+    $("#recepMsg").textContent = ""; $("#recepBusca").textContent = ""; $("#recepBusca").className = "ayuda recep-busca";
+    const nom = V.pedido?.cliente_nombre && V.pedido.cliente_nombre !== CLIENTE_CONTADO ? V.pedido.cliente_nombre : "";
+    if (fac) { f.tipo_id.value = fac.tipo_id || "fisica"; f.identificacion.value = fac.identificacion || ""; f.nombre.value = fac.nombre || ""; f.correo.value = fac.correo || ""; }
+    else if (cli) { f.tipo_id.value = cli.tipo_id || "fisica"; f.identificacion.value = cli.identificacion || ""; f.nombre.value = cli.nombre || nom; f.correo.value = cli.correo || ""; }
+    else f.nombre.value = nom;
+    $("#dlgReceptor").showModal();
+    (f.identificacion.value ? f.correo : f.identificacion).focus();
+  }
+  // tipo por la cantidad de dígitos y nombre desde el registro de Hacienda
+  $("#formReceptor").identificacion.addEventListener("input", (e) => {
+    const f = e.target.form, id = U.soloDigitos(e.target.value), info = $("#recepBusca");
+    clearTimeout(abrirReceptor.t);
+    if (id.length === 9) f.tipo_id.value = "fisica";
+    else if (id.length === 10) f.tipo_id.value = id.startsWith("3") ? "juridica" : f.tipo_id.value === "nite" ? "nite" : "juridica";
+    else if (id.length >= 11) f.tipo_id.value = "dimex";
+    if (recepAuto) { f.nombre.value = ""; recepAuto = false; }
+    info.textContent = ""; info.className = "ayuda recep-busca";
+    if (id.length < 9 || !enLinea()) return;
+    abrirReceptor.t = setTimeout(async () => {
+      info.textContent = "Buscando en Hacienda…";
+      try {
+        const r = await llamarFE({ accion: "contribuyente", identificacion: id });
+        if (U.soloDigitos(f.identificacion.value) !== id) return;
+        if (r.encontrado) {
+          if (!f.nombre.value.trim() || recepAuto) { f.nombre.value = r.nombre; recepAuto = true; }
+          if (r.tipo_id) f.tipo_id.value = r.tipo_id;
+          info.textContent = `Inscrito en Hacienda: ${r.nombre}`; info.className = "ayuda recep-busca recep-busca--ok";
+          if (!f.correo.value) f.correo.focus();
+        } else info.textContent = "No aparece inscrito en Hacienda. Escriba el nombre como sale en la cédula.";
+      } catch { info.textContent = ""; }
+    }, 450);
+  });
+  $("#formReceptor").nombre.addEventListener("input", () => { recepAuto = false; });
+  $("#formReceptor").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#recepMsg"), btn = $("#btnRecepEmitir");
+    const d = { tipo_id: f.tipo_id.value, identificacion: U.soloDigitos(f.identificacion.value), nombre: f.nombre.value.trim(), correo: f.correo.value.trim().toLowerCase() };
+    if (!RE_ID[d.tipo_id].test(d.identificacion)) { msg.textContent = "Revise la cédula: física 9 dígitos, jurídica 10, DIMEX 11 o 12."; f.identificacion.focus(); return; }
+    if (d.nombre.length < 2) { msg.textContent = "Escriba el nombre o la razón social."; f.nombre.focus(); return; }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(d.correo)) { msg.textContent = "Revise el correo."; f.correo.focus(); return; }
+    msg.textContent = ""; btn.disabled = true;
+    try {
+      if (V.local) {
+        const rec = cola.buscar(V.local); if (!rec) return;
+        rec.venta.factura = { ...d, estado: "pendiente", solicitada_por: "panel" };
+        rec.error = null; cola.guardar(rec);
+        $("#dlgReceptor").close();
+        abrirLocal(rec.id);
+        return hacerFESinRed("01");
+      }
+      if (!enLinea()) { msg.textContent = "Sin internet: la factura de una venta ya enviada se hace cuando vuelva la conexión."; return; }
+      const r = V.factura
+        ? await db.from("facturas").update({ ...d, estado: "pendiente" }).eq("id", V.factura.id).select().single()
+        : await db.from("facturas").insert({ ...d, estado: "pendiente", pedido_id: V.pedido.id, solicitada_por: "panel" }).select().single();
+      if (r.error) { msg.textContent = errTxt(r.error); return; }
+      V.factura = r.data;
+      $("#dlgReceptor").close();
+      if (!(await asegurarCabys(V.items))) return;
+      accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "01", ...plazoFE() }, "Firmando y enviando la factura a Hacienda…");
+    } finally { btn.disabled = false; }
   });
 
   // ---------- comprobantes electrónicos sin internet ----------
@@ -3207,7 +3273,7 @@
       if (!/^[0-9]{13}$/.test(String(pr.cabys || ""))) return `“${pr.nombre}” no tiene CABYS (o esta compu no lo tiene guardado: entre con internet una vez para bajarlo).`;
       if (!(Number(it.precio_unit) > 0) || !(Number(it.cantidad) > 0)) return `Revise el precio y la cantidad de “${it.descripcion}”.`;
     }
-    if (tipo === "01" && !V.factura) return "Para factura, primero anote los datos del cliente en “El cliente pide factura”.";
+    if (tipo === "01" && !V.factura) return "Faltan los datos del cliente: toque “Emitir factura” y llénelos.";
     return "";
   }
   async function hacerFESinRed(tipo) {

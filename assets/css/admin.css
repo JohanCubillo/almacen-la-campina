@@ -670,3 +670,5 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 .cobro__btn, .pregunta__btns .btn--cobrar { background: #1E8E3E; border-color: #1E8E3E; color: #fff; }
 .cobro__btn:hover, .pregunta__btns .btn--cobrar:hover { background: #17722F; border-color: #17722F; }
 .cobro__btn:focus-visible, .pregunta__btns .btn--cobrar:focus-visible { outline: 3px solid var(--cinta); outline-offset: 2px; }
+.recep-busca:empty { display: none; }
+.recep-busca--ok { color: #17722F; font-weight: 600; }
