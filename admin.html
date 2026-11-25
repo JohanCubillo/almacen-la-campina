@@ -1265,6 +1265,11 @@
         <ul class="pagos" id="compCliente"></ul>
       </section>
 
+      <section id="boxDevoluciones" hidden>
+        <h3 class="subt">Devoluciones</h3>
+        <ul class="pagos" id="listaDevoluciones"></ul>
+      </section>
+
       <section id="boxPagosVenta">
         <h3 class="subt">Pagos <span class="saldo" id="ventaSaldo"></span></h3>
         <ul class="pagos" id="pagosVenta"></ul>
@@ -1373,6 +1378,7 @@
 
       <div class="venta__cierre">
         <button type="button" class="btn btn--linea" id="btnEntregar">Marcar como entregada</button>
+        <button type="button" class="btn btn--linea" id="btnDevolver" hidden>Devolver productos</button>
         <button type="button" class="enlace enlace--peligro" id="btnAnularVenta">Anular venta</button>
         <button type="button" class="enlace enlace--peligro" id="btnBorrarVenta" hidden>Borrar venta vacía</button>
       </div>
@@ -1400,6 +1406,34 @@
       <div class="dlg__btns">
         <button type="button" class="btn btn--linea" data-cerrar-dlg>Cancelar</button>
         <button type="submit" class="btn btn--negro" id="btnRecepEmitir">Emitir factura</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgDevolucion" class="dlg dlg--ancho" aria-labelledby="devTit">
+    <form id="formDevolucion" class="dlg__form" novalidate>
+      <h2 id="devTit">Devolver productos</h2>
+      <p class="ayuda" id="devAyuda">Escoja cuánto devuelve de cada producto. Vuelve al inventario y, si ya pagó, se le devuelve la plata.</p>
+      <div class="items-wrap">
+        <table class="items dev-tabla">
+          <thead><tr><th>Producto</th><th class="num">Vendidos</th><th class="num">Ya devueltos</th><th class="num">Devuelve</th><th class="num">Monto</th></tr></thead>
+          <tbody id="devItems"></tbody>
+        </table>
+      </div>
+      <label>Motivo<input name="motivo" maxlength="300" autocomplete="off" placeholder="Ej.: venía dañado, no le sirvió, se equivocó de medida" /></label>
+      <div class="dev-plata" id="devPlata" hidden>
+        <p class="dev-plata__txt" id="devPlataTxt"></p>
+        <div class="cobro__metodos" role="radiogroup" aria-label="Cómo se le devuelve la plata" id="devMetodos">
+          <button type="button" role="radio" class="cobro__chip" data-metodo="efectivo" aria-checked="true">Efectivo</button>
+          <button type="button" role="radio" class="cobro__chip" data-metodo="sinpe" aria-checked="false">SINPE</button>
+          <button type="button" role="radio" class="cobro__chip" data-metodo="transferencia" aria-checked="false">Transferencia</button>
+          <button type="button" role="radio" class="cobro__chip" data-metodo="tarjeta" aria-checked="false">Tarjeta</button>
+        </div>
+      </div>
+      <p class="msg msg--error" id="devMsg" role="alert"></p>
+      <div class="dlg__btns">
+        <button type="button" class="btn btn--linea" data-cerrar-dlg>Cancelar</button>
+        <button type="submit" class="btn btn--negro" id="btnDevGuardar" disabled>Devolver</button>
       </div>
     </form>
   </dialog>

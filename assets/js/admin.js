@@ -85,7 +85,8 @@
   let ACCESO = null, V17 = false;   // V17: la base tiene empleados con permisos (v17_permisos.sql)
   let V18 = false;         // cheque, saldos de Moriah y apartados (v18_cheque_saldos_apartados.sql)
   let V21 = false;         // salidas/conteos, compras y proveedores, facturas recibidas (v21_compras_ajustes.sql)
-  let V22 = false;         // exoneración de IVA en ventas (v22_exoneracion.sql)
+  let V22 = false;
+  let V23 = false;         // devoluciones parciales (v23_devoluciones.sql)         // exoneración de IVA en ventas (v22_exoneracion.sql)
   // pestañas y pantallas: sin v17 todos los del panel las ven, como antes
   const soyAdministrador = () => !ACCESO || ACCESO.rol === "administrador";
   // borrar ventas y cambiar roles: sin v17 se usa el rol de v16
@@ -389,7 +390,7 @@
     } else {
       // todas las preguntas a la base salen juntas (antes iban una por una y sumaban segundos)
       const probar = (q) => Promise.resolve(q).then((x) => x, (e) => ({ error: e }));
-      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22] = await Promise.all([
+      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22, r23] = await Promise.all([
         probar(db.from("avisos").select("id").limit(1)),
         probar(db.from("productos").select("codigo").limit(1)),
         probar(db.from("fe_emisor").select("*").eq("id", 1).maybeSingle()),
@@ -403,6 +404,7 @@
         probar(db.from("fe_dispositivos").select("id").limit(1)),
         probar(db.from("proveedores").select("id").limit(1)),
         probar(db.from("pedidos").select("exoneracion").limit(1)),
+        probar(db.from("devoluciones").select("id").limit(1)),
         cargarCategorias()
       ]);
       V4 = r.error && U.esErrorRed(r.error) ? !!copia.leer().v4 : !r.error;
@@ -412,7 +414,7 @@
       V10 = !r10.error; FE = r10.data || null;
       V11 = !r11.error; V12 = !r12.error; V13 = !r13.error;
       if (V13) cargarClientes();
-      V14 = !r14.error; V15 = !r15.error; V16 = !r16.error; V18 = !r18.error; V19 = !r19.error; V21 = !r21.error; V22 = !r22.error;
+      V14 = !r14.error; V15 = !r15.error; V16 = !r16.error; V18 = !r18.error; V19 = !r19.error; V21 = !r21.error; V22 = !r22.error; V23 = !r23.error;
       // para poder abrir el panel sin internet con lo mismo que tiene la base
       if (!r16.error || !U.esErrorRed(r16.error)) {
         copia.poner("versiones", { V10, V12, V13, V14, V18, V19 });
@@ -1587,7 +1589,9 @@
     if (V4) { try { fac = await db.from("facturas").select("*").eq("pedido_id", id).maybeSingle(); } catch { fac = { data: null }; } }
     let fe = { data: [] };
     if (V10 && FE?.activo) { try { fe = await db.from("v_fe_documentos").select("*").eq("pedido_id", id).order("id"); } catch { fe = { data: [] }; } }
-    V = { pedido: p.data, items: it.data.map((i) => ({ ...i })), pagos: pg.data, comps: cc.data, factura: fac.data || null, fe: fe.data || [], dirty: false,
+    let dev = { data: [] };
+    if (V23) { try { dev = await db.from("devoluciones").select("*,devolucion_items(*)").eq("pedido_id", id).order("id"); } catch { dev = { data: [] }; } }
+    V = { devs: dev.data || [], pedido: p.data, items: it.data.map((i) => ({ ...i })), pagos: pg.data, comps: cc.data, factura: fac.data || null, fe: fe.data || [], dirty: false,
       base: { pedido: p.data, pagos: pg.data } };
     aplicarPendientesVenta();
     V.cond = p.data.apartado ? "apartado" : p.data.credito ? "credito" : "contado";
@@ -2016,6 +2020,7 @@
     $("#boxFE").hidden = !p || !V10 || !FE?.activo || !!p.saldo_inicial;
     if (!$("#boxFE").hidden) pintarFEVenta();
     $("#btnAnularVenta").hidden = !p || p.estado === "anulada" || !puede("anular");
+    pintarDevoluciones();
     $(".imprimir").hidden = !p;
     $("#btnBorrarVenta").hidden = !puedeBorrarVenta();
   }
@@ -3178,11 +3183,11 @@
       const acc = [];
       if (["firmado", "error"].includes(d.estado)) acc.push(`<button type="button" class="btn btn--sm btn--negro" data-fe="enviar" data-id="${d.id}">Enviar de nuevo</button>`);
       if (["enviado", "procesando"].includes(d.estado)) acc.push(`<button type="button" class="btn btn--sm btn--linea" data-fe="consultar" data-id="${d.id}">Consultar</button>`);
-      if (d.estado === "aceptado" && d.tipo !== "03" && !d.anulado && puede("anular")) acc.push(`<button type="button" class="enlace enlace--peligro" data-fe="anular" data-id="${d.id}">Anular con nota de crédito</button>`);
+      if (d.estado === "aceptado" && d.tipo !== "03" && !d.anulado && puede("anular") && !(V.devs || []).length) acc.push(`<button type="button" class="enlace enlace--peligro" data-fe="anular" data-id="${d.id}">Anular con nota de crédito</button>`);
       if (!d.sinRed && enLinea()) acc.push(`<button type="button" class="enlace" data-fe="xml" data-id="${d.id}">XML</button>`);
       if (d.sinRed) acc.push(`<button type="button" class="enlace" data-fe="pendientes">Ver pendientes</button>`);
       return `<li class="pago fe-doc ${d.anulado ? "pago--anulado" : ""}">
-        <div class="pago__monto">${fmt(d.total)}<small>${FE_TIPO[d.tipo] || d.tipo}</small></div>
+        <div class="pago__monto">${d.tipo === "03" ? "−" : ""}${fmt(d.total)}<small>${d.parcial ? "Nota de crédito (devolución)" : FE_TIPO[d.tipo] || d.tipo}</small></div>
         <div class="pago__datos">
           <span>N.º <b>${U.esc(d.consecutivo.slice(-10).replace(/^0+/, ""))}</b> · ${fechaCR(d.fecha_emision, { dateStyle: "short", timeStyle: "short" })}${d.sinRed || String(d.clave).charAt(41) === "3" ? " · sin internet" : ""}</span>
           <span><span class="etq ${cls}">${txt}</span>${d.anulado ? ' <span class="etq">Anulado</span>' : ""}${d.ambiente === "pruebas" ? ' <span class="etq">Pruebas</span>' : ""}</span>
@@ -3350,6 +3355,118 @@
     $("#dlgExo").close();
     pintarVenta();
     toast("Exoneración aplicada: los productos que cubre ya tienen el IVA rebajado.");
+  });
+
+  // ---------- devoluciones parciales ----------
+  const ETQ_REINT = { efectivo: "en efectivo (sale de la caja)", sinpe: "por SINPE", transferencia: "por transferencia", tarjeta: "a la tarjeta" };
+  const devueltoDe = (itemId) => (V.devs || []).reduce((a, d) => a + (d.devolucion_items || []).filter((x) => x.pedido_item_id === itemId).reduce((b, x) => b + Number(x.cantidad), 0), 0);
+  function pintarDevoluciones() {
+    const p = V.pedido, devs = V.devs || [];
+    const quedan = V.items.some((i) => i.id && Number(i.cantidad) - devueltoDe(i.id) > 0.001);
+    $("#btnDevolver").hidden = !V23 || !p || !!V.local || !!V.copia || p.estado === "anulada" || !puede("anular") || V.dirty || !quedan || !enLinea();
+    $("#boxDevoluciones").hidden = !devs.length;
+    $("#listaDevoluciones").innerHTML = devs.map((d) => {
+      const nc = (V.fe || []).find((f) => f.id === d.fe_documento_id);
+      const sinNc = !nc && FE?.activo && V10;
+      return `<li class="pago">
+        <div class="pago__monto">−${fmt(d.total)}<small>Devolución</small></div>
+        <div class="pago__datos">
+          <span>${fechaCR(d.fecha, { dateStyle: "short", timeStyle: "short" })} · ${U.esc(d.motivo)}</span>
+          <span>${(d.devolucion_items || []).map((x) => `${cantTxt(x.cantidad)} × ${U.esc(x.descripcion)}`).join(", ")}</span>
+          <span>${Number(d.reintegro) > 0 ? `Se le devolvieron ${fmt(d.reintegro)} ${ETQ_REINT[d.metodo] || ""}` : "Sin devolver plata (rebajó lo que debía)"}</span>
+          ${nc ? `<span>Nota de crédito N.º ${U.esc(String(nc.consecutivo).slice(-10).replace(/^0+/, ""))} · ${U.esc((FE_ESTADO[nc.estado] || [nc.estado])[0])}</span>` : ""}
+        </div>
+        <div class="pago__acc">${sinNc && puede("anular") && enLinea() ? `<button type="button" class="btn btn--sm btn--negro" data-dev-nc="${d.id}">Hacer la nota de crédito</button>` : ""}</div>
+      </li>`;
+    }).join("");
+  }
+  $("#listaDevoluciones").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-dev-nc]"); if (!b) return;
+    b.disabled = true;
+    try { await llamarFE({ accion: "devolucion", devolucion_id: Number(b.dataset.devNc) }); toast("Nota de crédito enviada a Hacienda."); }
+    catch (err) { toast(errTxt(err), true); }
+    await abrirVenta(V.pedido.id);
+  });
+  let DEV = null;
+  function abrirDevolucion() {
+    const f = $("#formDevolucion"); f.reset();
+    DEV = { cant: new Map(), metodo: "efectivo" };
+    $("#devMsg").textContent = "";
+    const necesitaFE = V10 && FE?.activo;
+    const vig = necesitaFE ? feVigente() : null;
+    $("#devAyuda").textContent = necesitaFE
+      ? (vig?.estado === "aceptado" ? "Escoja cuánto devuelve de cada producto. Vuelve al inventario, se hace la nota de crédito de lo devuelto y, si ya pagó, se le devuelve la plata."
+        : "Primero hay que emitir el tiquete o la factura de esta venta (y que Hacienda lo acepte): la devolución sale en una nota de crédito.")
+      : "Escoja cuánto devuelve de cada producto. Vuelve al inventario y, si ya pagó, se le devuelve la plata.";
+    $("#devItems").innerHTML = V.items.map((i) => {
+      const max = Math.round((Number(i.cantidad) - devueltoDe(i.id)) * 100) / 100;
+      return `<tr data-dev-item="${i.id}">
+        <td>${U.esc(i.descripcion)}<small class="stock-nota">${fmt(i.precio_unit)} c/u</small></td>
+        <td class="num">${cantTxt(i.cantidad)}</td>
+        <td class="num">${cantTxt(devueltoDe(i.id))}</td>
+        <td class="num"><input type="number" min="0" max="${max}" step="${Number.isInteger(Number(i.cantidad)) ? 1 : 0.01}" value="0" ${max > 0 ? "" : "disabled"} aria-label="Cantidad que devuelve" /></td>
+        <td class="num" data-dev-sub>₡0</td>
+      </tr>`;
+    }).join("");
+    pintarDevTotal();
+    $("#dlgDevolucion").showModal();
+    $("#devItems input:not([disabled])")?.focus();
+  }
+  function devTotales() {
+    let total = 0;
+    for (const i of V.items) total += (DEV.cant.get(i.id) || 0) * Number(i.precio_unit);
+    total = Math.round(total * 100) / 100;
+    const p = V.pedido, nuevo = Math.max(0, Number(p.total) - total);
+    const reint = Math.max(0, Math.min(total, Number(p.pagado_registrado) - nuevo));
+    return { total, reint: Math.round(reint * 100) / 100 };
+  }
+  function pintarDevTotal() {
+    const { total, reint } = devTotales();
+    $("#devPlata").hidden = !(reint > 0);
+    $("#devPlataTxt").innerHTML = reint > 0 ? `Se le devuelven <b>${fmt(reint)}</b>. ¿Cómo?` : "";
+    $$("#devMetodos [data-metodo]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.metodo === DEV.metodo)));
+    const btn = $("#btnDevGuardar");
+    btn.disabled = !(total > 0);
+    btn.textContent = total > 0 ? (reint > 0 ? `Devolver y entregar ${fmt(reint)}` : `Devolver ${fmt(total)}`) : "Devolver";
+  }
+  $("#devItems").addEventListener("input", (e) => {
+    const tr = e.target.closest("[data-dev-item]"); if (!tr) return;
+    const id = Number(tr.dataset.devItem), it = V.items.find((x) => x.id === id);
+    const max = Number(e.target.max) || 0;
+    let v = Number(e.target.value) || 0;
+    if (v > max) { v = max; e.target.value = max; }
+    if (v < 0) { v = 0; e.target.value = 0; }
+    DEV.cant.set(id, v);
+    tr.querySelector("[data-dev-sub]").textContent = fmt(v * Number(it.precio_unit));
+    pintarDevTotal();
+  });
+  $("#devMetodos").addEventListener("click", (e) => { const b = e.target.closest("[data-metodo]"); if (!b) return; DEV.metodo = b.dataset.metodo; pintarDevTotal(); });
+  $("#btnDevolver").addEventListener("click", abrirDevolucion);
+  $("#formDevolucion").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#devMsg"), btn = $("#btnDevGuardar");
+    const items = [...DEV.cant].filter(([, c]) => c > 0).map(([pedido_item_id, cantidad]) => ({ pedido_item_id, cantidad }));
+    const motivo = f.motivo.value.trim();
+    if (!items.length) { msg.textContent = "Escoja cuánto devuelve de algún producto."; return; }
+    if (motivo.length < 3) { msg.textContent = "Escriba el motivo de la devolución."; f.motivo.focus(); return; }
+    const { total, reint } = devTotales();
+    if (!await preguntar(`Se devuelven ${fmt(total)} en productos y vuelven al inventario.` + (reint > 0 ? `\nSe le entregan ${fmt(reint)} ${ETQ_REINT[DEV.metodo]}.` : "\nNo se le devuelve plata: se rebaja de lo que debe.")
+      + (V10 && FE?.activo ? "\nSe hace la nota de crédito de lo devuelto." : ""), { titulo: "¿Hacer la devolución?", si: "Devolver" })) return;
+    btn.disabled = true; msg.textContent = "";
+    try {
+      const { data, error } = await db.rpc("registrar_devolucion", { p: { pedido_id: V.pedido.id, motivo, metodo: reint > 0 ? DEV.metodo : null, items } });
+      if (error) throw error;
+      $("#dlgDevolucion").close();
+      if (data?.fe_documento_id) {
+        toast("Devolución hecha. Haciendo la nota de crédito…");
+        try { await llamarFE({ accion: "devolucion", devolucion_id: data.id }); toast("Devolución hecha y nota de crédito enviada a Hacienda."); }
+        catch (err) { toast(`La devolución quedó hecha, pero la nota de crédito no: ${errTxt(err)}. Toque “Hacer la nota de crédito” en la venta.`, true); }
+      } else toast(Number(data?.reintegro) > 0 ? `Devolución hecha. Entregue ${fmt(data.reintegro)} al cliente.` : "Devolución hecha.");
+      await abrirVenta(V.pedido.id);
+      cargarVentas(); refrescarExistencias(items.map((x) => V.items.find((i) => i.id === x.pedido_item_id)?.producto_id));
+      if (!$("#tCaja").hidden) cargarCaja();
+    } catch (err) { msg.textContent = errTxt(err); }
+    finally { btn.disabled = false; }
   });
 
   // ---------- datos del cliente para la factura ----------

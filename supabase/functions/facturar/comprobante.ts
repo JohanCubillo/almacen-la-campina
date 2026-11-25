@@ -251,6 +251,62 @@ export function armarNotaCredito(op: {
            total: Number(res.totalComprobante), impuesto: Number(res.totalImpuesto), doc, xml };
 }
 
+// Nota de crédito PARCIAL (06 = devolución de mercancía): repite los renglones devueltos del original
+// con sus mismos precios, impuestos y exoneración, solo con la cantidad devuelta.
+export function armarNotaCreditoParcial(op: {
+  numero: number; emisor: Emisor; original: { tipo: string; clave: string; fechaEmision: string; doc: Record<string, unknown> };
+  renglones: { indice: number; cantidad: number }[]; motivo: string; metodo?: string | null; nombreCliente?: string; fecha?: Date;
+}): Comprobante {
+  const faltan = revisarEmisor(op.emisor);
+  if (faltan.length) falla("Faltan datos del emisor: " + faltan.join(", ") + ".");
+  const razon = String(op.motivo || "").replace(/\s+/g, " ").trim().slice(0, 180);
+  if (razon.length < 3) falla("Escriba el motivo de la devolución.");
+  const o = op.original.doc, det = (o.detalleServicio || []) as Record<string, unknown>[];
+  if (!op.renglones.length) falla("No hay renglones para devolver.");
+  const items = op.renglones.map((r, n) => {
+    const l = det[r.indice];
+    if (!l) falla("Un renglón devuelto no está en el comprobante original.");
+    if (!(r.cantidad > 0) || r.cantidad > Number(l.cantidad) + 1e-9) falla(`Revise la cantidad devuelta de “${l.detalle}”.`);
+    const impuesto = ((l.impuesto || []) as Record<string, unknown>[]).map((t) => {
+      const { monto, ...resto } = t;
+      if (resto.exoneracion) {
+        const { montoExoneracion, ...ex } = resto.exoneracion as Record<string, unknown>;
+        resto.exoneracion = ex;
+      }
+      return resto;
+    });
+    const linea = calculateLineItemTotals({
+      numeroLinea: n + 1, codigoCabys: l.codigoCabys, ...(l.codigoComercial ? { codigoComercial: l.codigoComercial } : {}),
+      cantidad: r.cantidad, unidadMedida: l.unidadMedida, detalle: l.detalle, precioUnitario: l.precioUnitario,
+      impuesto, esServicio: l.unidadMedida === "Sp" || l.unidadMedida === "Os",
+    } as never) as unknown as Record<string, unknown>;
+    // "Otros" de la exoneración (la librería no los pasa solos)
+    const exO = ((l.impuesto || []) as Record<string, unknown>[])[0]?.exoneracion as Record<string, unknown> | undefined;
+    const exN = ((linea.impuesto || []) as Record<string, unknown>[])[0]?.exoneracion as Record<string, unknown> | undefined;
+    if (exO && exN) for (const k of ["tipoDocumentoOtros", "nombreInstitucionOtros", "articulo", "inciso"]) if (exO[k] !== undefined) exN[k] = exO[k];
+    return linea;
+  });
+  const resumen = calculateInvoiceSummary(items as never) as unknown as Record<string, unknown>;
+  if ((o.condicionVenta || "01") === "01") resumen.medioPago = repartirPagos([{ metodo: op.metodo || "efectivo", monto: Number(resumen.totalComprobante) }], Number(resumen.totalComprobante));
+  const fecha = op.fecha || new Date();
+  const receptor = (o.receptor as Record<string, unknown>) || { nombre: String(op.nombreCliente || "Cliente de contado").slice(0, 100) };
+  const doc: Record<string, unknown> = {
+    ...cabecera("03", op.numero, fecha, op.emisor),
+    receptor,
+    condicionVenta: o.condicionVenta || "01",
+    ...(o.plazoCredito ? { plazoCredito: o.plazoCredito } : {}),
+    detalleServicio: items,
+    resumenFactura: resumen,
+    informacionReferencia: [{
+      tipoDoc: op.original.tipo, numero: op.original.clave, fechaEmision: op.original.fechaEmision,
+      codigo: "06", razon,                                   // 06 = devolución de mercancía
+    }],
+  };
+  const xml = buildNotaCreditoXml(doc as never);
+  return { tipo: "03", clave: doc.clave as string, consecutivo: doc.numeroConsecutivo as string, fechaEmision: doc.fechaEmision as string,
+           total: Number(resumen.totalComprobante), impuesto: Number(resumen.totalImpuesto), doc, xml };
+}
+
 // ---------- mensaje de receptor (aceptar o rechazar la factura de un proveedor) ----------
 // mensaje: 1 acepta (consecutivo tipo 05), 2 acepta en parte (06), 3 rechaza (07)
 // condición del IVA: 01 da crédito completo, 02 crédito parcial, 03 bienes de capital,

@@ -704,3 +704,11 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 .exo-datos { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; margin: 0; padding: .8rem 1rem; background: var(--fondo-2); border-radius: 12px; }
 .exo-datos dt { color: var(--gris); }
 .exo-datos dd { margin: 0; }
+
+/* devoluciones */
+.dev-tabla input { width: 6.5rem; text-align: right; }
+.dev-tabla td small { display: block; color: var(--gris); }
+.dev-plata { display: grid; gap: .5rem; padding: .8rem 1rem; border-radius: 12px; background: var(--fondo-2); }
+.dev-plata[hidden], #boxDevoluciones[hidden] { display: none; }
+.dev-plata__txt { margin: 0; }
+.venta__cierre #btnDevolver[hidden] { display: none; }

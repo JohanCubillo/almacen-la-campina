@@ -21,7 +21,7 @@
 // =====================================================================
 import { createClient } from "@supabase/supabase-js";
 import {
-  armarComprobante, armarNotaCredito, armarMensajeReceptor, firmar, conectar, enviar, enviarMensaje, consultar, revisarEmisor,
+  armarComprobante, armarNotaCredito, armarNotaCreditoParcial, armarMensajeReceptor, firmar, conectar, enviar, enviarMensaje, consultar, revisarEmisor,
   ErrorComprobante, TARIFAS, type Emisor, type Linea,
 } from "./comprobante.ts";
 
@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
   const auth = req.headers.get("Authorization") || "";
   const usuario = createClient(URL_SB, LLAVE_PUBLICA, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } });
   const accion = String(b.accion || "");
-  const necesario = accion === "probar" ? null : accion === "anular" ? "anular" : accion.startsWith("recibido_") ? "compras"
+  const necesario = accion === "probar" ? null : accion === "anular" || accion === "devolucion" ? "anular" : accion.startsWith("recibido_") ? "compras"
     : accion === "cabys" ? "productos" : "ventas";
   let permitido = false;
   if (necesario) {
@@ -308,8 +308,12 @@ Deno.serve(async (req) => {
         detalle: estado === "rechazado" ? (motivo || "Rechazado por Hacienda (vea la respuesta).") : estado === "aceptado" ? null : motivo,
       }).eq("id", doc.id);
       if (estado === "aceptado" && doc.tipo === "03" && doc.referencia_id) {
-        await db.from("fe_documentos").update({ anulado: true }).eq("id", doc.referencia_id);
-        await db.from("facturas").update({ estado: "anulada" }).eq("pedido_id", doc.pedido_id);
+        // una nota de crédito parcial (devolución) no anula el comprobante
+        const { data: nc } = await db.from("fe_documentos").select("parcial").eq("id", doc.id).maybeSingle();
+        if (!(nc as { parcial?: boolean } | null)?.parcial) {
+          await db.from("fe_documentos").update({ anulado: true }).eq("id", doc.referencia_id);
+          await db.from("facturas").update({ estado: "anulada" }).eq("pedido_id", doc.pedido_id);
+        }
       }
       if (doc.tipo === "01") {
         const est = { aceptado: "aceptada", rechazado: "rechazada", error: "error" }[estado] || "enviada";
@@ -441,6 +445,37 @@ Deno.serve(async (req) => {
       return await devolver(doc.id);
     }
 
+    // ---------- devolución parcial: nota de crédito de lo devuelto ----------
+    if (b.accion === "devolucion") {
+      const devId = Number(b.devolucion_id);
+      if (!(devId > 0)) return resp({ ok: false, error: "Falta la devolución." }, 400);
+      const { data: dv, error: eV } = await db.from("devoluciones").select("id,pedido_id,motivo,metodo,fe_documento_id").eq("id", devId).single();
+      if (eV) throw eV;
+      if (dv.fe_documento_id) return await devolver(dv.fe_documento_id);           // ya se hizo: no se repite
+      const { data: orig } = await db.from("fe_documentos").select("id,clave,tipo,estado,anulado,fecha_emision,datos,pedido_id")
+        .eq("pedido_id", dv.pedido_id).eq("ambiente", em.ambiente).in("tipo", ["01", "04"]).neq("estado", "rechazado").eq("anulado", false)
+        .order("id", { ascending: false }).limit(1).maybeSingle();
+      if (!orig) return resp({ ok: false, error: "La venta no tiene tiquete ni factura vigente: la devolución quedó registrada sin nota de crédito." });
+      if (orig.estado !== "aceptado") return resp({ ok: false, error: "El comprobante de la venta todavía no está aceptado por Hacienda." });
+      // el renglón k del comprobante es el renglón k de la venta (en el mismo orden)
+      const { data: its } = await db.from("pedido_items").select("id").eq("pedido_id", dv.pedido_id).order("id");
+      const { data: dis } = await db.from("devolucion_items").select("pedido_item_id,cantidad").eq("devolucion_id", dv.id);
+      const orden = (its || []).map((x: { id: number }) => x.id);
+      const renglones = (dis || []).map((d: { pedido_item_id: number; cantidad: number }) => ({ indice: orden.indexOf(d.pedido_item_id), cantidad: Number(d.cantidad) }));
+      if (renglones.some((r) => r.indice < 0)) throw new ErrorComprobante("Un producto devuelto no está en el comprobante.");
+      const { data: p } = await db.from("pedidos").select("cliente_nombre").eq("id", dv.pedido_id).single();
+      const original = { tipo: orig.tipo, clave: orig.clave, fechaEmision: orig.datos.fechaEmision as string, doc: orig.datos };
+      armarNotaCreditoParcial({ numero: 1, emisor: em, original, renglones, motivo: dv.motivo, metodo: dv.metodo, nombreCliente: p?.cliente_nombre });
+      const { data: numero, error: eN } = await db.rpc("fe_reservar", { p_ambiente: em.ambiente, p_tipo: "03", p_sucursal: em.sucursal, p_terminal: em.terminal });
+      if (eN) throw eN;
+      const c = armarNotaCreditoParcial({ numero: Number(numero), emisor: em, original, renglones, motivo: dv.motivo, metodo: dv.metodo, nombreCliente: p?.cliente_nombre });
+      const firmado = await firmar(c.xml, s.p12!, s.pin);
+      const nc = await guardarFirmado(c, firmado, dv.pedido_id, c.doc.receptor, orig.id, { parcial: true });
+      await db.from("devoluciones").update({ fe_documento_id: nc.id }).eq("id", dv.id);
+      await enviarYConsultar(nc);
+      return await devolver(nc.id);
+    }
+
     // ---------- con un documento existente ----------
     const docId = Number(b.documento_id);
     if (!(docId > 0)) return resp({ ok: false, error: "Falta el documento." }, 400);
@@ -467,7 +502,9 @@ Deno.serve(async (req) => {
       if (!["01", "04"].includes(doc.tipo)) return resp({ ok: false, error: "Solo se anulan tiquetes y facturas." });
       if (doc.estado !== "aceptado") return resp({ ok: false, error: "Solo se puede anular un comprobante aceptado por Hacienda." });
       if (doc.anulado) return resp({ ok: false, error: "Ese comprobante ya está anulado." });
-      const { data: ncYa } = await db.from("fe_documentos").select("id").eq("referencia_id", doc.id).eq("tipo", "03").neq("estado", "rechazado").maybeSingle();
+      const { data: parciales } = await db.from("fe_documentos").select("id").eq("referencia_id", doc.id).eq("tipo", "03").eq("parcial", true).neq("estado", "rechazado").limit(1);
+      if (parciales?.length) return resp({ ok: false, error: "Esta venta ya tiene devoluciones: para devolver lo demás, use “Devolver productos”." });
+      const { data: ncYa } = await db.from("fe_documentos").select("id").eq("referencia_id", doc.id).eq("tipo", "03").eq("parcial", false).neq("estado", "rechazado").maybeSingle();
       if (ncYa) return await devolver(ncYa.id);
       const { data: p } = await db.from("pedidos").select("cliente_nombre").eq("id", doc.pedido_id).single();
       const original = { tipo: doc.tipo, clave: doc.clave, fechaEmision: doc.datos.fechaEmision as string, doc: doc.datos };

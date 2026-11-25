@@ -177,3 +177,11 @@ Para clientes con autorización de exoneración de EXONET (número `AL-00012345-
 4. Se cobra normal y se toca **Emitir factura**: sale a la cédula del exonerado, con el nodo `Exoneracion` (4.4) en cada renglón cubierto. Con exoneración no se hace tiquete.
 
 La función revisa otra vez que no esté vencida, que la factura vaya a la cédula de la autorización y que cubra al menos un producto. Hacienda valida el número al recibir la factura.
+
+## Devoluciones parciales (v23)
+
+Para cuando el cliente devuelve solo parte de lo que compró. Correr `supabase/v23_devoluciones.sql` y volver a publicar `facturar`.
+
+- En la venta: **Devolver productos** → cuánto de cada renglón, el motivo y (si ya pagó) cómo se le devuelve la plata: efectivo (sale de la caja abierta), SINPE, transferencia o tarjeta.
+- Lo devuelto vuelve al inventario (movimiento "Devolución"), el total de la venta baja y, si era a crédito, baja lo que debe. Los renglones de la venta quedan como se vendieron.
+- Con facturación electrónica, primero tiene que estar el tiquete o factura **aceptado**; la devolución sale en una **nota de crédito parcial** (código 06, "devolución de mercancía") con los mismos precios, impuestos y exoneración del original. Una venta con devoluciones ya no se anula entera: se devuelve lo que queda.
