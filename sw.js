@@ -7,7 +7,7 @@
  * - NUNCA guarda datos de la base ni de la sesión (/rest, /auth, /rpc):
  *   esos los guarda la propia página solo en el aparato del dueño.
  */
-const VERSION = "lc-v21-10";
+const VERSION = "lc-v21-11";
 const CASA = "casa-" + VERSION;
 const FOTOS = "fotos-v1";
 const MAX_FOTOS = 200;
@@ -75,9 +75,12 @@ function conTiempo(p, ms) {
   return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error("lento")), ms))]);
 }
 
+// con internet siempre se pregunta al servidor si hay versión nueva (sin usar la copia vieja del navegador)
+const fresco = (req) => fetch(req, { cache: "no-cache" });
+
 async function pagina(req) {
   try {
-    return await guardar(req, await conTiempo(fetch(req), ESPERA_RED_MS));
+    return await guardar(req, await conTiempo(fresco(req), ESPERA_RED_MS));
   } catch {
     const c = await caches.open(CASA);
     return (await c.match(req, { ignoreSearch: true }))
@@ -89,7 +92,7 @@ async function pagina(req) {
 
 async function redPrimero(req) {
   try {
-    return await guardar(req, await conTiempo(fetch(req), ESPERA_RED_MS));
+    return await guardar(req, await conTiempo(fresco(req), ESPERA_RED_MS));
   } catch {
     const r = await caches.match(req, { ignoreSearch: true });
     return r || new Response("", { status: 504 });
