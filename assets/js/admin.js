@@ -2127,7 +2127,18 @@
     input.addEventListener("input", buscar);
     input.addEventListener("focus", () => { if (input.value.trim().length >= 2) buscar(); });
     input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") { e.preventDefault(); const b = res.querySelector("button"); if (b) b.click(); }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        buscar();          // el lector escribe muy rápido: se busca con lo último que llegó
+        // un código de barras (solo números) que no existe no agrega "lo más parecido"
+        const q = input.value.trim();
+        if (/^[0-9]{6,}$/.test(q) && !productos.some((x) => x.codigo && String(x.codigo).toLowerCase() === q.toLowerCase() && (opciones.ocultos || x.activo))) {
+          res.innerHTML = `<li class="buscar-item__nada">No hay ningún producto con el código ${U.esc(q)}. Póngaselo en Productos → Editar → Código.</li>`;
+          res.hidden = false; input.select();
+          return;
+        }
+        const b = res.querySelector("button"); if (b) b.click();
+      }
       if (e.key === "Escape" && !res.hidden) { e.preventDefault(); e.stopPropagation(); res.hidden = true; }
       if (e.key === "ArrowDown") { const b = res.querySelector("button"); if (b) { e.preventDefault(); b.focus(); } }
     });
@@ -2151,7 +2162,11 @@
     });
   }
   const POCOS = 2;                             // con 2 o menos se pregunta a la base antes de agregarlo (otra compu pudo venderlo)
-  buscadorProductos($("#agregarItemQ"), $("#agregarItemRes"), async (p) => {
+  let colaAgregar = Promise.resolve();        // si escanean el mismo producto dos veces seguidas, se agrega uno detrás del otro
+  buscadorProductos($("#agregarItemQ"), $("#agregarItemRes"), (p) => { colaAgregar = colaAgregar.then(() => agregarProducto(p)).catch(() => {}); },
+    { nada: "No se encontró. Use “Agregar renglón libre”." });
+  async function agregarProducto(p) {
+    if (!V || !$("#dlgVenta").open) return;
     if (enLinea() && disponible(p.id) - usadoEnVenta(p.id) <= POCOS) {
       try { await conTiempo(refrescarExistencias([p.id]), 4000); } catch { /* sin respuesta: se sigue con lo que hay */ }
       if (!V) return;
@@ -2169,7 +2184,7 @@
     else V.items.push({ producto_id: p.id, descripcion: p.nombre + (p.unidad ? ` (${p.unidad})` : ""), cantidad: suma, precio_unit: p.precio != null ? Number(p.precio) : 0 });
     V.dirty = true;
     pintarVenta();
-  }, { nada: "No se encontró. Use “Agregar renglón libre”." });
+  }
   $("#btnItemLibre").addEventListener("click", () => {
     V.items.push({ producto_id: null, descripcion: "", cantidad: 1, precio_unit: 0 });
     V.dirty = true;
