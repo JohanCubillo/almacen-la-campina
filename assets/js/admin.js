@@ -1503,9 +1503,19 @@
   let V = null;   // venta abierta: { pedido|null, items:[], pagos:[], comps:[], dirty }
 
   // ---------- lista de ventas ----------
+  // en la lista: con qué pagó (efectivo ₡…, SINPE ₡…) y, en efectivo, con cuánto pagó y el vuelto
+  function comoPago(v) {
+    const ps = (v.pagos || []).filter((g) => !g.anulado);
+    if (!ps.length) return "";
+    const por = new Map();
+    for (const g of ps) por.set(g.metodo, (por.get(g.metodo) || 0) + Number(g.monto));
+    const metodos = [...por].map(([m, n]) => (por.size === 1 && n === Number(v.total) ? ETQ_METODO[m] || m : `${ETQ_METODO[m] || m} ${fmt(n)}`)).join(" + ");
+    const conCuanto = ps.filter((g) => g.metodo === "efectivo" && /^Pagó con /.test(g.nota || "")).map((g) => g.nota).at(-1);
+    return `<small class="fila__pago">${U.esc(metodos)}</small>${conCuanto ? `<small class="fila__pago">${U.esc(conCuanto)}</small>` : ""}`;
+  }
   async function cargarVentas() {
     let qv = db.from("pedidos")
-      .select("id,codigo,origen,revisado,cliente_nombre,cliente_telefono,estado,estado_pago,total,pagado_registrado,pagado_verificado,created_at" + (V13 ? ",credito,vence" : "") + (V18 ? ",apartado,apartado_vence" : ""));
+      .select("id,codigo,origen,revisado,cliente_nombre,cliente_telefono,estado,estado_pago,total,pagado_registrado,pagado_verificado,created_at,pagos(metodo,monto,anulado,nota)" + (V13 ? ",credito,vence" : "") + (V18 ? ",apartado,apartado_vence" : ""));
     if (V18) qv = qv.eq("saldo_inicial", false);       // lo que se debía en Moriah está en Crédito, no es venta
     const { data, error, deCopia } = await consulta("ventas", qv.order("created_at", { ascending: false }).limit(500));
     if (error) { pintarVentas(); return toast(errTxt(error), true); }
@@ -1673,7 +1683,7 @@
             ${v.pendiente ? etqPendientes(acciones.deVenta({ id: v.id })) : ""}
           </span>
         </div>
-        <div class="fila__monto"><b>${fmt(v.total)}</b>${v.estado !== "anulada" && saldo > 0 ? `<small>Falta ${fmt(saldo)}</small>` : ""}</div>
+        <div class="fila__monto"><b>${fmt(v.total)}</b>${comoPago(v)}${v.estado !== "anulada" && saldo > 0 ? `<small>Falta ${fmt(saldo)}</small>` : ""}</div>
         <div class="fila__acc"><button type="button" class="btn btn--sm btn--linea" data-ver-venta="${v.id}">Abrir</button></div>
       </li>`;
     }).join("") || (locales.length ? "" : `<li class="vacio-adm">${filtroVenta === "nuevos" ? "No hay pedidos nuevos. Los pedidos que hagan los clientes en la página aparecen aquí." : filtroVenta === "todas" ? "Todavía no hay ventas." : filtroVenta === "apartados" ? "No hay apartados pendientes. Para apartar, abra una venta y escoja <b>Apartado</b>." : "No hay ventas en este grupo."}</li>`));
@@ -2259,6 +2269,8 @@
       ? `<span class="etq">Anulado</span> <small>${U.esc(g.motivo_anulacion || "")}</small>`
       : g.pendiente
         ? `<span class="etq ${g.verificado ? "etq--pagado" : "etq--por_verificar"}">${g.verificado ? "Recibido" : "Por verificar"}</span> <span class="etq etq--por_verificar">Por enviar</span>${g.error ? ` <span class="etq etq--error">${U.esc(g.error)}</span>` : ""}`
+      : g.verificado && AUTO_VERIF.includes(g.metodo)
+        ? `<span class="etq etq--pagado">Recibido</span>`
       : g.verificado
         ? `<span class="etq etq--pagado">Verificado en banco</span> <small>${fechaCR(g.verificado_at, { dateStyle: "short", timeStyle: "short" })}</small>`
         : `<span class="etq etq--por_verificar">Por verificar</span>`;
@@ -2267,6 +2279,7 @@
       <div class="pago__datos">
         ${g.referencia ? `<span>Comprobante <b>${U.esc(g.referencia)}</b></span>` : ""}
         ${g.nombre_origen || g.telefono_origen ? `<span>De ${U.esc(g.nombre_origen || "")} ${U.esc(g.telefono_origen || "")}</span>` : ""}
+        ${g.nota ? `<span>${U.esc(g.nota)}</span>` : ""}
         <span>${fechaCR(g.fecha)}</span>
         <span>${estado}</span>
       </div>
@@ -5752,6 +5765,8 @@
       fecha: f.fecha.value ? localCRaISO(f.fecha.value) : null,
       verificado: f.verificado.checked || AUTO_VERIF.includes(f.metodo.value)
     };
+    const pagaCon = Number($("#cobroPaga").value) || 0;
+    if (d.metodo === "efectivo" && pagaCon >= d.monto && d.monto > 0) d.nota = `Pagó con ${fmt(pagaCon)} · vuelto ${fmt(pagaCon - d.monto)}`;
     const oid = crypto.randomUUID();
     if (!(d.monto > 0)) { msg.textContent = "Escriba el monto del pago."; return; }
     if (d.metodo === "cheque" && !d.referencia) { msg.textContent = "Ponga el número del cheque: así no se registra dos veces."; f.referencia.focus(); return; }

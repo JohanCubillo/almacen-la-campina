@@ -730,3 +730,4 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 
 #btnGuardarVenta.btn--cobrar { font-size: 1.1rem; padding: .8em 1.8em; border-radius: 99px; }
 #ventaTotal small.total-dev { display: block; font-family: var(--base); font-weight: 500; font-size: .75rem; color: var(--gris); white-space: nowrap; }
+.fila__monto small.fila__pago { color: var(--gris); font-weight: 500; white-space: nowrap; }
