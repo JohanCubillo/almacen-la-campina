@@ -447,6 +447,7 @@
       tabCat: !puede("productos"), tabAj: !admin, tabCom: !(puede("compras") || puede("inventario"))
     };
     for (const [id, no] of Object.entries(ocultar)) if (no) $("#" + id).hidden = true;
+    ajustarGruposMenu();
     // botones de Productos e Inventario
     $("#btnNuevoProd").hidden = !puede("productos");
     $("#btnFotos").hidden = !puede("productos");
@@ -503,6 +504,16 @@
   });
 
   // ---------- pestañas ----------
+  // el título de un grupo del menú se esconde si ninguna de sus pestañas se ve
+  function ajustarGruposMenu() {
+    let titulo = null, alguna = false;
+    const cerrar = () => { if (titulo) titulo.hidden = !alguna; };
+    for (const el of $(".pestanas").children) {
+      if (el.classList.contains("pestanas__grupo")) { cerrar(); titulo = el; alguna = false; }
+      else if (!el.hidden) alguna = true;
+    }
+    cerrar();
+  }
   $$(".pestana").forEach((tab) => tab.addEventListener("click", () => {
     $$(".pestana").forEach((t) => t.setAttribute("aria-selected", String(t === tab)));
     $$("[role=tabpanel]").forEach((p) => (p.hidden = p.id !== tab.getAttribute("aria-controls")));
@@ -518,9 +529,10 @@
     if (tab.id === "tabCred") cargarClientes().then(pintarClientes);
   }));
   $(".pestanas").addEventListener("keydown", (e) => {
-    if (!["ArrowRight", "ArrowLeft"].includes(e.key)) return;
-    const tabs = $$(".pestana"), i = tabs.indexOf(document.activeElement);
-    const n = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+    if (!["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"].includes(e.key)) return;
+    e.preventDefault();
+    const tabs = $$(".pestana").filter((t) => !t.hidden), i = tabs.indexOf(document.activeElement);
+    const n = tabs[(i + (["ArrowRight", "ArrowDown"].includes(e.key) ? 1 : tabs.length - 1)) % tabs.length];
     n.focus(); n.click();
   });
 

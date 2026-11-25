@@ -98,22 +98,26 @@
     </header>
     <div class="cinta" aria-hidden="true"></div>
 
-    <nav class="pestanas wrap" role="tablist" aria-label="Secciones del panel">
+    <div class="cuerpo wrap">
+    <nav class="pestanas" role="tablist" aria-label="Secciones del panel" aria-orientation="vertical">
+      <span class="pestanas__grupo" role="presentation">Ventas</span>
       <button role="tab" class="pestana" aria-selected="true" aria-controls="tVen" id="tabVen">Pedidos y ventas <span class="badge" id="badgeVen" hidden></span></button>
-      <button role="tab" class="pestana" aria-selected="false" aria-controls="tPreg" id="tabPreg" hidden>Preguntas <span class="badge" id="badgePreg" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCaja" id="tabCaja">Caja <span class="badge badge--amarillo" id="badgeCaja" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCred" id="tabCred" hidden>Crédito <span class="badge badge--amarillo" id="badgeCred" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tComp" id="tabComp" hidden>Comprobantes</button>
-      <button role="tab" class="pestana" aria-selected="false" aria-controls="tRep" id="tabRep">Reportes</button>
-      <button role="tab" class="pestana" aria-selected="false" aria-controls="tBit" id="tabBit" hidden>Bitácora</button>
+      <button role="tab" class="pestana" aria-selected="false" aria-controls="tPreg" id="tabPreg" hidden>Preguntas <span class="badge" id="badgePreg" hidden></span></button>
+      <span class="pestanas__grupo" role="presentation">Mercadería</span>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tProd" id="tabProd">Productos</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tInv" id="tabInv" hidden>Inventario</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCom" id="tabCom" hidden>Compras <span class="badge badge--amarillo" id="badgeCom" hidden></span></button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tCat" id="tabCat">Categorías</button>
+      <span class="pestanas__grupo" role="presentation">Administración</span>
+      <button role="tab" class="pestana" aria-selected="false" aria-controls="tRep" id="tabRep">Reportes</button>
+      <button role="tab" class="pestana" aria-selected="false" aria-controls="tBit" id="tabBit" hidden>Bitácora</button>
       <button role="tab" class="pestana" aria-selected="false" aria-controls="tAj" id="tabAj">Datos del negocio</button>
     </nav>
 
-    <main class="wrap panel">
+    <main class="panel">
       <p class="aviso-v4" id="avisoV4" hidden>Falta activar las mejoras nuevas (agotado, ofertas, envío, factura, avisos, Excel y reportes). En Supabase abra <b>SQL Editor</b> y corra el archivo <b>supabase/v4_mejoras.sql</b>.</p>
       <!-- VENTAS -->
       <section id="tVen" role="tabpanel" aria-labelledby="tabVen">
@@ -632,6 +636,7 @@
         </details>
       </section>
     </main>
+    </div>
   </div>
 
   <!-- Formulario de producto -->
