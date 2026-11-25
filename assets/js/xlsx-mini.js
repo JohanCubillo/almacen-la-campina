@@ -93,45 +93,54 @@
     return l ? c - 1 : -1;
   };
 
-  async function leerXlsx(file) {
+  // todas las hojas: [{ nombre, filas }] (la primera es la que usa leer())
+  async function leerHojasXlsx(file, soloPrimera) {
     const z = await unzip(await file.arrayBuffer(),
       (n) => /^xl\/(workbook\.xml|_rels\/workbook\.xml\.rels|sharedStrings\.xml|worksheets\/sheet\d+\.xml)$/i.test(n));
     const xml = (n) => (z[n] ? new DOMParser().parseFromString(dec.decode(z[n]), "application/xml") : null);
     const wb = xml("xl/workbook.xml"), rels = xml("xl/_rels/workbook.xml.rels");
-    let ruta = "xl/worksheets/sheet1.xml";
-    const hoja = wb && wb.getElementsByTagName("sheet")[0];
-    if (hoja && rels) {
-      const rid = hoja.getAttribute("r:id") || hoja.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
-      const rel = [...rels.getElementsByTagName("Relationship")].find((r) => r.getAttribute("Id") === rid);
-      if (rel) {
-        const t = rel.getAttribute("Target") || "";
-        ruta = t.startsWith("/") ? t.slice(1) : "xl/" + t.replace(/^\.\//, "");
-      }
-    }
     const ss = xml("xl/sharedStrings.xml");
     const textos = ss ? [...ss.getElementsByTagName("si")].map((si) =>
       [...si.getElementsByTagName("t")].filter((t) => t.parentNode.nodeName !== "rPh").map((t) => t.textContent).join("")) : [];
-    const sh = xml(ruta);
-    if (!sh) throw new Error("No se encontró la primera hoja del Excel.");
-    const filas = [];
-    for (const row of sh.getElementsByTagName("row")) {
-      const celdas = [];
-      for (const c of row.getElementsByTagName("c")) {
-        let ci = letrasACol(c.getAttribute("r") || "");
-        if (ci < 0) ci = celdas.length;
-        const t = c.getAttribute("t"), v = c.getElementsByTagName("v")[0];
-        let val;
-        if (t === "s") val = textos[Number(v && v.textContent)] ?? "";
-        else if (t === "inlineStr") val = [...c.getElementsByTagName("t")].map((x) => x.textContent).join("");
-        else if (t === "b") val = v && v.textContent === "1" ? "Sí" : "No";
-        else val = v ? v.textContent : "";
-        celdas[ci] = val;
+    const hojas = wb ? [...wb.getElementsByTagName("sheet")] : [];
+    const rutas = hojas.length ? hojas.map((hoja, i) => {
+      let ruta = `xl/worksheets/sheet${i + 1}.xml`;
+      const rid = hoja.getAttribute("r:id") || hoja.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id");
+      const rel = rels && [...rels.getElementsByTagName("Relationship")].find((r) => r.getAttribute("Id") === rid);
+      if (rel) { const t = rel.getAttribute("Target") || ""; ruta = t.startsWith("/") ? t.slice(1) : "xl/" + t.replace(/^\.\//, ""); }
+      return { nombre: hoja.getAttribute("name") || `Hoja ${i + 1}`, ruta };
+    }) : [{ nombre: "Hoja 1", ruta: "xl/worksheets/sheet1.xml" }];
+    const salida = [];
+    let total = 0;
+    for (const { nombre, ruta } of soloPrimera ? rutas.slice(0, 1) : rutas) {
+      const sh = xml(ruta);
+      if (!sh) { if (!salida.length && soloPrimera) throw new Error("No se encontró la primera hoja del Excel."); continue; }
+      const filas = [];
+      for (const row of sh.getElementsByTagName("row")) {
+        const celdas = [];
+        for (const c of row.getElementsByTagName("c")) {
+          let ci = letrasACol(c.getAttribute("r") || "");
+          if (ci < 0) ci = celdas.length;
+          const t = c.getAttribute("t"), v = c.getElementsByTagName("v")[0];
+          let val;
+          if (t === "s") val = textos[Number(v && v.textContent)] ?? "";
+          else if (t === "inlineStr") val = [...c.getElementsByTagName("t")].map((x) => x.textContent).join("");
+          else if (t === "b") val = v && v.textContent === "1" ? "Sí" : "No";
+          else val = v ? v.textContent : "";
+          celdas[ci] = val;
+        }
+        filas.push({ r: Number(row.getAttribute("r")) || filas.length + 1, celdas });
+        if (++total > MAX_FILAS) throw muchas();
       }
-      filas.push({ r: Number(row.getAttribute("r")) || filas.length + 1, celdas });
-      if (filas.length > MAX_FILAS) throw muchas();
+      salida.push({ nombre, filas });
     }
-    return filas;
+    if (!salida.length) throw new Error("No se encontró la primera hoja del Excel.");
+    return salida;
   }
+  const leerXlsx = async (file) => (await leerHojasXlsx(file, true))[0].filas;
+
+  // algunos sistemas (Moriah) bajan un .xlsx con nombre .xls: se reconoce por el contenido
+  async function esZip(file) { const b = new Uint8Array(await file.slice(0, 2).arrayBuffer()); return b[0] === 0x50 && b[1] === 0x4b; }
 
   function leerCsv(texto) {
     texto = texto.replace(/^﻿/, "");
@@ -160,8 +169,15 @@
     if (!file) throw new Error("Escoja un archivo.");
     if (file.size > 15 * 1024 * 1024) throw new Error("El archivo pesa más de 15 MB.");
     if (/\.csv$/i.test(file.name) || file.type === "text/csv") return leerCsv(await file.text());
-    if (/\.xls$/i.test(file.name)) throw new Error("Ese es un Excel viejo (.xls). Ábralo y guárdelo como .xlsx.");
+    if (/\.xls$/i.test(file.name) && !(await esZip(file))) throw new Error("Ese es un Excel viejo (.xls). Ábralo y guárdelo como .xlsx.");
     return leerXlsx(file);
+  }
+  async function leerHojas(file) {
+    if (!file) throw new Error("Escoja un archivo.");
+    if (file.size > 15 * 1024 * 1024) throw new Error("El archivo pesa más de 15 MB.");
+    if (/\.csv$/i.test(file.name) || file.type === "text/csv") return [{ nombre: "Hoja 1", filas: leerCsv(await file.text()) }];
+    if (/\.xls$/i.test(file.name) && !(await esZip(file))) throw new Error("Ese es un Excel viejo (.xls). Ábralo y guárdelo como .xlsx.");
+    return leerHojasXlsx(file, false);
   }
 
   // ---------- escribir ----------
@@ -226,5 +242,5 @@
   }
   function escribir(filas, { hoja = "Hoja1", anchos = [] } = {}) { return libro([{ nombre: hoja, filas, anchos }]); }
 
-  window.XlsxMini = { leer, escribir, libro, zip };
+  window.XlsxMini = { leer, leerHojas, escribir, libro, zip };
 })();

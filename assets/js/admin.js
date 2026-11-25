@@ -2902,6 +2902,47 @@
     ["limite", "Límite", [/limite/]],
     ["plazo_dias", "Plazo", [/^plazo/, /dias (de )?credito/]]
   ];
+  // cédula que Hacienda aceptaría: física 9 dígitos, jurídica 10 (empieza con 3), DIMEX 11 o 12 (empieza con 1)
+  const cedulaValida = (c) => { c = U.soloDigitos(c); return /^[1-9]\d{8}$/.test(c) || /^3\d{9}$/.test(c) || /^1\d{10,11}$/.test(c) ? c : ""; };
+  // Moriah: hoja 1 = Referencia, Nombre, Límite, Saldo, Plazo, Teléfono…; cada otra hoja (con el nombre = Referencia) = Fecha, Documento, Monto, Saldo
+  function listadoMoriah(hojas) {
+    if (hojas.length < 2) return null;
+    const cab = (h) => (h.filas[0]?.celdas || []).map((c) => norm(c));
+    const c0 = cab(hojas[0]), ix = (re) => c0.findIndex((h) => re.test(h || ""));
+    const iRef = ix(/^referencia$/), iNom = ix(/^nombre$/), iSal = ix(/^saldo$/), iLim = ix(/^limite/), iPla = ix(/^plazo/), iTel = ix(/^telefono/);
+    if (iRef < 0 || iNom < 0 || iSal < 0) return null;
+    const detalle = new Map();
+    for (const h of hojas.slice(1)) {
+      const c = cab(h);
+      if (c[0] !== "fecha" || !c.includes("saldo")) continue;
+      detalle.set(String(h.nombre).trim(), h.filas.slice(1).map((f) => ({ fecha: String(f.celdas[0] ?? "").trim(), doc: String(f.celdas[1] ?? "").trim(), saldo: Number(f.celdas[c.indexOf("saldo")]) || 0 })));
+    }
+    if (!detalle.size) return null;
+    const isoDe = (t) => /^\d{8}$/.test(t) ? `${t.slice(0, 4)}-${t.slice(4, 6)}-${t.slice(6, 8)}` : leerFecha(t) || null;
+    const out = { filas: [], clientes: 0, conSaldo: 0, sinCedula: 0, difieren: 0 };
+    for (const f of hojas[0].filas.slice(1)) {
+      const v = (i) => (i < 0 ? "" : String(f.celdas[i] ?? "").trim());
+      const nombre = v(iNom).replace(/\s+/g, " ").slice(0, 80);
+      if (!nombre) continue;
+      out.clientes++;
+      const saldo = Math.round((Number(v(iSal)) || 0) * 100) / 100;
+      if (saldo < 1) continue;                     // céntimos que quedaron de redondeos en Moriah
+      out.conSaldo++;
+      const ref = v(iRef), ced = cedulaValida(ref);
+      if (!ced) out.sinCedula++;
+      const docs = (detalle.get(ref) || []).filter((d) => d.saldo > 0.005);
+      const suma = docs.reduce((a, d) => a + d.saldo, 0);
+      if (docs.length && Math.abs(suma - saldo) > 1) out.difieren++;
+      const fechas = docs.map((d) => isoDe(d.fecha)).filter(Boolean).sort();
+      const r = { fila: f.r, nombre, identificacion: ced, telefono: v(iTel), monto: String(saldo), error: "",
+        documento: docs.length === 1 ? docs[0].doc.slice(0, 40) : docs.length ? `Moriah: ${docs.length} facturas` : "Saldo de Moriah" };
+      if (fechas[0]) r.fecha = fechas[0];
+      const lim = Number(v(iLim)); if (lim > 0) r.limite = String(lim);
+      const pl = parseInt(v(iPla), 10); if (pl >= 1 && pl <= 365) r.plazo_dias = String(pl);
+      out.filas.push(r);
+    }
+    return out.filas.length ? out : null;
+  }
   function mapaSaldos(cab) {
     const usados = new Set(), mapa = {};
     for (const [k, , res] of COLS_SALDO) {
@@ -2964,7 +3005,20 @@
     if (!file) return;
     msg.className = "msg"; msg.textContent = "Leyendo archivo…";
     try {
-      const filas = await XlsxMini.leer(file);
+      // el "Listado de clientes de crédito" de Moriah trae un resumen y una hoja con las facturas de cada cliente
+      const hojas = await XlsxMini.leerHojas(file);
+      const moriah = listadoMoriah(hojas);
+      if (moriah) {
+        SALDOS = SALDOS.filter((r) => r.fila === "a mano").concat(moriah.filas);
+        msg.classList.remove("msg--fijo");
+        pintarSaldos();
+        msg.textContent += ` Listado de clientes de crédito de Moriah: ${moriah.conSaldo} con saldo (de ${moriah.clientes}).`
+          + (moriah.sinCedula ? ` ${moriah.sinCedula} sin cédula válida (se pasan sin cédula).` : "")
+          + (moriah.difieren ? ` En ${moriah.difieren} las facturas no suman lo mismo que el saldo: se usó el saldo del resumen (revíselos con don Roberto).` : "")
+          + " El vencimiento se calcula desde la factura más vieja con el plazo de cada cliente.";
+        return;
+      }
+      const filas = hojas[0].filas;
       // los títulos: la primera fila (de las primeras 25) que tenga cliente y saldo
       let iCab = -1, mapa = null;
       for (let i = 0; i < Math.min(25, filas.length); i++) {
