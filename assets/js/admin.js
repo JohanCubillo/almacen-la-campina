@@ -350,6 +350,20 @@
   //  PANEL
   // =========================================================
   let panelListo = false;
+  // pantalla de carga: cada paso avanza la barra (los productos según cuántos van llegando)
+  const PESO = { base: 0.3, productos: 0.45, ventas: 0.25 }, AVANCE = { base: 0, productos: 0, ventas: 0 };
+  function empezarCarga() { $("#cargaPanel").hidden = false; $("#cargaBarra").style.width = "6%"; $$("#cargaPasos li").forEach((li) => li.classList.add("va")); }
+  function carga(paso, frac, txt) {
+    AVANCE[paso] = Math.max(AVANCE[paso], Math.min(1, frac));
+    const li = $(`#cargaPasos [data-paso="${paso}"]`);
+    if (li) { li.classList.toggle("hecho", AVANCE[paso] >= 1); li.classList.toggle("va", AVANCE[paso] < 1); if (txt) li.dataset.det = txt; }
+    const tot = Object.keys(PESO).reduce((a, k) => a + PESO[k] * AVANCE[k], 0);
+    $("#cargaBarra").style.width = `${Math.max(6, Math.round(tot * 100))}%`;
+  }
+  function terminarCarga() {
+    Object.keys(PESO).forEach((k) => carga(k, 1));
+    setTimeout(() => { $("#cargaPanel").classList.add("fuera"); setTimeout(() => ($("#cargaPanel").hidden = true), 300); }, 250);
+  }
   async function abrirPanel(user, sinRed = false) {
     SIN_RED = sinRed;
     // las pestañas no se muestran hasta saber cuáles le tocan (si no, se ven un momento las de otros)
@@ -357,6 +371,7 @@
       document.documentElement.classList.add("panel-cargando");
       setTimeout(() => document.documentElement.classList.remove("panel-cargando"), 10000);
     }
+    if (!panelListo) empezarCarga();
     vista("vPanel");
     $("#userEmail").textContent = ACCESO?.nombre || ACCESO?.usuario || user.email || "";
     if (!sinRed) ponerLS(LS_PERMISO, { email: user.email, acceso: ACCESO, hasta: Date.now() + HORAS_SIN_RED * 3600 * 1000 });
@@ -371,45 +386,31 @@
       FE = c.fe || null;
       if (V13) cargarClientes();
     } else {
-      let r;
-      try { r = await db.from("avisos").select("id").limit(1); } catch (e) { r = { error: e }; }
+      // todas las preguntas a la base salen juntas (antes iban una por una y sumaban segundos)
+      const probar = (q) => Promise.resolve(q).then((x) => x, (e) => ({ error: e }));
+      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21] = await Promise.all([
+        probar(db.from("avisos").select("id").limit(1)),
+        probar(db.from("productos").select("codigo").limit(1)),
+        probar(db.from("fe_emisor").select("*").eq("id", 1).maybeSingle()),
+        probar(db.from("precios_movimientos").select("id").limit(1)),
+        probar(db.from("entradas").select("id").limit(1)),
+        probar(db.from("clientes").select("id").limit(1)),
+        probar(db.from("caja_turnos").select("id").limit(1)),
+        probar(db.from("productos").select("vendido").limit(1)),
+        probar(db.from("auditoria").select("quien").limit(1)),
+        probar(db.from("pedidos").select("apartado").limit(1)),
+        probar(db.from("fe_dispositivos").select("id").limit(1)),
+        probar(db.from("proveedores").select("id").limit(1)),
+        cargarCategorias()
+      ]);
       V4 = r.error && U.esErrorRed(r.error) ? !!copia.leer().v4 : !r.error;
       if (!r.error || !U.esErrorRed(r.error)) copia.poner("v4", V4);
-      let r9;
-      try { r9 = await db.from("productos").select("codigo").limit(1); } catch (e) { r9 = { error: e }; }
       V9 = r9.error && U.esErrorRed(r9.error) ? !!copia.leer().v9 : !r9.error;
       if (!r9.error || !U.esErrorRed(r9.error)) copia.poner("v9", V9);
-      let r10;
-      try { r10 = await db.from("fe_emisor").select("*").eq("id", 1).maybeSingle(); } catch (e) { r10 = { error: e }; }
       V10 = !r10.error; FE = r10.data || null;
-      let r11;
-      try { r11 = await db.from("precios_movimientos").select("id").limit(1); } catch (e) { r11 = { error: e }; }
-      V11 = !r11.error;
-      let r12;
-      try { r12 = await db.from("entradas").select("id").limit(1); } catch (e) { r12 = { error: e }; }
-      V12 = !r12.error;
-      let r13;
-      try { r13 = await db.from("clientes").select("id").limit(1); } catch (e) { r13 = { error: e }; }
-      V13 = !r13.error;
+      V11 = !r11.error; V12 = !r12.error; V13 = !r13.error;
       if (V13) cargarClientes();
-      let r14;
-      try { r14 = await db.from("caja_turnos").select("id").limit(1); } catch (e) { r14 = { error: e }; }
-      V14 = !r14.error;
-      let r15;
-      try { r15 = await db.from("productos").select("vendido").limit(1); } catch (e) { r15 = { error: e }; }
-      V15 = !r15.error;
-      let r16;
-      try { r16 = await db.from("auditoria").select("quien").limit(1); } catch (e) { r16 = { error: e }; }
-      V16 = !r16.error;
-      let r18;
-      try { r18 = await db.from("pedidos").select("apartado").limit(1); } catch (e) { r18 = { error: e }; }
-      V18 = !r18.error;
-      let r19;
-      try { r19 = await db.from("fe_dispositivos").select("id").limit(1); } catch (e) { r19 = { error: e }; }
-      V19 = !r19.error;
-      let r21;
-      try { r21 = await db.from("proveedores").select("id").limit(1); } catch (e) { r21 = { error: e }; }
-      V21 = !r21.error;
+      V14 = !r14.error; V15 = !r15.error; V16 = !r16.error; V18 = !r18.error; V19 = !r19.error; V21 = !r21.error;
       // para poder abrir el panel sin internet con lo mismo que tiene la base
       if (!r16.error || !U.esErrorRed(r16.error)) {
         copia.poner("versiones", { V10, V12, V13, V14, V18, V19 });
@@ -440,10 +441,17 @@
     document.documentElement.classList.toggle("sin-v9", !V9);
     $("#avisoV4").hidden = V4;
     aplicarPermisos();
-    await cargarCategorias();
-    await Promise.all([cargarProductos(), cargarAjustes(), puede("ventas") || puede("caja") ? contarPorVerificar() : null,
-      V4 && !sinRed && soyAdministrador() ? cargarAvisos() : null]);
-    if (puede("ventas") || puede("caja") || puede("credito") || puede("reportes")) await cargarVentas();
+    carga("base", 1);
+    if (sinRed) await cargarCategorias();
+    const conVentas = puede("ventas") || puede("caja") || puede("credito") || puede("reportes");
+    await Promise.all([
+      cargarProductos().then(() => carga("productos", 1)),
+      cargarAjustes(), puede("ventas") || puede("caja") ? contarPorVerificar() : null,
+      V4 && !sinRed && soyAdministrador() ? cargarAvisos() : null,
+      conVentas ? cargarVentas().then(() => carga("ventas", 1)) : carga("ventas", 1)
+    ]);
+    pintarCategorias();
+    terminarCarga();
     if (puede("preguntas")) cargarPreguntas();
     if (V21 && puede("compras")) contarRecibidos();
     addEventListener("online", estadoRedPanel);
@@ -569,6 +577,9 @@
     const { data, error } = await consulta("categorias", db.from("categorias").select("*").order("orden"));
     if (error) return toast(errTxt(error), true);
     categorias = data;
+    pintarCategorias();
+  }
+  function pintarCategorias() {
     $("#listaCat").innerHTML = categorias.map((c) => `
       <li class="fila">
         <div class="fila__txt"><b>${U.esc(c.nombre)}</b><small>Orden ${Number(c.orden) || 0} · ${productos.filter((p) => p.categoria_id === c.id).length} productos</small></div>
@@ -628,7 +639,7 @@
     let data = null, error = null;
     if (SIN_RED) data = copia.leer().productos || null;
     else {
-      try { data = await leerTabla("productos", "nombre"); } catch (e) { error = e; }
+      try { data = await leerTabla("productos", "nombre", (n, total) => carga("productos", total ? n / total : 0.5, `${n.toLocaleString("es-CR")} de ${total.toLocaleString("es-CR")}`)); } catch (e) { error = e; }
       if (error && U.esErrorRed(error)) { data = copia.leer().productos || null; error = data ? null : error; }
       else if (!error) copia.poner("productos", data.map(productoCorto));
     }
@@ -5239,14 +5250,39 @@
     el.classList.toggle("msg--error", dias >= 30);
   }
 
-  async function leerTabla(tabla, orden) {
-    const filas = [];
-    for (let desde = 0; ; desde += 1000) {
-      const { data, error } = await db.from(tabla).select("*").order(orden).range(desde, desde + 999);
-      if (error) throw error;
-      filas.push(...data);
-      if (data.length < 1000) return filas;
+  // la primera página dice cuántas hay; las demás se piden de 4 en 4 a la vez
+  async function leerTabla(tabla, orden, progreso) {
+    const P = 1000;
+    const pag = (desde, conteo) => db.from(tabla).select("*", conteo ? { count: "exact" } : undefined).order(orden).range(desde, desde + P - 1);
+    const pri = await pag(0, true);
+    if (pri.error) throw pri.error;
+    const total = pri.count ?? pri.data.length;
+    let n = pri.data.length;
+    progreso?.(n, total);
+    const paginas = [pri.data];
+    if (pri.data.length === P && total > P) {
+      const desdes = [];
+      for (let d = P; d < total; d += P) desdes.push(d);
+      for (let i = 0; i < desdes.length; i += 4) {
+        const res = await Promise.all(desdes.slice(i, i + 4).map(async (d) => {
+          const r = await pag(d);
+          if (r.error) throw r.error;
+          n += r.data.length; progreso?.(n, total);
+          return r.data;
+        }));
+        paginas.push(...res);
+      }
+      // si mientras tanto agregaron productos, se trae el resto
+      let desde = desdes.length ? desdes[desdes.length - 1] + P : P;
+      while (paginas[paginas.length - 1].length === P) {
+        const r = await pag(desde); if (r.error) throw r.error;
+        if (!r.data.length) break;
+        paginas.push(r.data); desde += P;
+      }
     }
+    // por si una fila se repite entre páginas (cambios mientras se leía)
+    const vistos = new Set();
+    return paginas.flat().filter((f) => (f.id == null || !vistos.has(f.id)) && (f.id == null || vistos.add(f.id)));
   }
 
   // el registro de actividad puede traer el token de Telegram: nunca va al respaldo
