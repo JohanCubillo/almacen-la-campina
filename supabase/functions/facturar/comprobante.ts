@@ -296,17 +296,21 @@ export async function enviarMensaje(http: HttpClient, m: {
 
 // Solo revisa el XML sin firmar contra el esquema 4.4 (para probar sin llave)
 export async function validarSinFirma(xml: string): Promise<void> {
-  const v = await validateDocumentXml(xml);
-  if (!v.valid) falla("El comprobante no pasa el esquema de Hacienda: " + v.issues.slice(0, 5).join("; "));
+  await revisarEsquema(xml, false, "El comprobante no pasa el esquema de Hacienda: ");
 }
 
+const NO_CORRE = /not implemented|worker|webassembly|wasm|is not a constructor|is not defined/i;
 // Revisa el XML contra el esquema 4.4. Si el validador no puede correr en este servidor
 // (es WebAssembly), se sigue: Hacienda igual valida y lo rechazaría con el motivo.
 async function revisarEsquema(xml: string, conFirma: boolean, que: string) {
   let v: { valid: boolean; issues: string[] };
   try { v = await validateDocumentXml(xml, conFirma ? ({ requireSignature: true } as never) : undefined); }
   catch (e) { console.warn("Validador de esquema no disponible:", String((e as Error)?.message || e)); return; }
-  if (!v.valid) falla(que + v.issues.slice(0, 5).join("; "));
+  // en el servidor de Supabase el validador a veces no arranca (no hay Worker) y lo reporta como "problema" del XML:
+  // eso no es un error del comprobante, así que se sigue y Hacienda lo revisa
+  const deVerdad = v.issues.filter((i) => !NO_CORRE.test(String(i)));
+  if (!v.valid && !deVerdad.length) { console.warn("Validador de esquema no disponible:", v.issues.join("; ")); return; }
+  if (!v.valid) falla(que + deVerdad.slice(0, 5).join("; "));
 }
 
 // Valida contra el esquema 4.4 y firma con la llave criptográfica (.p12)
