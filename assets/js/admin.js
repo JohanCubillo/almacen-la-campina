@@ -2332,26 +2332,83 @@
   // ---------- buscador de productos (ventas y ajuste de precios) ----------
   // con miles de productos una lista desplegable no sirve: se escribe parte del nombre o el código
   // (el lector de código de barras escribe el código y da Enter)
+  // productos que se parecen a lo escrito: primero el código exacto, después por puntaje
+  function hallarProductos(texto, opciones = {}) {
+    const q = norm(texto);
+    if (q.length < 2) return { exactos: [], lista: [] };
+    const ps = pedazos(q), exactos = [], hallados = [];
+    for (const x of productos) {
+      if (!opciones.ocultos && !x.activo) continue;
+      const cod = x.codigo ? String(x.codigo).toLowerCase() : "";
+      if (cod && cod === q) { exactos.push(x); continue; }
+      let pts = puntajeBusca(textoProd(x), ps);
+      if (!pts && cod && q.length >= 3 && cod.startsWith(q)) pts = 1;
+      if (pts) hallados.push([pts, x]);
+    }
+    hallados.sort((a, b) => b[0] - a[0]);   // empates: el orden del catálogo
+    return { exactos, lista: exactos.concat(hallados.map((h) => h[1])) };
+  }
+  const precioLista = (x) => (ofertaVigente(x) ? Math.min(Number(x.precio), Number(x.precio_oferta)) : Number(x.precio));
+  const detalleProd = (x) => `${x.precio != null ? fmt(precioLista(x)) : "sin precio"}${x.existencia != null ? ` · hay ${Number(x.existencia).toLocaleString("es-CR")}` : ""}${x.agotado ? " · agotado" : ""}`;
+
+  // ventana grande de búsqueda: se abre con Enter y muestra todos los parecidos
+  const BG = { alElegir: null, input: null, opciones: {}, lista: [], sel: 0 };
+  const MAX_BG = 80;
+  function abrirBuscadorGrande(input, alElegir, opciones) {
+    Object.assign(BG, { input, alElegir, opciones, sel: 0 });
+    const dl = $("#dlgBuscarProd");
+    $("#buscarProdQ").value = input.value.trim();
+    if (!dl.open) dl.showModal();
+    pintarBuscadorGrande();
+    const q = $("#buscarProdQ"); q.focus(); q.setSelectionRange(q.value.length, q.value.length);
+  }
+  function pintarBuscadorGrande() {
+    const txt = $("#buscarProdQ").value;
+    const { lista } = hallarProductos(txt, BG.opciones);
+    BG.lista = lista.slice(0, MAX_BG);
+    BG.sel = Math.min(BG.sel, Math.max(0, BG.lista.length - 1));
+    $("#buscarProdInfo").textContent = norm(txt).length < 2 ? "Escriba al menos 2 letras. Por ejemplo: «pa tru» encuentra Pala Truper."
+      : !lista.length ? "No se encontró ningún producto." + (BG.opciones.nada ? " " + BG.opciones.nada.replace(/^No se encontró\.?\s*/, "") : "")
+      : lista.length > MAX_BG ? `Se muestran ${MAX_BG} de ${lista.length.toLocaleString("es-CR")}. Escriba más para afinar.`
+      : `${lista.length} ${lista.length === 1 ? "producto" : "productos"} · ↑ ↓ para moverse, Enter para escoger`;
+    $("#buscarProdRes").innerHTML = BG.lista.map((x, i) => `<li><button type="button" class="buscar-dlg__fila${i === BG.sel ? " buscar-dlg__fila--sel" : ""}${x.agotado || (x.existencia != null && Number(x.existencia) <= 0) ? " buscar-dlg__fila--sin" : ""}" data-bg="${i}">
+        <span class="buscar-dlg__nom">${U.esc(x.nombre)}${x.codigo ? `<small>${U.esc(x.codigo)}</small>` : ""}</span>
+        <span class="buscar-dlg__hay">${[x.existencia != null ? `hay ${Number(x.existencia).toLocaleString("es-CR")}` : "", x.agotado ? "agotado" : "", !x.activo ? "oculto" : ""].filter(Boolean).join(" · ")}</span>
+        <b class="buscar-dlg__precio">${x.precio != null ? fmt(precioLista(x)) : "sin precio"}</b>
+      </button></li>`).join("");
+    $("#buscarProdRes .buscar-dlg__fila--sel")?.scrollIntoView({ block: "nearest" });
+  }
+  function elegirBuscadorGrande(i) {
+    const p = BG.lista[i]; if (!p) return;
+    $("#dlgBuscarProd").close();
+    if (BG.input) { BG.input.value = ""; BG.input.focus(); }
+    BG.alElegir?.(p);
+  }
+  $("#buscarProdQ").addEventListener("input", () => { BG.sel = 0; pintarBuscadorGrande(); });
+  $("#buscarProdQ").addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); BG.sel = Math.min(BG.sel + 1, BG.lista.length - 1); pintarBuscadorGrande(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); BG.sel = Math.max(BG.sel - 1, 0); pintarBuscadorGrande(); }
+    else if (e.key === "PageDown") { e.preventDefault(); BG.sel = Math.min(BG.sel + 8, BG.lista.length - 1); pintarBuscadorGrande(); }
+    else if (e.key === "PageUp") { e.preventDefault(); BG.sel = Math.max(BG.sel - 8, 0); pintarBuscadorGrande(); }
+    else if (e.key === "Enter") { e.preventDefault(); elegirBuscadorGrande(BG.sel); }
+    else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); $("#dlgBuscarProd").close(); }
+  });
+  $("#buscarProdRes").addEventListener("click", (e) => { const b = e.target.closest("[data-bg]"); if (b) elegirBuscadorGrande(Number(b.dataset.bg)); });
+  $("#dlgBuscarProd").addEventListener("close", () => { if (BG.input && document.contains(BG.input)) BG.input.focus(); });
+
   function buscadorProductos(input, res, alElegir, opciones = {}) {
     const caja = input.closest(".buscar-item");
     function buscar() {
       const q = norm(input.value);
       if (q.length < 2) { res.hidden = true; res.innerHTML = ""; return; }
-      const ps = pedazos(q), exactos = [], hallados = [];
-      for (const x of productos) {
-        if (!opciones.ocultos && !x.activo) continue;
-        const cod = x.codigo ? String(x.codigo).toLowerCase() : "";
-        if (cod && cod === q) { exactos.push(x); continue; }
-        let pts = puntajeBusca(textoProd(x), ps);
-        if (!pts && cod && q.length >= 3 && cod.startsWith(q)) pts = 1;
-        if (pts) hallados.push([pts, x]);
-      }
-      hallados.sort((a, b) => b[0] - a[0]);   // empates: el orden del catálogo
-      const lista = exactos.concat(hallados.map((h) => h[1])).slice(0, 12);
+      const { lista: todos } = hallarProductos(input.value, opciones);
+      const lista = todos.slice(0, 6);
       res.innerHTML = lista.map((x) => `<li><button type="button" data-item-id="${x.id}">
           <span>${U.esc(x.nombre)}${x.codigo ? ` <small>· ${U.esc(x.codigo)}</small>` : ""}</span>
-          <span class="buscar-item__det">${x.precio != null ? fmt(x.precio) : "sin precio"}${x.existencia != null ? ` · hay ${Number(x.existencia).toLocaleString("es-CR")}` : ""}${x.agotado ? " · agotado" : ""}</span>
-        </button></li>`).join("") || `<li class="buscar-item__nada">${U.esc(opciones.nada || "No se encontró.")}</li>`;
+          <span class="buscar-item__det">${detalleProd(x)}</span>
+        </button></li>`).join("")
+        + (todos.length > lista.length ? `<li><button type="button" class="buscar-item__todos" data-ver-todos>Ver todos los parecidos (${todos.length.toLocaleString("es-CR")}) <small>· Enter</small></button></li>` : "")
+        || `<li class="buscar-item__nada">${U.esc(opciones.nada || "No se encontró.")}</li>`;
       res.hidden = false;
     }
     input.addEventListener("input", buscar);
@@ -2359,15 +2416,20 @@
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        buscar();          // el lector escribe muy rápido: se busca con lo último que llegó
-        // un código de barras (solo números) que no existe no agrega "lo más parecido"
         const q = input.value.trim();
-        if (/^[0-9]{6,}$/.test(q) && !productos.some((x) => x.codigo && String(x.codigo).toLowerCase() === q.toLowerCase() && (opciones.ocultos || x.activo))) {
+        if (!q) return;
+        const { exactos, lista } = hallarProductos(q, opciones);
+        // el lector de código de barras escribe el código y da Enter: ese se agrega de una vez
+        if (exactos.length) { input.value = ""; res.hidden = true; return alElegir(exactos[0]); }
+        if (/^[0-9]{6,}$/.test(q)) {
           res.innerHTML = `<li class="buscar-item__nada">No hay ningún producto con el código ${U.esc(q)}. Póngaselo en Productos → Editar → Código.</li>`;
           res.hidden = false; input.select();
           return;
         }
-        const b = res.querySelector("button"); if (b) b.click();
+        // un solo parecido: se escoge; varios: se abre la ventana con todos
+        if (lista.length === 1) { input.value = ""; res.hidden = true; return alElegir(lista[0]); }
+        res.hidden = true;
+        abrirBuscadorGrande(input, alElegir, opciones);
       }
       if (e.key === "Escape" && !res.hidden) { e.preventDefault(); e.stopPropagation(); res.hidden = true; }
       if (e.key === "ArrowDown") { const b = res.querySelector("button"); if (b) { e.preventDefault(); b.focus(); } }
@@ -2383,6 +2445,7 @@
       if (!e.relatedTarget || !caja.contains(e.relatedTarget)) setTimeout(() => { if (!caja.contains(document.activeElement)) res.hidden = true; }, 150);
     });
     res.addEventListener("click", (e) => {
+      if (e.target.closest("[data-ver-todos]")) { res.hidden = true; return abrirBuscadorGrande(input, alElegir, opciones); }
       const b = e.target.closest("[data-item-id]"); if (!b) return;
       const p = productos.find((x) => x.id == b.dataset.itemId);
       if (!p) return;

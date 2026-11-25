@@ -1517,6 +1517,16 @@
     </form>
   </dialog>
 
+  <dialog id="dlgBuscarProd" class="dlg dlg--ancho buscar-dlg" aria-labelledby="buscarProdTit">
+    <div class="buscar-dlg__cab">
+      <h2 id="buscarProdTit">Buscar producto</h2>
+      <button type="button" class="cerrar-x" data-cerrar-dlg aria-label="Cerrar">✕</button>
+    </div>
+    <input id="buscarProdQ" type="search" placeholder="Escriba nombre o código (ej.: pa tru)" autocomplete="off" aria-controls="buscarProdRes" />
+    <p class="buscar-dlg__info" id="buscarProdInfo" aria-live="polite"></p>
+    <ul id="buscarProdRes" class="buscar-dlg__res"></ul>
+  </dialog>
+
   <dialog id="dlgPregunta" class="dlg dlg--pregunta" aria-labelledby="preguntaTit" aria-describedby="preguntaTxt">
     <form method="dialog" class="pregunta">
       <h2 id="preguntaTit" class="pregunta__tit"></h2>
