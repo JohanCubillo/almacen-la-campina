@@ -712,3 +712,15 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 .dev-plata[hidden], #boxDevoluciones[hidden] { display: none; }
 .dev-plata__txt { margin: 0; }
 .venta__cierre #btnDevolver[hidden] { display: none; }
+
+/* ventas en espera */
+.venta__head { grid-template-columns: minmax(0, 1fr) repeat(4, auto); }
+.espera-btn[hidden] { display: none; }
+.espera { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: .25rem 0 1rem; }
+.espera[hidden] { display: none; }
+.espera__tit { font-weight: 600; color: var(--gris); margin-right: .25rem; }
+.espera__ficha { display: grid; text-align: left; gap: .1rem; padding: .55em .9em; border-radius: 14px; border: 1.5px solid var(--cinta); background: #FFF8DC; cursor: pointer; font: inherit; color: var(--texto); }
+.espera__ficha b { display: inline-grid; place-items: center; width: 1.5em; height: 1.5em; border-radius: 50%; background: var(--negro); color: #fff; font-size: .8rem; margin-right: .3em; }
+.espera__ficha small { color: var(--gris); font-size: .8rem; }
+.espera__ficha:hover { border-color: var(--negro); }
+@media (max-width: 600px) { .venta__head { grid-template-columns: minmax(0, 1fr) auto auto; } }

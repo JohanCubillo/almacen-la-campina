@@ -463,6 +463,7 @@
     estadoRedPanel();
     prepararFESinRed();
     irA(new URLSearchParams(location.search).get("ir"));
+    pintarEspera();
     setInterval(() => {
       if (document.hidden) return;
       if (navigator.onLine && (CAIDA || SIN_RED)) probarRed();
@@ -1539,12 +1540,53 @@
   });
   $("#btnNuevaVenta").addEventListener("click", () => abrirBorrador({ cliente_nombre: "", cliente_telefono: "", items: [] }));
 
+  // ---------- ventas en espera (en esta compu, para atender a otro cliente mientras tanto) ----------
+  const LS_ESPERA = "lc_ventas_espera_v1", MAX_ESPERA = 6;
+  const esperas = () => { const l = leerLS(LS_ESPERA, []); return Array.isArray(l) ? l : []; };
+  function pintarEspera() {
+    const l = esperas(), box = $("#ventasEspera");
+    box.hidden = !l.length;
+    box.innerHTML = l.length ? `<span class="espera__tit">En espera</span>` + l.map((e, n) => {
+      const total = e.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_unit) || 0), 0);
+      return `<button type="button" class="espera__ficha" data-espera="${U.esc(e.uuid)}"><span><b>${n + 1}</b> ${U.esc(e.cliente_nombre || CLIENTE_CONTADO)} · ${fmt(total)}</span><small>${e.items.length} ${e.items.length === 1 ? "producto" : "productos"} · ${new Date(e.en).toLocaleTimeString("es-CR", { hour: "numeric", minute: "2-digit", timeZone: TZ })}</small></button>`;
+    }).join("") : "";
+  }
+  $("#btnEspera").addEventListener("click", () => {
+    if (!V || V.pedido || !V.items.length) return;
+    const l = esperas();
+    if (l.length >= MAX_ESPERA && !l.some((e) => e.uuid === V.uuid)) return toast(`Ya hay ${MAX_ESPERA} ventas en espera. Termine alguna primero.`, true);
+    const f = $("#formVenta");
+    const e = { uuid: V.uuid, en: Date.now(), cliente_nombre: f.cliente_nombre.value.trim(), cliente_telefono: f.cliente_telefono.value.trim(), nota: f.nota.value.trim(),
+      items: V.items.map((i) => ({ producto_id: i.producto_id || null, descripcion: i.descripcion, cantidad: i.cantidad, precio_unit: i.precio_unit })),
+      cond: V.cond, credCliId: V.credCli?.id || null, apVence: V.apVence || null, exo: V.exo || null };
+    if (!ponerLS(LS_ESPERA, l.filter((x) => x.uuid !== e.uuid).concat(e))) return toast("No hay espacio en esta compu para guardarla.", true);
+    V.dirty = false;
+    $("#dlgVenta").close();
+    pintarEspera();
+    toast(`Venta en espera (${e.cliente_nombre || CLIENTE_CONTADO}). Atienda al siguiente cliente.`);
+    abrirBorrador({ cliente_nombre: "", cliente_telefono: "", items: [] });
+  });
+  $("#ventasEspera").addEventListener("click", async (ev) => {
+    const b = ev.target.closest("[data-espera]"); if (!b) return;
+    if ($("#dlgVenta").open) {
+      if (V && V.dirty && V.items.length && !await preguntar("La venta abierta tiene productos sin guardar. ¿Ponerla en espera y abrir la otra?", { si: "Sí, cambiar" })) return;
+      if (V && V.dirty && V.items.length && !V.pedido) $("#btnEspera").click();
+    }
+    const l = esperas(), e = l.find((x) => x.uuid === b.dataset.espera); if (!e) return pintarEspera();
+    ponerLS(LS_ESPERA, l.filter((x) => x.uuid !== e.uuid));
+    pintarEspera();
+    if ($("#dlgVenta").open) $("#dlgVenta").close();
+    abrirBorrador(e);
+  });
+
   // ---------- abrir / borrador ----------
   const CLIENTE_CONTADO = "Cliente contado";
   // al entrar al nombre se selecciona todo: si es otro cliente, se escribe encima
   $("#formVenta").cliente_nombre.addEventListener("focus", (e) => { if (e.target.value === CLIENTE_CONTADO) e.target.select(); });
   function abrirBorrador(b) {
-    V = { pedido: null, items: b.items, pagos: [], comps: [], dirty: true, uuid: crypto.randomUUID(), cond: "contado", credCli: null, apVence: null };
+    V = { pedido: null, items: b.items, pagos: [], comps: [], dirty: true, uuid: b.uuid || crypto.randomUUID(), cond: b.cond || "contado",
+      credCli: b.credCliId ? clientes.find((c) => c.id === b.credCliId) || null : null, apVence: b.apVence || null, exo: b.exo || null, exoCambio: !!b.exo };
+    if (V.cond === "credito" && !V.credCli) V.cond = "contado";
     const f = $("#formVenta");
     f.cliente_nombre.value = b.cliente_nombre || CLIENTE_CONTADO;
     f.cliente_telefono.value = b.cliente_telefono || "";
@@ -1947,6 +1989,7 @@
     $("#itemsBloqueo").hidden = edit;
     pintarCondicion();
     pintarExo();
+    $("#btnEspera").hidden = !!p || !V.items.length || !!V.copia;
 
     const cerrada = p && p.estado !== "abierta";
     const web = p?.origen === "web";
@@ -2291,7 +2334,9 @@
   $("#dlgVenta").addEventListener("cancel", (e) => { e.preventDefault(); $("#btnCerrarVenta").click(); });
 
   $("#btnCerrarVenta").addEventListener("click", async () => {
-    if (V && V.dirty && itemsEditables() && !await preguntar("Hay cambios sin guardar. ¿Cerrar igual?")) return;
+    // una venta nueva sin productos se cierra sin preguntar
+    if (V && V.dirty && itemsEditables() && (V.pedido || V.items.length) && !await preguntar(V.pedido ? "Hay cambios sin guardar. ¿Cerrar igual?"
+      : "Esta venta no se ha guardado y se pierde. Si va a atender a otro cliente, use “Poner en espera”.", { titulo: V.pedido ? "" : "¿Cerrar sin guardar?", si: "Cerrar", peligro: true })) return;
     $("#dlgVenta").close();
   });
 
