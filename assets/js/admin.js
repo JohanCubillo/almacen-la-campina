@@ -2604,6 +2604,7 @@
     $("#ventaMsg").textContent = "";
     repreciarPorCliente();
     pintarCondicion();
+    refrescarCobro();
     if (V.cond === "credito" && !V.credCli) $("#cliCreditoQ").focus();
   });
   $("#apartadoVence").addEventListener("change", (e) => { V.apVence = e.target.value || null; V.dirty = true; pintarCondicion(); });
@@ -5493,18 +5494,34 @@
     const p = V.pedido, fp = $("#formPago");
     if (total === undefined) total = V.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_unit) || 0), 0);
     const saldo = Math.max(0, Math.round((total - (Number(p?.pagado_registrado) || 0)) * 100) / 100);
-    $("#boxPago").hidden = !!V.copia || p?.estado === "anulada" || saldo < 0.005 || (!p && V.cond === "credito");
-    if (fp.dataset.montoAuto !== "0") fp.monto.value = saldo || "";
+    // a crédito no se cobra: primero se guarda a crédito y después, si quiere, se recibe un abono
+    const cred = V.cond === "credito", pend = !V.copia && p?.estado !== "anulada" && saldo >= 0.005;
+    const credListo = cred && !!p && !!p.credito && !V.dirty && !V.local;
+    $("#boxPago").hidden = !pend || (cred && !(credListo && V.abonoAbierto));
+    $("#btnAbonar").hidden = !(pend && credListo && !V.abonoAbierto);
+    $("#boxPago .cobro__tit").textContent = cred ? "Abono" : "Cobrar";
+    if (fp.dataset.montoAuto !== "0") fp.monto.value = cred ? "" : saldo || "";
     pintarVuelto();
     refrescarGuardar();
   }
   function refrescarGuardar() {
     if (!V) return;
-    const p = V.pedido, g = $("#btnGuardarVenta"), fuerte = !p && V.cond !== "contado";
-    g.textContent = p ? "Guardar cambios" : V.cond === "credito" ? "Guardar a crédito" : V.cond === "apartado" ? "Guardar apartado" : "Guardar para después";
-    g.className = `btn ${fuerte ? "btn--negro" : "btn--linea"}`;
+    const p = V.pedido, g = $("#btnGuardarVenta");
+    const aCredito = V.cond === "credito" && (!p || !p.credito || !!V.local);
+    const fuerte = aCredito || (!p && V.cond !== "contado");
+    const total = V.items ? V.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_unit) || 0), 0) : 0;
+    g.textContent = aCredito ? `Guardar a crédito${total > 0 ? " " + fmt(total) : ""}` : p ? "Guardar cambios"
+      : V.cond === "apartado" ? "Guardar apartado" : "Guardar para después";
+    g.className = `btn ${aCredito ? "btn--cobrar" : fuerte ? "btn--negro" : "btn--linea"}`;
     g.hidden = !!V.copia || p?.estado === "anulada" || (!!p && !V.dirty);
   }
+  $("#btnAbonar").addEventListener("click", () => {
+    V.abonoAbierto = true;
+    const fp = $("#formPago"); fp.dataset.montoAuto = "1"; fp.monto.value = "";
+    refrescarCobro(); pintarVuelto();
+    $("#boxPago").scrollIntoView({ block: "nearest", behavior: "smooth" });
+    fp.monto.focus();
+  });
   $("#dlgVenta").addEventListener("input", () => queueMicrotask(refrescarGuardar));
   $("#dlgVenta").addEventListener("click", () => queueMicrotask(refrescarGuardar));
   function pintarVuelto() {
@@ -5513,7 +5530,8 @@
     if (f.metodo.value !== "efectivo" || !paga) { v.textContent = ""; v.className = "cobro__vuelto"; }
     else if (paga >= monto) { v.textContent = `Vuelto ${fmt(paga - monto)}`; v.className = "cobro__vuelto cobro__vuelto--ok"; }
     else { v.textContent = `Faltan ${fmt(monto - paga)}`; v.className = "cobro__vuelto cobro__vuelto--falta"; }
-    $("#btnGuardarPago").textContent = monto > 0 ? `Cobrar ${fmt(monto)}` : "Cobrar";
+    const verbo = V?.cond === "credito" ? "Abonar" : "Cobrar";
+    $("#btnGuardarPago").textContent = monto > 0 ? `${verbo} ${fmt(monto)}` : verbo;
   }
   function pintarFormaPago() {
     chipsCobro();

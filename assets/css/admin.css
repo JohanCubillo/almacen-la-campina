@@ -667,9 +667,9 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 @media (max-width: 600px) { .pregunta__btns .btn { flex: 1 1 auto; } }
 
 /* cobrar en verde: es plata que entra */
-.cobro__btn, .pregunta__btns .btn--cobrar { background: #1E8E3E; border-color: #1E8E3E; color: #fff; }
-.cobro__btn:hover, .pregunta__btns .btn--cobrar:hover { background: #17722F; border-color: #17722F; }
-.cobro__btn:focus-visible, .pregunta__btns .btn--cobrar:focus-visible { outline: 3px solid var(--cinta); outline-offset: 2px; }
+.cobro__btn, .btn--cobrar { background: #1E8E3E; border-color: #1E8E3E; color: #fff; }
+.cobro__btn:hover, .btn--cobrar:hover { background: #17722F; border-color: #17722F; }
+.cobro__btn:focus-visible, .btn--cobrar:focus-visible { outline: 3px solid var(--cinta); outline-offset: 2px; }
 .recep-busca:empty { display: none; }
 .recep-busca--ok { color: #17722F; font-weight: 600; }
 
@@ -727,3 +727,5 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 .sin-v24 .v24 { display: none !important; }
 .sin-v25 .v25 { display: none !important; }
 .fec-grupo { border: 0; padding: 0; margin: 0; display: grid; gap: .6rem; } .fec-grupo legend { font-weight: 600; margin-bottom: .3rem; } #fecItems input { width: 7rem; text-align: right; } #fecItems select { width: auto; }
+
+#btnGuardarVenta.btn--cobrar { font-size: 1.1rem; padding: .8em 1.8em; border-radius: 99px; }
