@@ -1362,6 +1362,18 @@
     </div>
   </dialog>
 
+  <dialog id="dlgPregunta" class="dlg dlg--pregunta" aria-labelledby="preguntaTit" aria-describedby="preguntaTxt">
+    <form method="dialog" class="pregunta">
+      <h2 id="preguntaTit" class="pregunta__tit"></h2>
+      <p id="preguntaTxt" class="pregunta__txt"></p>
+      <label class="pregunta__campo" id="preguntaCampoLbl" hidden><span class="sr">Respuesta</span><input id="preguntaCampo" maxlength="300" autocomplete="off" /></label>
+      <div class="pregunta__btns">
+        <button type="submit" value="si" class="btn btn--negro" id="preguntaSi">Sí</button>
+        <button type="submit" value="no" class="btn btn--linea" id="preguntaNo">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
+
   <div class="aviso-toast" id="toast" role="status" aria-live="polite" hidden></div>
 
   <div id="recibo" class="recibo"></div>

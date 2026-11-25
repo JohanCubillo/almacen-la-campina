@@ -401,4 +401,6 @@ En la venta sale el cuadro **Cobrar** mientras falte plata: se toca la forma de 
 - **Guardar para después** (tipo proforma) guarda la venta sin cobrar y cierra; queda en **Por cobrar**.
 - La venta nueva trae “Cliente contado” escrito; si es otro cliente se escribe encima.
 - Los **pedidos de la página** salen en azul (franja y etiqueta “Pedido de la página”). Solo ellos tienen “Enviar cobro por WhatsApp”, “Avisar que está listo”, la dirección de entrega y “Marcar como entregada” (este último también en los apartados). Cheque y “Abonado en Moriah” ya no salen al cobrar.
+- Las preguntas y avisos del panel (“¿Cobrar la venta?”, motivos de anulación, etc.) salen en una ventana propia del panel, no en la ventanita gris del navegador.
+- El cuadro viejo “Factura electrónica” (anotar a mano una factura hecha en otro sistema) ya no sale; solo se ve en ventas que ya tenían uno. Para facturar se usa “Comprobante electrónico” (Emitir tiquete / Emitir factura), que aparece al encender “Facturar desde el panel”.
 - Imprimir el recibo es el ícono de impresora arriba, junto a la ✕; el encabezado se queda fijo al bajar. Un clic fuera de la ventana (o Esc) la cierra y, si hay algo sin guardar, pregunta antes.

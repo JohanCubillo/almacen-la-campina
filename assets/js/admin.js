@@ -31,6 +31,33 @@
     clearTimeout(toast.t);
     toast.t = setTimeout(() => (t.hidden = true), 3500);
   }
+  // preguntas y avisos con el estilo del panel (en vez de las ventanitas grises del navegador)
+  let colaPreg = Promise.resolve();
+  function ventana({ texto, titulo = "", si = "Sí, seguir", no = "Cancelar", peligro = false, campo = null }) {
+    const abrir = () => new Promise((res) => {
+      const dl = $("#dlgPregunta"), inp = $("#preguntaCampo"), bSi = $("#preguntaSi"), bNo = $("#preguntaNo");
+      $("#preguntaTit").textContent = titulo;
+      $("#preguntaTxt").textContent = texto;
+      bSi.textContent = si;
+      bSi.className = `btn ${peligro ? "btn--peligro" : "btn--negro"}`;
+      bNo.textContent = no || ""; bNo.hidden = !no;
+      $("#preguntaCampoLbl").hidden = campo === null;
+      inp.value = campo ?? "";
+      dl.returnValue = "";
+      dl.addEventListener("close", () => {
+        const ok = dl.returnValue === "si";
+        res(campo === null ? ok : ok ? inp.value : null);
+      }, { once: true });
+      dl.showModal();
+      if (campo !== null) { inp.focus(); inp.select(); } else bSi.focus();
+    });
+    const p = colaPreg.then(abrir);
+    colaPreg = p.catch(() => {});
+    return p;
+  }
+  const preguntar = (texto, o = {}) => ventana({ texto, peligro: /^¿?(Borrar|Anular|Quitar|Eliminar|Rechazar)/i.test(texto), ...o });
+  const pedirTexto = (texto, inicial = "", o = {}) => ventana({ texto, campo: inicial ?? "", si: "Aceptar", ...o });
+  const avisar = (texto, o = {}) => ventana({ texto, si: "Entendido", no: null, ...o });
   const errTxt = (e) => U.esErrorRed(e) ? "Sin internet: esto se puede hacer cuando vuelva la conexión." : (e && e.message) || "Algo falló. Intente de nuevo.";
 
   // =========================================================
@@ -276,7 +303,7 @@
   async function salir(motivo) {
     if (!motivo) {
       const n = porEnviar();
-      if (n && !confirm(`Hay ${n} ${n === 1 ? "cosa hecha" : "cosas hechas"} sin internet que todavía no se han enviado. Quedan guardadas en esta compu y se envían la próxima vez que entre. ¿Salir?`)) return;
+      if (n && !await preguntar(`Hay ${n} ${n === 1 ? "cosa hecha" : "cosas hechas"} sin internet que todavía no se han enviado. Quedan guardadas en esta compu y se envían la próxima vez que entre. ¿Salir?`)) return;
       copia.borrar();      // al salir a propósito se borra la copia de ventas y clientes de esta compu
     }
     try { await db.auth.signOut(); } catch { /* ya no hay sesión */ }
@@ -583,7 +610,7 @@
     if (b.dataset.editCat) modoCat(categorias.find((x) => x.id == b.dataset.editCat));
     if (b.dataset.delCat) {
       const c = categorias.find((x) => x.id == b.dataset.delCat);
-      if (!confirm(`¿Borrar la categoría “${c.nombre}”? Sus productos quedan sin categoría.`)) return;
+      if (!await preguntar(`¿Borrar la categoría “${c.nombre}”? Sus productos quedan sin categoría.`)) return;
       const { error } = await db.from("categorias").delete().eq("id", c.id);
       if (error) return toast(errTxt(error), true);
       toast("Categoría borrada");
@@ -706,7 +733,7 @@
     }
     if (b.dataset.del) {
       const p = productos.find((x) => x.id == b.dataset.del);
-      if (!confirm(`¿Borrar “${p.nombre}”? Si solo quiere esconderlo, use Editar y quite “Mostrar en el sitio”.`)) return;
+      if (!await preguntar(`¿Borrar “${p.nombre}”? Si solo quiere esconderlo, use Editar y quite “Mostrar en el sitio”.`)) return;
       const { error } = await db.from("productos").delete().eq("id", p.id);
       if (error) return toast(errTxt(error), true);
       await borrarFoto(p.imagen_url);
@@ -1033,14 +1060,14 @@
     const u = USUARIOS.find((x) => x.user_id === li.dataset.uid);
     const quien = u.nombre || u.usuario || "esta persona";
     if (e.target.closest("[data-clave-usuario]")) {
-      const clave = prompt(`Nueva contraseña para ${quien} (8 o más, con letras y números):`, claveNueva());
+      const clave = await pedirTexto(`Nueva contraseña para ${quien} (8 o más, con letras y números):`, claveNueva());
       if (clave === null) return;
       try { await llamarUsuarios({ accion: "clave", user_id: u.user_id, clave }); msgUsu(`Contraseña de ${quien} cambiada. Désela en persona.`); }
       catch (err) { msgUsu(err.message, true); }
       return cargarUsuarios();
     }
     if (e.target.closest("[data-renombrar-usuario]")) {
-      const nuevo = prompt(`Nuevo usuario para entrar (${quien}). Minúsculas, sin espacios:`, u.usuario || "");
+      const nuevo = await pedirTexto(`Nuevo usuario para entrar (${quien}). Minúsculas, sin espacios:`, u.usuario || "");
       if (nuevo === null || nuevo.trim().toLowerCase() === u.usuario) return;
       try { const r = await llamarUsuarios({ accion: "renombrar", user_id: u.user_id, usuario: nuevo }); msgUsu(`Ahora ${quien} entra con el usuario «${r.usuario}».`); }
       catch (err) { msgUsu(err.message, true); }
@@ -1057,7 +1084,7 @@
         if (error) throw error;
       }
       if (rol !== u.rol) {
-        if (rol === "administrador" && !confirm(`${quien} va a poder hacer TODO (borrar ventas, cambiar precios, usuarios…) y va a tener que usar el autenticador del celular. ¿Seguir?`)) throw new Error("No se cambió el rol.");
+        if (rol === "administrador" && !await preguntar(`${quien} va a poder hacer TODO (borrar ventas, cambiar precios, usuarios…) y va a tener que usar el autenticador del celular. ¿Seguir?`)) throw new Error("No se cambió el rol.");
         const { error } = await db.rpc("poner_rol_usuario", { p_user: u.user_id, p_rol: rol });
         if (error) throw error;
       }
@@ -1812,7 +1839,7 @@
     await enviarCola();
     pintarPendientes();
   });
-  $("#listaPendientes").addEventListener("click", (e) => {
+  $("#listaPendientes").addEventListener("click", async (e) => {
     const b = e.target.closest("button"); if (!b) return;
     if (b.dataset.pendVenta) { $("#dlgPendientes").close(); return abrirLocal(b.dataset.pendVenta); }
     if (b.dataset.pendOtraVenta) {
@@ -1828,7 +1855,7 @@
       const txt = a.tipo === "fe"
         ? "OJO: el cliente ya tiene el recibo con la clave de este comprobante. Si lo descarta, nunca llega a Hacienda. ¿Descartarlo de todos modos?"
         : `¿Descartar “${a.desc || a.tipo}”? No se va a enviar.`;
-      if (!confirm(txt)) return;
+      if (!await preguntar(txt)) return;
       acciones.quitar(a.id);
       pintarPendientes(); pintarBandaRed(); cargarVentas();
       if (a.tipo.startsWith("caja_")) cargarTurno();
@@ -1962,8 +1989,8 @@
     $("#btnListo").textContent = p?.listo_at ? "Avisar otra vez que está listo" : "Avisar que está listo";
     // un saldo que viene de Moriah ya se facturó allá
     // sin internet: los datos para factura de una venta hecha en la compu se guardan con ella
-    // con facturación electrónica activa, la factura se emite abajo: el registro a mano sobra
-    $("#boxFactura").hidden = !p || !V4 || (V10 && !!FE?.activo) || !!V.copia || (!!V.local && !V19) || !!p.saldo_inicial;
+    // el registro a mano de una factura hecha en otro sistema solo se ve si la venta ya tiene uno
+    $("#boxFactura").hidden = !p || !V4 || (V10 && !!FE?.activo) || !V.factura || !!V.copia || (!!V.local && !V19) || !!p.saldo_inicial;
     if (!$("#boxFactura").hidden) pintarFactura();
     $("#boxFE").hidden = !p || !V10 || !FE?.activo || !!p.saldo_inicial;
     if (!$("#boxFE").hidden) pintarFEVenta();
@@ -1985,11 +2012,11 @@
         <button type="button" class="enlace enlace--peligro" data-quitar-pago-local="${n}">Quitar</button></div>
     </li>`;
   }
-  $("#pagosVenta").addEventListener("click", (e) => {
+  $("#pagosVenta").addEventListener("click", async (e) => {
     const q = e.target.closest("[data-quitar-pago-pend]");
     if (q) {
       e.stopImmediatePropagation();
-      if (!confirm("¿Quitar este pago? Todavía no se ha enviado.")) return;
+      if (!await preguntar("¿Quitar este pago? Todavía no se ha enviado.")) return;
       acciones.quitar(q.dataset.quitarPagoPend);
       aplicarPendientesVenta(); pintarVenta(); cargarVentas(); pintarBandaRed();
       return;
@@ -1997,7 +2024,7 @@
     const b = e.target.closest("[data-quitar-pago-local]");
     if (!b || !V.local) return;
     e.stopImmediatePropagation();
-    if (!confirm("¿Quitar este pago? La venta todavía no se ha enviado.")) return;
+    if (!await preguntar("¿Quitar este pago? La venta todavía no se ha enviado.")) return;
     const rec = cola.buscar(V.local); if (!rec) return;
     rec.venta.pagos.splice(Number(b.dataset.quitarPagoLocal), 1);
     rec.error = null;
@@ -2143,7 +2170,7 @@
     const items = V.items.map((i) => ({ producto_id: i.producto_id || null, descripcion: String(i.descripcion || "").trim(), cantidad: Number(i.cantidad), precio_unit: Number(i.precio_unit) || 0 }));
     if (items.some((i) => !i.descripcion || !(i.cantidad > 0) || i.precio_unit < 0)) { msg.textContent = "Cada renglón necesita descripción, cantidad mayor que 0 y precio."; return false; }
     if (!items.length) { msg.textContent = "Agregue al menos un producto."; return false; }
-    if (items.some((i) => i.precio_unit === 0) && !confirm("Hay renglones con precio ₡0. ¿Guardar así?")) return false;
+    if (items.some((i) => i.precio_unit === 0) && !await preguntar("Hay renglones con precio ₡0. ¿Guardar así?")) return false;
 
     if (V.copia) return false;
     const errCredito = revisarCredito(items) || revisarApartado();
@@ -2217,8 +2244,8 @@
   // Esc pasa por la misma pregunta que la ✕
   $("#dlgVenta").addEventListener("cancel", (e) => { e.preventDefault(); $("#btnCerrarVenta").click(); });
 
-  $("#btnCerrarVenta").addEventListener("click", () => {
-    if (V && V.dirty && itemsEditables() && !confirm("Hay cambios sin guardar. ¿Cerrar igual?")) return;
+  $("#btnCerrarVenta").addEventListener("click", async () => {
+    if (V && V.dirty && itemsEditables() && !await preguntar("Hay cambios sin guardar. ¿Cerrar igual?")) return;
     $("#dlgVenta").close();
   });
 
@@ -2759,13 +2786,13 @@
   $("#cliAbonos").addEventListener("click", async (e) => {
     const v = e.target.closest("[data-verificar-abono]"), a = e.target.closest("[data-anular-abono]"), q = e.target.closest("[data-quitar-abono-pend]");
     if (q) {
-      if (!confirm("¿Quitar este abono? Todavía no se ha enviado.")) return;
+      if (!await preguntar("¿Quitar este abono? Todavía no se ha enviado.")) return;
       acciones.quitar(q.dataset.quitarAbonoPend);
       ajustarSaldos(); pintarCifrasCliente(); pintarCuentaCliente(); pintarClientes(); pintarBandaRed();
       return;
     }
     if (v && (String(v.dataset.verificarAbono).startsWith("acc:") || !enLinea())) {
-      if (!confirm("¿Confirma que ya vio este abono en la app del banco?")) return;
+      if (!await preguntar("¿Confirma que ya vio este abono en la app del banco?")) return;
       const id = String(v.dataset.verificarAbono);
       if (id.startsWith("acc:")) {
         const x = acciones.leer().find((y) => y.id === id.slice(4));
@@ -2781,7 +2808,7 @@
       toast("Abono marcado como recibido"); await recargarCliente(); contarPorVerificar();
     }
     if (a) {
-      const motivo = prompt("¿Por qué se anula este abono? (vuelve a quedar como deuda)", "");
+      const motivo = await pedirTexto("¿Por qué se anula este abono? (vuelve a quedar como deuda)", "");
       if (motivo === null) return;
       if (motivo.trim().length < 5) return toast("Escriba el motivo (al menos 5 letras).", true);
       const { error } = await db.rpc("anular_abono", { p_id: Number(a.dataset.anularAbono), p_motivo: motivo.trim() });
@@ -2989,7 +3016,7 @@
     const lista = SALDOS.filter((r) => !r.error), b = $("#btnPasarSaldos"), msg = $("#saldosMsg");
     if (!lista.length) return;
     const total = lista.reduce((t, r) => t + Number(r.monto), 0);
-    if (!confirm(`¿Pasar ${lista.length} ${lista.length === 1 ? "saldo" : "saldos"} por ${fmt(total)}? Quedan como deudas a crédito en la cuenta de cada cliente.`)) return;
+    if (!await preguntar(`¿Pasar ${lista.length} ${lista.length === 1 ? "saldo" : "saldos"} por ${fmt(total)}? Quedan como deudas a crédito en la cuenta de cada cliente.`)) return;
     b.disabled = true;
     const tot = { creados: 0, repetidos: 0, clientes_nuevos: 0 }, fallas = [];
     const pasadas = new Set();
@@ -3183,7 +3210,7 @@
     if (tipo === "01" && !V.factura) return "Para factura, primero anote los datos del cliente en “El cliente pide factura”.";
     return "";
   }
-  function hacerFESinRed(tipo) {
+  async function hacerFESinRed(tipo) {
     const msg = $("#feMsg");
     const err = revisarFESinRed(tipo);
     if (err) { msg.className = "msg msg--error"; msg.textContent = err; return; }
@@ -3199,7 +3226,7 @@
     if (!a) { msg.className = "msg msg--error"; msg.textContent = "No hay espacio en esta compu para guardarlo."; return; }
     msg.className = "msg"; msg.textContent = "Listo: imprima el recibo, lleva la clave del comprobante. Se manda a Hacienda solo cuando vuelva la conexión.";
     pintarFEVenta(); pintarBandaRed();
-    if (confirm("Comprobante hecho sin internet. ¿Imprimir el recibo para el cliente?")) $("#btnImprimir").click();
+    if (await preguntar("Comprobante hecho sin internet. ¿Imprimir el recibo para el cliente?")) $("#btnImprimir").click();
   }
   $("#feDocs").addEventListener("click", async (e) => {
     const b = e.target.closest("[data-fe]"); if (!b) return;
@@ -3207,10 +3234,10 @@
     if (acc === "consultar") return accionFE({ accion: "consultar", documento_id: id }, "Consultando a Hacienda…");
     if (acc === "enviar") return accionFE({ accion: "enviar", documento_id: id }, "Enviando a Hacienda…");
     if (acc === "anular") {
-      const motivo = prompt("Motivo de la nota de crédito (lo ve Hacienda):", "Devolución de la mercadería");
+      const motivo = await pedirTexto("Motivo de la nota de crédito (lo ve Hacienda):", "Devolución de la mercadería");
       if (motivo === null) return;
       if (motivo.trim().length < 3) return toast("Escriba el motivo.", true);
-      if (!confirm("Se emite una nota de crédito por el total y el comprobante queda anulado ante Hacienda. ¿Seguir?")) return;
+      if (!await preguntar("Se emite una nota de crédito por el total y el comprobante queda anulado ante Hacienda. ¿Seguir?")) return;
       return accionFE({ accion: "anular", documento_id: id, motivo: motivo.trim() }, "Emitiendo la nota de crédito…");
     }
     if (acc === "xml") return descargarXmlFE(id);
@@ -3368,7 +3395,7 @@
     const pg = e.target.closest("[data-pagar-entrada]");
     if (pg) return abrirPagoProv(Number(pg.dataset.pagarEntrada));
     const b = e.target.closest("[data-anular-entrada]"); if (!b) return;
-    const motivo = prompt("¿Por qué se anula esta entrada? (se resta lo que había sumado)", "Se registró por error");
+    const motivo = await pedirTexto("¿Por qué se anula esta entrada? (se resta lo que había sumado)", "Se registró por error");
     if (motivo === null) return;
     if (motivo.trim().length < 3) return toast("Escriba el motivo.", true);
     const { error } = await db.rpc("anular_entrada", { p_id: Number(b.dataset.anularEntrada), p_motivo: motivo.trim() });
@@ -3516,8 +3543,8 @@
     if (pr && pr.dias_credito && f.condicion.value === "contado") { f.condicion.value = "credito"; f.vence.value = ""; }
     if (f.condicion.value === "credito") { f.vence.value = ""; condicionEntrada(); }
   });
-  $("#btnCerrarEntrada").addEventListener("click", () => {
-    if (ENT.size && !confirm("La entrada no se ha guardado. ¿Cerrar de todos modos?")) return;
+  $("#btnCerrarEntrada").addEventListener("click", async () => {
+    if (ENT.size && !await preguntar("La entrada no se ha guardado. ¿Cerrar de todos modos?")) return;
     $("#dlgEntrada").close();
   });
   $("#formEntrada").addEventListener("submit", async (e) => {
@@ -3536,12 +3563,12 @@
     if (cred && !nomProv) { msg.className = "msg msg--error"; msg.textContent = "Para una compra a crédito, escriba el proveedor."; return; }
     if (cred && !(Number(f.total_factura.value) > 0)) { msg.className = "msg msg--error"; msg.textContent = "Escriba el total de la factura (lo que se le debe al proveedor)."; return; }
     if (V21 && nomProv && !prov) {
-      if (!confirm(`“${nomProv}” no está en la lista de proveedores. ¿Agregarlo?`)) return;
+      if (!await preguntar(`“${nomProv}” no está en la lista de proveedores. ¿Agregarlo?`)) return;
       const { data: np, error: eP } = await db.from("proveedores").insert({ nombre: nomProv }).select("*").single();
       if (eP) { msg.className = "msg msg--error"; msg.textContent = errTxt(eP); return; }
       PROVS.push(np); prov = np;
     }
-    if (!confirm(`¿Guardar la entrada?${cred ? ` Queda a crédito: se le deben ${fmt(f.total_factura.value)} a ${prov.nombre}, vence ${fechaDia(f.vence.value)}.` : ""} Se suman ${filas.length} ${filas.length === 1 ? "producto" : "productos"} al inventario${precios ? ` y cambian ${precios} ${precios === 1 ? "precio" : "precios"} de venta` : ""}.`)) return;
+    if (!await preguntar(`¿Guardar la entrada?${cred ? ` Queda a crédito: se le deben ${fmt(f.total_factura.value)} a ${prov.nombre}, vence ${fechaDia(f.vence.value)}.` : ""} Se suman ${filas.length} ${filas.length === 1 ? "producto" : "productos"} al inventario${precios ? ` y cambian ${precios} ${precios === 1 ? "precio" : "precios"} de venta` : ""}.`)) return;
     const b = $("#btnGuardarEntrada"); b.disabled = true; msg.className = "msg"; msg.textContent = "Guardando…";
     const datos = {
       proveedor: nomProv, documento: f.documento.value.trim(), fecha: f.fecha.value, nota: f.nota.value.trim(),
@@ -3990,9 +4017,9 @@
     $("#aiCosto").textContent = costo ? (costo < 0 ? "−" : "+") + fmt(Math.abs(costo)) + " al costo" : "";
     $("#btnGuardarAjusteInv").disabled = !n;
   }
-  $("#aiTipo").addEventListener("click", (e) => {
+  $("#aiTipo").addEventListener("click", async (e) => {
     const b = e.target.closest("[data-ai]"); if (!b || b.dataset.ai === AI.tipo) return;
-    if (AI.filas.size && !confirm("Se borra la lista que lleva. ¿Cambiar?")) return;
+    if (AI.filas.size && !await preguntar("Se borra la lista que lleva. ¿Cambiar?")) return;
     AI.tipo = b.dataset.ai; AI.filas.clear(); ayudaAjuste(); pintarAjusteInv();
   });
   buscadorProductos($("#aiBuscar"), $("#aiRes"), (p) => {
@@ -4019,8 +4046,8 @@
     ayudaAjuste(); pintarAjusteInv();
     $("#dlgAjusteInv").showModal(); $("#aiBuscar").focus();
   });
-  $("#btnCerrarAjusteInv").addEventListener("click", () => {
-    if (AI.filas.size && !confirm("No se ha guardado. ¿Cerrar de todos modos?")) return;
+  $("#btnCerrarAjusteInv").addEventListener("click", async () => {
+    if (AI.filas.size && !await preguntar("No se ha guardado. ¿Cerrar de todos modos?")) return;
     $("#dlgAjusteInv").close();
   });
   $("#formAjusteInv").addEventListener("submit", async (e) => {
@@ -4034,7 +4061,7 @@
     }
     if (salida && f.motivo.value === "otro" && !f.nota.value.trim()) return mal("Con “Otro”, escriba en la nota qué pasó.");
     const negativos = salida ? filas.filter((x) => Number(x.p.existencia) - Number(x.cant) < 0).length : 0;
-    if (!confirm(salida
+    if (!await preguntar(salida
       ? `¿Restar ${filas.length} ${filas.length === 1 ? "producto" : "productos"} del inventario (${MOTIVO_AJ[f.motivo.value]})?${negativos ? `\n\nOjo: ${negativos} quedan en negativo.` : ""}`
       : `¿Dejar la existencia de ${filas.length} ${filas.length === 1 ? "producto" : "productos"} en lo que contó?`)) return;
     const b = $("#btnGuardarAjusteInv"); b.disabled = true; msg.className = "msg"; msg.textContent = "Guardando…";
@@ -4073,7 +4100,7 @@
   }, true);
   $("#listaAjustesInv").addEventListener("click", async (e) => {
     const b = e.target.closest("[data-anular-ajuste]"); if (!b) return;
-    const motivo = prompt("¿Por qué se anula? (la existencia vuelve a como estaba antes de este movimiento)", "Se registró por error");
+    const motivo = await pedirTexto("¿Por qué se anula? (la existencia vuelve a como estaba antes de este movimiento)", "Se registró por error");
     if (motivo === null) return;
     if (motivo.trim().length < 3) return toast("Escriba el motivo.", true);
     const { error } = await db.rpc("anular_ajuste", { p_id: Number(b.dataset.anularAjuste), p_motivo: motivo.trim() });
@@ -4202,7 +4229,7 @@
     if (!(monto > 0) || !numOk(f.monto.value)) return mal("Revise el monto.");
     if (monto > Number(f.monto.max)) return mal(`El pago es mayor que lo que se debe (${fmt(f.monto.max)}).`);
     const deCaja = f.metodo.value === "efectivo" && f.de_caja.checked;
-    if (!confirm(`¿Anotar el pago de ${fmt(monto)} (${ETQ_METODO[f.metodo.value] || f.metodo.value})${deCaja ? " y sacarlo de la caja" : ""}?`)) return;
+    if (!await preguntar(`¿Anotar el pago de ${fmt(monto)} (${ETQ_METODO[f.metodo.value] || f.metodo.value})${deCaja ? " y sacarlo de la caja" : ""}?`)) return;
     msg.className = "msg"; msg.textContent = "Guardando…";
     const { data, error } = await db.rpc("pagar_proveedor", { p: { entrada_id: f.entrada_id.value, monto: String(Math.round(monto * 100) / 100), metodo: f.metodo.value,
       fecha: f.fecha.value, referencia: f.referencia.value.trim(), nota: f.nota.value.trim(), de_caja: deCaja } });
@@ -4230,7 +4257,7 @@
   }
   $("#listaPagosProv").addEventListener("click", async (e) => {
     const b = e.target.closest("[data-anular-pagoprov]"); if (!b) return;
-    const motivo = prompt("¿Por qué se anula este pago? (vuelve a quedar como deuda; si salió de la caja, el efectivo vuelve a la caja abierta)", "Se anotó por error");
+    const motivo = await pedirTexto("¿Por qué se anula este pago? (vuelve a quedar como deuda; si salió de la caja, el efectivo vuelve a la caja abierta)", "Se anotó por error");
     if (motivo === null) return;
     if (motivo.trim().length < 3) return toast("Escriba el motivo.", true);
     const { error } = await db.rpc("anular_pago_proveedor", { p_id: Number(b.dataset.anularPagoprov), p_motivo: motivo.trim() });
@@ -4288,7 +4315,7 @@
       } catch (err) { malos.push(`${a.name}: ${err.message}`); }
     }
     if (nuevos || repetidos) toast(`${nuevos ? `${nuevos} ${nuevos === 1 ? "factura subida" : "facturas subidas"}` : ""}${nuevos && repetidos ? " · " : ""}${repetidos ? `${repetidos} ya estaba${repetidos === 1 ? "" : "n"}` : ""}`);
-    if (malos.length) alert("No se pudieron subir:\n\n" + malos.join("\n"));
+    if (malos.length) await avisar("No se pudieron subir:\n\n" + malos.join("\n"));
     comVista = "recibidas"; cargarCompras(); contarRecibidos();
   });
 
@@ -4339,7 +4366,7 @@
       return;
     }
     if (acc === "borrar") {
-      if (!confirm(`¿Borrar la factura de ${r.emisor_nombre}? (solo se borra aquí; no se le contesta nada a Hacienda)`)) return;
+      if (!await preguntar(`¿Borrar la factura de ${r.emisor_nombre}? (solo se borra aquí; no se le contesta nada a Hacienda)`)) return;
       const { error } = await db.rpc("borrar_recibido", { p_id: id });
       if (error) return toast(errTxt(error), true);
       toast("Factura borrada"); cargarRecibidos(); contarRecibidos(); return;
@@ -4385,7 +4412,7 @@
     if (recMsj !== "1" && det.length < 3) return mal("Escriba el motivo.");
     const conIva = recMsj !== "3" && Number(r.impuesto) > 0;
     if (conIva && ["02", "05"].includes(f.condicion.value) && !(Number(f.acreditar.value) >= 0 && Number(f.acreditar.value) <= Number(r.impuesto) && f.acreditar.value !== "")) return mal(`El IVA que se acredita va de 0 a ${fmt(r.impuesto)}.`);
-    if (!confirm(`¿${MSJ_REC[recMsj] === "Rechazada" ? "Rechazar" : recMsj === "2" ? "Aceptar en parte" : "Aceptar"} la factura de ${r.emisor_nombre} ante Hacienda (${FE?.ambiente === "produccion" ? "producción" : "pruebas"})? Esto no se puede deshacer.`)) return;
+    if (!await preguntar(`¿${MSJ_REC[recMsj] === "Rechazada" ? "Rechazar" : recMsj === "2" ? "Aceptar en parte" : "Aceptar"} la factura de ${r.emisor_nombre} ante Hacienda (${FE?.ambiente === "produccion" ? "producción" : "pruebas"})? Esto no se puede deshacer.`)) return;
     const b = $("#btnRecEnviar"); b.disabled = true; msg.className = "msg"; msg.textContent = "Firmando y mandando a Hacienda…";
     try {
       const res = await llamarFE({ accion: "recibido_responder", recibido_id: r.id, mensaje: recMsj, detalle: det || null,
@@ -4606,9 +4633,9 @@
     armarListaFotos(); avisoFotos(""); pintarFotos();
   });
   $("#btnMasFotos").addEventListener("click", () => { FT.hasta += FOTOS_PAG; pintarFotos(); });
-  $("#dlgFotos").addEventListener("click", (e) => {
+  $("#dlgFotos").addEventListener("click", async (e) => {
     if (e.target.closest("[data-cerrar-fotos]")) {
-      if (FT.subiendo.size && !confirm("Todavía se está subiendo una foto. ¿Cerrar de todos modos?")) return;
+      if (FT.subiendo.size && !await preguntar("Todavía se está subiendo una foto. ¿Cerrar de todos modos?")) return;
       $("#dlgFotos").close();
       return;
     }
@@ -4717,9 +4744,9 @@
     $("#dlgAjuste").showModal();
     $("#ajBuscar").focus();
   });
-  $("#dlgAjuste").addEventListener("click", (e) => {
+  $("#dlgAjuste").addEventListener("click", async (e) => {
     if (!e.target.closest("[data-cerrar-ajuste]")) return;
-    if ([...AJ.values()].some(cambiaAJ) && !confirm("Hay precios sin guardar. ¿Cerrar de todos modos?")) return;
+    if ([...AJ.values()].some(cambiaAJ) && !await preguntar("Hay precios sin guardar. ¿Cerrar de todos modos?")) return;
     $("#dlgAjuste").close();
   });
   $("#btnGuardarAjuste").addEventListener("click", async () => {
@@ -4728,7 +4755,7 @@
       if (!/^[0-9]{1,10}(\.[0-9]{1,2})?$/.test(String(Number(f.nuevo)))) return toast(`Revise el precio de ${f.p.nombre}.`, true);
     }
     const sube = cambios.filter((f) => f.p.precio != null && Number(f.nuevo) > Number(f.p.precio)).length;
-    if (!confirm(`¿Cambiar ${cambios.length} ${cambios.length === 1 ? "precio" : "precios"}${sube ? ` (${sube} suben)` : ""}? Queda anotado en Movimientos.`)) return;
+    if (!await preguntar(`¿Cambiar ${cambios.length} ${cambios.length === 1 ? "precio" : "precios"}${sube ? ` (${sube} suben)` : ""}? Queda anotado en Movimientos.`)) return;
     const b = $("#btnGuardarAjuste"), msg = $("#ajMsg");
     b.disabled = true; msg.className = "msg"; msg.textContent = "Guardando…";
     const { data, error } = await db.rpc("ajustar_precios", {
@@ -4791,7 +4818,7 @@
     if (d.distrito) d.distrito = d.distrito.padStart(2, "0");
     d.sucursal = (d.sucursal || "001").padStart(3, "0"); d.terminal = (d.terminal || "00002").padStart(5, "0");
     if (d.ambiente === "produccion" && FE?.ambiente !== "produccion" &&
-        !confirm("En producción cada tiquete y factura es real ante Hacienda. ¿Pasar a producción?")) return;
+        !await preguntar("En producción cada tiquete y factura es real ante Hacienda. ¿Pasar a producción?")) return;
     msg.className = "msg"; msg.textContent = "Guardando…";
     const { data, error } = await db.from("fe_emisor").update(d).eq("id", 1).select("*").single();
     if (error) {
@@ -4948,7 +4975,7 @@
     if (d.telefono_origen && !/^[0-9 +()-]{8,20}$/.test(d.telefono_origen)) { msg.textContent = "Revise el teléfono que pagó."; return; }
     if (!d.fecha) { msg.textContent = "Indique la fecha del pago."; return; }
     const saldo = actualizarTotal() - (Number(V.pedido?.pagado_registrado) || 0);
-    if (d.monto > saldo + 0.001 && !confirm(`El monto (${fmt(d.monto)}) es mayor que lo que falta (${fmt(Math.max(0, saldo))}). ¿Cobrar igual?`)) return;
+    if (d.monto > saldo + 0.001 && !await preguntar(`El monto (${fmt(d.monto)}) es mayor que lo que falta (${fmt(Math.max(0, saldo))}). ¿Cobrar igual?`)) return;
     // una sola pregunta: si la venta no está guardada, se guarda junto con el cobro
     const guardarPrimero = !V.pedido || V.dirty;
     const COMO = { efectivo: "en efectivo", tarjeta: "con tarjeta", sinpe: "por SINPE", transferencia: "por transferencia", cheque: "con cheque", anterior: "como abonado en Moriah" };
@@ -4956,8 +4983,10 @@
       : d.verificado && !AUTO_VERIF.includes(d.metodo) ? (d.metodo === "cheque" ? `¿Confirma que el banco ya pagó el cheque ${d.referencia} por ${fmt(d.monto)}?`
         : `¿Confirma que ve ${fmt(d.monto)} con el comprobante ${d.referencia || "(sin número)"} en la app del banco?`)
       : null;
-    if (guardarPrimero) pregunta = `Se guarda la venta y se cobran ${fmt(d.monto)} ${COMO[d.metodo] || ""}.` + (pregunta ? "\n\n" + pregunta : " ¿Seguir?");
-    if (pregunta && !confirm(pregunta)) return;
+    const paga = Number($("#cobroPaga").value) || 0;
+    const vuelto = d.metodo === "efectivo" && paga > d.monto ? `\nVuelto: ${fmt(paga - d.monto)}` : "";
+    if (guardarPrimero) pregunta = `Se guarda la venta y se cobran ${fmt(d.monto)} ${COMO[d.metodo] || ""}.${vuelto}` + (pregunta ? "\n\n" + pregunta : "");
+    if (pregunta && !await preguntar(pregunta, { titulo: guardarPrimero ? "¿Cobrar la venta?" : "", si: guardarPrimero ? `Cobrar ${fmt(d.monto)}` : "Sí, seguir" })) return;
     // al guardar la venta el formulario se vuelve a pintar: lo que falta se toma antes
     const archivoSel = f.comprobante.files[0] || null, compId = f.dataset.compId || null, rutaComp = f.dataset.ruta || null;
     if (guardarPrimero && !(await guardarVenta())) return;
@@ -5034,7 +5063,7 @@
   });
 
   async function verificarPago(id, monto, ref) {
-    if (!confirm(`¿Confirma que ve ${fmt(monto)}${ref ? ` con el comprobante ${ref}` : ""} en la app del banco?`)) return false;
+    if (!await preguntar(`¿Confirma que ve ${fmt(monto)}${ref ? ` con el comprobante ${ref}` : ""} en la app del banco?`)) return false;
     // un pago anotado sin internet: se marca antes de mandarlo
     if (String(id).startsWith("acc:")) {
       const a = acciones.leer().find((x) => x.id === String(id).slice(4));
@@ -5336,7 +5365,7 @@
 
   $("#btnBorrarViejos").addEventListener("click", async () => {
     if (!enZip.length) return;
-    if (!confirm(`¿Borrar del sistema ${enZip.length} fotos de comprobantes? Los pagos quedan registrados; solo se borran las imágenes. Asegúrese de haber guardado el ZIP.`)) return;
+    if (!await preguntar(`¿Borrar del sistema ${enZip.length} fotos de comprobantes? Los pagos quedan registrados; solo se borran las imágenes. Asegúrese de haber guardado el ZIP.`)) return;
     const msg = $("#limpiarMsg"), btn = $("#btnBorrarViejos");
     btn.disabled = true; msg.className = "msg"; msg.textContent = "Borrando…";
     let borradas = 0;
@@ -5384,7 +5413,7 @@
     if (b.dataset.verificar) {
       if (V.local) {
         // pago de una venta hecha sin internet: se marca dentro de la venta guardada
-        if (!confirm(`¿Confirma que ve ${fmt(b.dataset.monto)}${b.dataset.ref ? ` con el comprobante ${b.dataset.ref}` : ""} en la app del banco?`)) return;
+        if (!await preguntar(`¿Confirma que ve ${fmt(b.dataset.monto)}${b.dataset.ref ? ` con el comprobante ${b.dataset.ref}` : ""} en la app del banco?`)) return;
         const rec = cola.buscar(V.local), i = Number(b.dataset.verificar);
         if (rec && rec.venta.pagos[i]) { rec.venta.pagos[i].verificado = true; rec.error = null; cola.guardar(rec); abrirLocal(rec.id); pintarVentas(); }
         return;
@@ -5395,7 +5424,7 @@
       cargarVentas();
     }
     if (b.dataset.anularPago) {
-      const motivo = prompt("Motivo de la anulación del pago (queda registrado):");
+      const motivo = await pedirTexto("Motivo de la anulación del pago (queda registrado):");
       if (motivo === null) return;
       const { error } = await db.from("pagos").update({ anulado: true, motivo_anulacion: motivo.trim().slice(0, 300) }).eq("id", b.dataset.anularPago);
       if (error) return toast(errTxt(error), true);
@@ -5431,7 +5460,7 @@
       verComprobante(c.ruta);
     }
     if (b.dataset.rechazarComp) {
-      const motivo = prompt("¿Por qué se rechaza este comprobante? El cliente verá el motivo en “Mi pedido”.");
+      const motivo = await pedirTexto("¿Por qué se rechaza este comprobante? El cliente verá el motivo en “Mi pedido”.");
       if (motivo === null) return;
       if (motivo.trim().length < 5) return toast("Escriba un motivo más claro (mínimo 5 letras).", true);
       const { error } = await db.from("comprobantes_cliente").update({ estado: "rechazado", motivo_rechazo: motivo.trim().slice(0, 300) }).eq("id", c.id);
@@ -5445,7 +5474,7 @@
     const p = V.pedido;
     if (p.apartado && Number(p.pagado_verificado) < Number(p.total))
       return toast(`Este apartado no está pagado completo (falta ${fmt(p.total - p.pagado_verificado)} pagado y verificado). Se entrega cuando termine de pagar.`, true);
-    if (p.pagado_verificado < p.total && !confirm(`Esta venta no está pagada y verificada por completo (falta ${fmt(p.total - p.pagado_verificado)}). ¿Marcarla entregada igual?`)) return;
+    if (p.pagado_verificado < p.total && !await preguntar(`Esta venta no está pagada y verificada por completo (falta ${fmt(p.total - p.pagado_verificado)}). ¿Marcarla entregada igual?`)) return;
     if (!enLinea() || V.local) {
       if (V.dirty) return toast("Primero guarde los cambios de la venta.", true);
       acciones.agregar("entregar", {}, { venta: refVenta(), desc: `Entregar ${p.codigo} · ${p.cliente_nombre}` });
@@ -5479,7 +5508,7 @@
     if (!enLinea() || V.local) {
       if (V.dirty) return toast("Primero guarde los cambios de la venta.", true);
       const conFE = (V10 && feSinNota()) || fePendientes().length;
-      const motivo = prompt(conFE ? "Esta venta tiene comprobante electrónico: la nota de crédito se hace sola cuando vuelva la conexión (y Hacienda haya aceptado el comprobante). Después se anula la venta.\n\n¿Por qué se anula?"
+      const motivo = await pedirTexto(conFE ? "Esta venta tiene comprobante electrónico: la nota de crédito se hace sola cuando vuelva la conexión (y Hacienda haya aceptado el comprobante). Después se anula la venta.\n\n¿Por qué se anula?"
         : "¿Por qué se anula esta venta? (queda registrado)");
       if (motivo === null) return;
       if (motivo.trim().length < 5) return toast("Escriba el motivo (al menos 5 letras).", true);
@@ -5494,7 +5523,7 @@
     if (doc && doc.estado !== "aceptado") {
       return toast(`Hacienda todavía no ha aceptado ${doc.tipo === "01" ? "la factura electrónica" : "el tiquete electrónico"} de esta venta. Cuando lo acepte, se anula con nota de crédito.`.replace("Cuando lo acepte", doc.tipo === "01" ? "Cuando la acepte" : "Cuando lo acepte"), true);
     }
-    const motivo = prompt(doc ? `Esta venta tiene ${doc.tipo === "01" ? "factura electrónica" : "tiquete electrónico"} N.º ${numeroFE(doc)}: se anula con una nota de crédito por el total (la ve Hacienda).\n\n¿Por qué se anula?`
+    const motivo = await pedirTexto(doc ? `Esta venta tiene ${doc.tipo === "01" ? "factura electrónica" : "tiquete electrónico"} N.º ${numeroFE(doc)}: se anula con una nota de crédito por el total (la ve Hacienda).\n\n¿Por qué se anula?`
       : "¿Por qué se anula esta venta? (queda registrado)");
     if (motivo === null) return;
     if (motivo.trim().length < 5) return toast("Escriba el motivo (al menos 5 letras).", true);
@@ -5511,7 +5540,7 @@
 
   $("#btnBorrarVenta").addEventListener("click", async () => {
     if (V.local) {
-      if (!confirm("¿Borrar esta venta hecha sin internet? Todavía no se ha enviado, así que se pierde.")) return;
+      if (!await preguntar("¿Borrar esta venta hecha sin internet? Todavía no se ha enviado, así que se pierde.")) return;
       cola.quitar(V.local);
       $("#dlgVenta").close();
       toast("Venta borrada");
@@ -5520,12 +5549,12 @@
     }
     let error;
     if (V16) {
-      const motivo = prompt("Borrar la venta la quita del sistema; queda solo en la bitácora con todo lo que tenía.\n\n¿Por qué se borra? (si fue una venta real, mejor anúlela)");
+      const motivo = await pedirTexto("Borrar la venta la quita del sistema; queda solo en la bitácora con todo lo que tenía.\n\n¿Por qué se borra? (si fue una venta real, mejor anúlela)");
       if (motivo === null) return;
       if (motivo.trim().length < 5) return toast("Escriba el motivo (al menos 5 letras).", true);
       ({ error } = await db.rpc("borrar_venta", { p_pedido: V.pedido.id, p_motivo: motivo.trim().slice(0, 300) }));
     } else {
-      if (!confirm("¿Borrar esta venta? No tiene pagos.")) return;
+      if (!await preguntar("¿Borrar esta venta? No tiene pagos.")) return;
       ({ error } = await db.from("pedidos").delete().eq("id", V.pedido.id));
     }
     if (error) return toast(errTxt(error), true);
@@ -5953,8 +5982,8 @@
     if (f.contado.value === "" || !(Number(f.contado.value) >= 0)) { msg.className = "msg msg--error"; msg.textContent = "Escriba el efectivo contado."; return; }
     const contado = Math.round(Number(f.contado.value) * 100) / 100;
     const d = Math.round((contado - Number(TURNO_RES.efectivo_esperado)) * 100) / 100;
-    if (Math.abs(d) >= 0.005 && !confirm(`${d > 0 ? "Sobran" : "Faltan"} ${fmt(Math.abs(d))}. ¿Cerrar la caja así?`)) return;
-    if (Number(TURNO_RES.pagos.sinpe_sin_verificar) > 0 && !confirm(`Hay ${fmt(TURNO_RES.pagos.sinpe_sin_verificar)} en SINPE sin verificar. ¿Cerrar de todos modos?`)) return;
+    if (Math.abs(d) >= 0.005 && !await preguntar(`${d > 0 ? "Sobran" : "Faltan"} ${fmt(Math.abs(d))}. ¿Cerrar la caja así?`)) return;
+    if (Number(TURNO_RES.pagos.sinpe_sin_verificar) > 0 && !await preguntar(`Hay ${fmt(TURNO_RES.pagos.sinpe_sin_verificar)} en SINPE sin verificar. ¿Cerrar de todos modos?`)) return;
     const conteo = {};
     $$("#conteoBilletes [data-billete]").forEach((i) => { if (Number(i.value) > 0) conteo[i.dataset.billete] = Math.round(Number(i.value)); });
     if (!enLinea()) {
@@ -5966,7 +5995,7 @@
       toast(`Sin internet: caja cerrada (${difTxt(d)}, aproximado). Se envía al volver la conexión.`);
       pintarCajaSinRed(); pintarBandaRed();
       const t = CIERRES[0];
-      if (t && confirm("¿Imprimir el cierre de caja?")) imprimirHTML(cierreHTML(t));
+      if (t && await preguntar("¿Imprimir el cierre de caja?")) imprimirHTML(cierreHTML(t));
       return;
     }
     msg.className = "msg"; msg.textContent = "Cerrando…";
@@ -5976,7 +6005,7 @@
     toast(`Caja cerrada: ${difTxt(d)}`);
     await cargarTurno();
     const t = CIERRES[0];
-    if (t && confirm("¿Imprimir el cierre de caja?")) imprimirHTML(cierreHTML(t));
+    if (t && await preguntar("¿Imprimir el cierre de caja?")) imprimirHTML(cierreHTML(t));
   });
   function cierreHTML(t) {
     const r = t.resumen || {}, v = r.ventas || {}, g = r.pagos || {}, aj = ajustesCache;
@@ -6337,7 +6366,7 @@
     const vendidos = importacion.filter((x) => !x.error && x.fila.codigo && x.fila.vendido !== undefined)
       .map((x) => ({ codigo: x.fila.codigo, vendido: x.fila.vendido }));
     if (!filas.length) return;
-    if (!confirm(`¿Importar ${filas.length} productos? Los que ya existen se actualizan con los datos del archivo.`)) return;
+    if (!await preguntar(`¿Importar ${filas.length} productos? Los que ya existen se actualizan con los datos del archivo.`)) return;
     b.disabled = true;
     const tot = { insertados: 0, actualizados: 0, categorias_nuevas: 0, errores: [] };
     try {

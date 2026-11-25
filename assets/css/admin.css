@@ -652,3 +652,16 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
   .venta__head #papel { display: none; }
 }
 .venta__codigo:empty { display: none; }
+
+/* pregunta propia del panel (en vez de la ventanita del navegador) */
+.dlg--pregunta { width: min(440px, 100vw - 2rem); }
+.pregunta { display: grid; gap: .9rem; padding: 1.5rem; }
+.pregunta__tit { margin: 0; font-family: var(--base); font-weight: 600; font-size: 1.3rem; color: var(--negro); }
+.pregunta__tit:empty { display: none; }
+.pregunta__txt { margin: 0; font-size: 1.05rem; line-height: 1.5; white-space: pre-line; color: var(--texto); }
+.pregunta__campo[hidden] { display: none; }
+.pregunta__btns { display: flex; flex-direction: row-reverse; justify-content: flex-start; gap: .6rem; flex-wrap: wrap; margin-top: .3rem; }
+.pregunta__btns .btn { border-radius: 99px; min-width: 7.5rem; }
+.pregunta__btns .btn--peligro { background: var(--peligro); border-color: var(--peligro); color: #fff; }
+.pregunta__btns #preguntaNo[hidden] { display: none; }
+@media (max-width: 600px) { .pregunta__btns .btn { flex: 1 1 auto; } }
