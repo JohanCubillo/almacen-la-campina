@@ -1187,6 +1187,15 @@
           <p class="venta__estado" id="ventaEstado"></p>
         </div>
         <span class="venta__codigo" id="ventaCodigo"></span>
+        <span class="imprimir">
+          <button type="button" class="icono-btn" id="btnImprimir" aria-label="Imprimir recibo" title="Imprimir recibo"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg></button>
+          <label class="sr" for="papel">Tamaño del papel</label>
+          <select id="papel" title="Tamaño del papel">
+            <option value="80">80 mm</option>
+            <option value="58">58 mm</option>
+            <option value="carta">Carta</option>
+          </select>
+        </span>
         <button type="button" class="cerrar-x" id="btnCerrarVenta" aria-label="Cerrar">✕</button>
       </header>
 
@@ -1233,26 +1242,68 @@
       </div>
       <p class="ayuda" id="itemsBloqueo" hidden>Los productos ya no se pueden cambiar porque la venta tiene pagos verificados o está cerrada.</p>
 
-      <div class="venta__guardar">
-        <button type="button" class="btn btn--negro" id="btnGuardarVenta">Guardar venta</button>
-        <button type="button" class="btn btn--wa" id="btnCobrarWa">Enviar cobro por WhatsApp</button>
-        <button type="button" class="btn btn--linea v4" id="btnListo">Avisar que está listo</button>
-        <span class="imprimir">
-          <button type="button" class="btn btn--linea" id="btnImprimir">Imprimir recibo</button>
-          <label class="sr" for="papel">Tamaño del papel</label>
-          <select id="papel">
-            <option value="80">Térmica 80 mm</option>
-            <option value="58">Térmica 58 mm</option>
-            <option value="carta">Hoja carta</option>
-          </select>
-        </span>
-      </div>
-      <p class="msg msg--error" id="ventaMsg" role="alert"></p>
 
       <section id="boxCompCliente" hidden>
         <h3 class="subt">Comprobantes enviados por el cliente</h3>
         <ul class="pagos" id="compCliente"></ul>
       </section>
+
+      <section id="boxPagosVenta">
+        <h3 class="subt">Pagos <span class="saldo" id="ventaSaldo"></span></h3>
+        <ul class="pagos" id="pagosVenta"></ul>
+      </section>
+
+      <section class="tarjeta cobro" id="boxPago">
+        <form id="formPago" class="cobro__form">
+          <h3 class="cobro__tit">Cobrar</h3>
+          <div class="cobro__metodos" role="radiogroup" aria-label="Forma de pago" id="cobroMetodos"></div>
+          <select name="metodo" hidden aria-hidden="true" tabindex="-1">
+            <option value="efectivo">Efectivo</option>
+            <option value="sinpe">SINPE Móvil</option>
+            <option value="tarjeta">Tarjeta</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="cheque" data-v18>Cheque</option>
+            <option value="anterior" data-v18 data-solo-admin>Abonado en Moriah</option>
+          </select>
+          <div class="cobro__fila">
+            <label class="cobro__monto">Monto ₡<input name="monto" type="number" min="1" step="0.01" inputmode="decimal" required /></label>
+            <label class="cobro__paga" id="cobroPagaLbl">Paga con ₡<input id="cobroPaga" type="number" min="0" step="1" inputmode="numeric" placeholder="Opcional" /></label>
+            <p class="cobro__vuelto" id="cobroVuelto" aria-live="polite"></p>
+            <label class="cobro__ref" id="cobroRefLbl"><span id="pagoRefTxt">N.º de comprobante</span><input name="referencia" maxlength="40" pattern="[0-9A-Za-z\-]{4,40}" autocomplete="off" /></label>
+          </div>
+          <label class="check" id="cobroVerLbl"><input type="checkbox" name="verificado" /> <span id="pagoVerTxt">Ya lo vi en el banco</span></label>
+          <details class="cobro__mas">
+            <summary>Más detalles (opcional)</summary>
+            <div class="cobro__mas-cuerpo">
+              <div class="pegar">
+                <label>Pegar el mensaje del banco
+                  <textarea id="txtBanco" rows="2" maxlength="600" placeholder="Ej: Ha recibido ₡45.000,00 de MARIA PEREZ por SINPE Movil. Ref: 2026112012345678"></textarea></label>
+                <button type="button" class="btn btn--sm btn--linea" id="btnLeerBanco">Leer datos del mensaje</button>
+              </div>
+              <div class="dos">
+                <label>Teléfono que pagó<input name="telefono_origen" inputmode="tel" maxlength="20" /></label>
+                <label>Nombre que pagó<input name="nombre_origen" maxlength="100" /></label>
+              </div>
+              <div class="dos">
+                <label>Fecha y hora del pago<input name="fecha" type="datetime-local" required /></label>
+                <label>Foto del comprobante<input name="comprobante" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" /></label>
+              </div>
+            </div>
+          </details>
+          <p class="ayuda" id="pagoAyuda"></p>
+          <p class="aviso-comp" id="avisoComp" hidden>Se va a registrar con el comprobante que envió el cliente.</p>
+          <p class="msg msg--error" id="pagoMsg" role="alert"></p>
+          <button class="btn btn--negro cobro__btn" type="submit" id="btnGuardarPago">Cobrar</button>
+        </form>
+      </section>
+
+
+      <div class="venta__guardar">
+        <button type="button" class="btn btn--linea" id="btnGuardarVenta">Guardar para después</button>
+        <button type="button" class="btn btn--wa" id="btnCobrarWa">Enviar cobro por WhatsApp</button>
+        <button type="button" class="btn btn--linea v4" id="btnListo">Avisar que está listo</button>
+      </div>
+      <p class="msg msg--error" id="ventaMsg" role="alert"></p>
 
       <section class="v4" id="boxFactura" hidden>
         <h3 class="subt">Factura electrónica</h3>
@@ -1301,53 +1352,6 @@
         </div>
         <p class="ayuda" id="feSinRedInfo" hidden></p>
         <p class="msg" id="feMsg" role="status"></p>
-      </section>
-
-      <h3 class="subt">Pagos <span class="saldo" id="ventaSaldo"></span></h3>
-      <ul class="pagos" id="pagosVenta"></ul>
-
-      <section class="tarjeta cobro" id="boxPago">
-        <form id="formPago" class="cobro__form">
-          <h3 class="cobro__tit">Cobrar</h3>
-          <div class="cobro__metodos" role="radiogroup" aria-label="Forma de pago" id="cobroMetodos"></div>
-          <select name="metodo" hidden aria-hidden="true" tabindex="-1">
-            <option value="efectivo">Efectivo</option>
-            <option value="sinpe">SINPE Móvil</option>
-            <option value="tarjeta">Tarjeta</option>
-            <option value="transferencia">Transferencia</option>
-            <option value="cheque" data-v18>Cheque</option>
-            <option value="anterior" data-v18 data-solo-admin>Abonado en Moriah</option>
-          </select>
-          <div class="cobro__fila">
-            <label class="cobro__monto">Monto ₡<input name="monto" type="number" min="1" step="0.01" inputmode="decimal" required /></label>
-            <label class="cobro__paga" id="cobroPagaLbl">Paga con ₡<input id="cobroPaga" type="number" min="0" step="1" inputmode="numeric" placeholder="Opcional" /></label>
-            <p class="cobro__vuelto" id="cobroVuelto" aria-live="polite"></p>
-            <label class="cobro__ref" id="cobroRefLbl"><span id="pagoRefTxt">N.º de comprobante</span><input name="referencia" maxlength="40" pattern="[0-9A-Za-z\-]{4,40}" autocomplete="off" /></label>
-          </div>
-          <label class="check" id="cobroVerLbl"><input type="checkbox" name="verificado" /> <span id="pagoVerTxt">Ya lo vi en el banco</span></label>
-          <details class="cobro__mas">
-            <summary>Más detalles (opcional)</summary>
-            <div class="cobro__mas-cuerpo">
-              <div class="pegar">
-                <label>Pegar el mensaje del banco
-                  <textarea id="txtBanco" rows="2" maxlength="600" placeholder="Ej: Ha recibido ₡45.000,00 de MARIA PEREZ por SINPE Movil. Ref: 2026112012345678"></textarea></label>
-                <button type="button" class="btn btn--sm btn--linea" id="btnLeerBanco">Leer datos del mensaje</button>
-              </div>
-              <div class="dos">
-                <label>Teléfono que pagó<input name="telefono_origen" inputmode="tel" maxlength="20" /></label>
-                <label>Nombre que pagó<input name="nombre_origen" maxlength="100" /></label>
-              </div>
-              <div class="dos">
-                <label>Fecha y hora del pago<input name="fecha" type="datetime-local" required /></label>
-                <label>Foto del comprobante<input name="comprobante" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" /></label>
-              </div>
-            </div>
-          </details>
-          <p class="ayuda" id="pagoAyuda"></p>
-          <p class="aviso-comp" id="avisoComp" hidden>Se va a registrar con el comprobante que envió el cliente.</p>
-          <p class="msg msg--error" id="pagoMsg" role="alert"></p>
-          <button class="btn btn--negro cobro__btn" type="submit" id="btnGuardarPago">Cobrar</button>
-        </form>
       </section>
 
       <div class="venta__cierre">

@@ -627,3 +627,28 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
   .cobro__btn { justify-self: stretch; }
 }
 .cobro__vuelto:empty { display: none; }
+
+/* ============================================================
+   Venta: encabezado fijo con imprimir y cerrar; pedidos de la página
+   ============================================================ */
+.venta__head { grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; position: sticky; top: 0; z-index: 3; background: #fff; margin: -1.5rem -1.5rem 0; padding: 1.25rem 1.5rem .9rem; }
+.venta__head .imprimir { display: inline-flex; align-items: center; gap: .3rem; }
+.venta__head .imprimir[hidden] { display: none; }
+.venta__head #papel { width: auto; padding: .35em .5em; font-size: .85rem; border-radius: 99px; background: var(--fondo-2); border: 0; color: var(--gris); }
+.icono-btn { width: 40px; height: 40px; display: inline-grid; place-items: center; border: 0; border-radius: 50%; background: var(--fondo-2); color: var(--negro); cursor: pointer; flex: none; }
+.icono-btn:hover { background: var(--negro); color: #fff; }
+.icono-btn:disabled { opacity: .45; cursor: wait; }
+.icono-btn:focus-visible { outline: 3px solid var(--cinta); outline-offset: 2px; }
+.etq--web { display: inline-flex; align-items: center; gap: .3em; background: #1F5FBF; color: #fff; border-color: #1F5FBF; }
+.etq--web .globo { flex: none; }
+.fila--web { box-shadow: inset 4px 0 0 #1F5FBF; background: #F3F7FD; }
+.venta--web .venta__head { border-bottom-color: #1F5FBF; }
+.venta--web .venta__head::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 5px; background: #1F5FBF; border-radius: 20px 20px 0 0; }
+.venta__entrega { background: #F3F7FD; border-left: 4px solid #1F5FBF; padding: .6em .8em; border-radius: 8px; }
+#boxPagosVenta[hidden] { display: none; }
+@media (max-width: 600px) {
+  .venta__head { grid-template-columns: minmax(0, 1fr) auto auto; padding: 1rem 1.5rem .75rem; }
+  .venta__head .venta__codigo { grid-column: 1 / -1; grid-row: 2; justify-self: start; }
+  .venta__head #papel { display: none; }
+}
+.venta__codigo:empty { display: none; }

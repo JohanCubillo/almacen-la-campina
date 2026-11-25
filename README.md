@@ -397,3 +397,8 @@ En la venta sale el cuadro **Cobrar** mientras falte plata: se toca la forma de 
 - **SINPE / transferencia / cheque**: pide el n.º de comprobante (evita usar el mismo dos veces) y la casilla “Ya lo vi en el banco”; sin marcar queda “por verificar”.
 - Lo demás (pegar el mensaje del banco, teléfono, nombre, fecha, foto) está en **Más detalles**, para los pedidos de la web.
 - Al cobrar, el panel lleva directo al botón de **Emitir tiquete**.
+- **No hace falta guardar antes de cobrar**: en una venta nueva se agregan los productos y se toca **Cobrar**; el panel pregunta una vez y guarda la venta con el cobro.
+- **Guardar para después** (tipo proforma) guarda la venta sin cobrar y cierra; queda en **Por cobrar**.
+- La venta nueva trae “Cliente contado” escrito; si es otro cliente se escribe encima.
+- Los **pedidos de la página** salen en azul (franja y etiqueta “Pedido de la página”). Solo ellos tienen “Enviar cobro por WhatsApp”, “Avisar que está listo”, la dirección de entrega y “Marcar como entregada” (este último también en los apartados). Cheque y “Abonado en Moriah” ya no salen al cobrar.
+- Imprimir el recibo es el ícono de impresora arriba, junto a la ✕; el encabezado se queda fijo al bajar. Un clic fuera de la ventana (o Esc) la cierra y, si hay algo sin guardar, pregunta antes.

@@ -1419,13 +1419,14 @@
     return [...new Set(accs.map((a) => a.tipo))].filter((t) => n[t])
       .map((t) => `<span class="etq ${accs.some((a) => a.tipo === t && a.error) ? "etq--error" : "etq--por_verificar"}">${n[t]}</span>`).join(" ");
   }
+  const GLOBO = '<svg class="globo" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3z"/></svg>';
   function pintarVentas() {
     const q = $("#vBuscar").value.trim().toLowerCase();
     const pasa = {
       nuevos: esNuevo,
       cobrar: (v) => v.estado === "abierta" && ["sin_pago", "parcial"].includes(v.estado_pago),
       por_verificar: (v) => v.estado !== "anulada" && Number(v.pagado_registrado) > Number(v.pagado_verificado),
-      entregar: (v) => v.estado === "abierta" && ["pagado", "sobrepago"].includes(v.estado_pago),
+      entregar: (v) => (v.origen === "web" || !!v.apartado) && v.estado === "abierta" && ["pagado", "sobrepago"].includes(v.estado_pago),
       apartados: esApartado,
       todas: () => true
     }[filtroVenta];
@@ -1451,13 +1452,13 @@
       </li>`;
     }).join("") + (lista.map((v) => {
       const saldo = Math.max(0, v.total - v.pagado_verificado);
-      return `<li class="fila fila--venta ${v.estado === "anulada" ? "fila--oculta" : ""}">
+      return `<li class="fila fila--venta${v.origen === "web" ? " fila--web" : ""} ${v.estado === "anulada" ? "fila--oculta" : ""}">
         <span class="codigo">${U.esc(v.codigo)}</span>
         <div class="fila__txt">
           <b>${U.esc(v.cliente_nombre)}</b>
           <small>${fechaCR(v.created_at)}${v.cliente_telefono ? " · " + U.esc(v.cliente_telefono) : ""}</small>
           <span class="etiquetas">
-            ${v.origen === "web" ? '<span class="etq etq--web">Pedido web</span>' : ""}
+            ${v.origen === "web" ? `<span class="etq etq--web">${GLOBO}Pedido de la página</span>` : ""}
             ${!v.revisado && v.estado !== "anulada" ? '<span class="etq etq--rec">Nuevo</span>' : ""}
             ${compNuevos.has(v.id) ? '<span class="etq etq--por_verificar">Comprobante nuevo</span>' : ""}
             ${v.estado === "anulada" ? '<span class="etq">Anulada</span>' : `<span class="etq etq--${v.estado_pago}">${ETQ_PAGO[v.estado_pago]}</span>`}
@@ -1490,15 +1491,18 @@
   $("#btnNuevaVenta").addEventListener("click", () => abrirBorrador({ cliente_nombre: "", cliente_telefono: "", items: [] }));
 
   // ---------- abrir / borrador ----------
+  const CLIENTE_CONTADO = "Cliente contado";
+  // al entrar al nombre se selecciona todo: si es otro cliente, se escribe encima
+  $("#formVenta").cliente_nombre.addEventListener("focus", (e) => { if (e.target.value === CLIENTE_CONTADO) e.target.select(); });
   function abrirBorrador(b) {
     V = { pedido: null, items: b.items, pagos: [], comps: [], dirty: true, uuid: crypto.randomUUID(), cond: "contado", credCli: null, apVence: null };
     const f = $("#formVenta");
-    f.cliente_nombre.value = b.cliente_nombre || "";
+    f.cliente_nombre.value = b.cliente_nombre || CLIENTE_CONTADO;
     f.cliente_telefono.value = b.cliente_telefono || "";
     f.nota.value = (b.nota || "").slice(0, 500);
     pintarVenta();
     $("#dlgVenta").showModal();
-    f.cliente_nombre.focus();
+    $("#agregarItemQ").focus();
   }
 
   function abrirDeCopia(id) {
@@ -1876,7 +1880,7 @@
         + (x.saldo_inicial ? ' <span class="etq">Saldo anterior de Moriah</span>' : esApartado(x) ? ' <span class="etq">Apartado</span>' : x.credito && x.local ? ' <span class="etq">A crédito</span>' : ""));
     $("#ventaEstado").innerHTML = V.local
       ? `<span class="etq etq--por_verificar">Por enviar</span> <span class="etq">Hecha sin internet</span>${cola.buscar(V.local)?.error ? ` <span class="etq etq--error">${U.esc(cola.buscar(V.local).error)}</span>` : ""} ${etqVenta(p)}${etqPend}`
-      : p ? (V.copia ? `<span class="etq">Sin internet: copia de la última conexión</span> ` : "") + etqVenta(p) + etqPend
+      : p ? (p.origen === "web" ? `<span class="etq etq--web">${GLOBO}Pedido de la página</span> ` : "") + (V.copia ? `<span class="etq">Sin internet: copia de la última conexión</span> ` : "") + etqVenta(p) + etqPend
       : "Sin guardar";
 
     $("#itemsVenta").innerHTML = V.items.map((i, n) => `
@@ -1893,8 +1897,9 @@
     pintarCondicion();
 
     const cerrada = p && p.estado !== "abierta";
-    $("#btnGuardarVenta").hidden = !!(p && p.estado === "anulada") || !!V.copia;
-    $("#btnCobrarWa").hidden = !p || !!V.local || !!V.copia || p.estado === "anulada" || (Number(p.total) > 0 && Number(p.pagado_registrado) >= Number(p.total));
+    const web = p?.origen === "web";
+    $("#dlgVenta").classList.toggle("venta--web", web);
+    $("#btnCobrarWa").hidden = !web || !p || !!V.local || !!V.copia || p.estado === "anulada" || (Number(p.total) > 0 && Number(p.pagado_registrado) >= Number(p.total));
     $("#ventaMsg").textContent = "";
 
     // comprobantes enviados por el cliente
@@ -1923,12 +1928,10 @@
     $("#ventaSaldo").textContent = p ? `· Total ${fmt(p.total)} · Registrado ${fmt(p.pagado_registrado)} · Verificado ${fmt(p.pagado_verificado)}` : "";
     $("#pagosVenta").innerHTML = p ? (V.pagos.map(V.local ? pagoLocalHTML : pagoHTML).join("") || `<li class="vacio-adm">Sin pagos registrados.</li>`) : `<li class="vacio-adm">Guarde la venta para registrar pagos.</li>`;
     $$("#formVenta input").forEach((i) => (i.disabled = !!V.copia || p?.estado === "anulada"));
-    const saldoReg = p ? Math.max(0, p.total - p.pagado_registrado) : 0;
-    // el cuadro de cobrar solo sale si falta plata
-    $("#boxPago").hidden = !p || p.estado === "anulada" || saldoReg < 0.005;
+    $("#boxPagosVenta").hidden = !V.pagos.length;
     const fp = $("#formPago");
     fp.reset();
-    fp.monto.value = saldoReg ? saldoReg : "";
+    fp.dataset.montoAuto = "1";
     fp.fecha.value = ahoraLocalCR();
     fp.fecha.max = ahoraLocalCR();
     fp.nombre_origen.value = "";
@@ -1939,13 +1942,15 @@
     fp.comprobante.disabled = false;
     $("#pagoMsg").textContent = "";
     pintarFormaPago();
+    refrescarCobro();
 
-    $("#btnEntregar").hidden = !p || cerrada;
+    // entregar es para pedidos de la página (y apartados): en el mostrador se lo lleva de una vez
+    $("#btnEntregar").hidden = !p || cerrada || !(web || p.apartado);
     $("#formPago").comprobante.disabled = !!V.local;
 
     // entrega, listo y factura
     const ent = $("#ventaEntrega");
-    ent.hidden = !p || !V4;
+    ent.hidden = !p || !V4 || !web;
     if (V.local) ent.hidden = true;
     else if (p && V4) {
       ent.innerHTML = (p.entrega === "envio"
@@ -1953,11 +1958,12 @@
         : "<b>Retira en el almacén</b>") +
         (p.listo_at ? ` <span class="etq etq--ok">Listo desde ${fechaCR(p.listo_at, { dateStyle: "short", timeStyle: "short" })}</span>` : "");
     }
-    $("#btnListo").hidden = !p || p.estado !== "abierta" || !V4 || !!V.local || !!V.copia || !enLinea();
+    $("#btnListo").hidden = !web || !p || p.estado !== "abierta" || !V4 || !!V.local || !!V.copia || !enLinea();
     $("#btnListo").textContent = p?.listo_at ? "Avisar otra vez que está listo" : "Avisar que está listo";
     // un saldo que viene de Moriah ya se facturó allá
     // sin internet: los datos para factura de una venta hecha en la compu se guardan con ella
-    $("#boxFactura").hidden = !p || !V4 || !!V.copia || (!!V.local && !V19) || !!p.saldo_inicial;
+    // con facturación electrónica activa, la factura se emite abajo: el registro a mano sobra
+    $("#boxFactura").hidden = !p || !V4 || (V10 && !!FE?.activo) || !!V.copia || (!!V.local && !V19) || !!p.saldo_inicial;
     if (!$("#boxFactura").hidden) pintarFactura();
     $("#boxFE").hidden = !p || !V10 || !FE?.activo || !!p.saldo_inicial;
     if (!$("#boxFE").hidden) pintarFEVenta();
@@ -2027,6 +2033,7 @@
   function actualizarTotal() {
     const t = V.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_unit) || 0), 0);
     $("#ventaTotal").textContent = fmt(t);
+    refrescarCobro(t);
     return t;
   }
 
@@ -2189,7 +2196,26 @@
       return false;
     } finally { btn.disabled = false; }
   }
-  $("#btnGuardarVenta").addEventListener("click", guardarVenta);
+  $("#btnGuardarVenta").addEventListener("click", async () => {
+    const paraDespues = !V.pedido && V.cond === "contado";
+    if (!(await guardarVenta())) return;
+    if (paraDespues) { $("#dlgVenta").close(); toast("Guardada para después. La encuentra en Ventas › Por cobrar."); }
+  });
+  // clic afuera de una ventana = tocar su botón de cerrar (así cada una hace su propia pregunta si hay algo sin guardar)
+  $$("dialog.dlg").forEach((dl) => {
+    let abajo = null;
+    dl.addEventListener("pointerdown", (e) => { abajo = e.target; });
+    dl.addEventListener("click", (e) => {
+      if (e.target !== dl || abajo !== dl) return;
+      const r = dl.getBoundingClientRect();
+      if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) return;
+      const btn = dl.querySelector("#btnCerrarVenta, header .cerrar-x, .dlg__cab .cerrar-x, [data-cerrar-dlg], [data-cerrar-ajuste], [data-cerrar-cliente], [data-cerrar-fotos], [id^=btnCancelar], [id^=btnCerrar]")
+        || [...dl.querySelectorAll("button")].find((b) => /^(cerrar|cancelar)$/i.test(b.textContent.trim()));
+      if (btn && !btn.hidden) btn.click();
+    });
+  });
+  // Esc pasa por la misma pregunta que la ✕
+  $("#dlgVenta").addEventListener("cancel", (e) => { e.preventDefault(); $("#btnCerrarVenta").click(); });
 
   $("#btnCerrarVenta").addEventListener("click", () => {
     if (V && V.dirty && itemsEditables() && !confirm("Hay cambios sin guardar. ¿Cerrar igual?")) return;
@@ -4815,11 +4841,31 @@
   const ETQ_CHIP = { efectivo: "Efectivo", sinpe: "SINPE", tarjeta: "Tarjeta", transferencia: "Transferencia", cheque: "Cheque", anterior: "Abonado en Moriah" };
   function chipsCobro() {
     const f = $("#formPago"), box = $("#cobroMetodos");
-    const ops = [...f.metodo.options].map((o) => o.value);
+    const ops = [...f.metodo.options].map((o) => o.value).filter((v) => !["cheque", "anterior"].includes(v));
     if (box.dataset.ops === ops.join()) return;
     box.dataset.ops = ops.join();
     box.innerHTML = ops.map((v) => `<button type="button" role="radio" class="cobro__chip${v === "anterior" ? " cobro__chip--sec" : ""}" data-metodo="${v}">${ETQ_CHIP[v] || v}</button>`).join("");
   }
+  // cuánto falta y qué botón de guardar se ve; se llama cada vez que cambian los productos
+  function refrescarCobro(total) {
+    if (!V || !V.items) return;
+    const p = V.pedido, fp = $("#formPago");
+    if (total === undefined) total = V.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_unit) || 0), 0);
+    const saldo = Math.max(0, Math.round((total - (Number(p?.pagado_registrado) || 0)) * 100) / 100);
+    $("#boxPago").hidden = !!V.copia || p?.estado === "anulada" || saldo < 0.005 || (!p && V.cond === "credito");
+    if (fp.dataset.montoAuto !== "0") fp.monto.value = saldo || "";
+    pintarVuelto();
+    refrescarGuardar();
+  }
+  function refrescarGuardar() {
+    if (!V) return;
+    const p = V.pedido, g = $("#btnGuardarVenta"), fuerte = !p && V.cond !== "contado";
+    g.textContent = p ? "Guardar cambios" : V.cond === "credito" ? "Guardar a crédito" : V.cond === "apartado" ? "Guardar apartado" : "Guardar para después";
+    g.className = `btn ${fuerte ? "btn--negro" : "btn--linea"}`;
+    g.hidden = !!V.copia || p?.estado === "anulada" || (!!p && !V.dirty);
+  }
+  $("#dlgVenta").addEventListener("input", () => queueMicrotask(refrescarGuardar));
+  $("#dlgVenta").addEventListener("click", () => queueMicrotask(refrescarGuardar));
   function pintarVuelto() {
     const f = $("#formPago"), monto = Number(f.monto.value) || 0, paga = Number($("#cobroPaga").value) || 0;
     const v = $("#cobroVuelto");
@@ -4855,7 +4901,7 @@
     if (!$("#cobroRefLbl").hidden && !r.value) r.focus();
     else if (b.dataset.metodo === "efectivo") $("#cobroPaga").focus();
   });
-  $("#formPago").monto.addEventListener("input", pintarVuelto);
+  $("#formPago").monto.addEventListener("input", (e) => { e.currentTarget.form.dataset.montoAuto = "0"; pintarVuelto(); });
   $("#cobroPaga").addEventListener("input", pintarVuelto);
   $("#formPago").metodo.addEventListener("change", pintarFormaPago);
 
@@ -4881,10 +4927,10 @@
 
   $("#formPago").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const f = e.currentTarget, msg = $("#pagoMsg"), p = V.pedido;
+    const f = e.currentTarget, msg = $("#pagoMsg");
     msg.className = "msg msg--error";
     const d = {
-      pedido_id: p.id,
+      pedido_id: null,
       metodo: f.metodo.value,
       monto: Number(f.monto.value),
       referencia: f.referencia.value.trim().replace(/\s+/g, "") || null,
@@ -4901,8 +4947,22 @@
     if (d.referencia && !/^[0-9A-Za-z-]{4,40}$/.test(d.referencia)) { msg.textContent = "El comprobante solo lleva números, letras o guiones."; return; }
     if (d.telefono_origen && !/^[0-9 +()-]{8,20}$/.test(d.telefono_origen)) { msg.textContent = "Revise el teléfono que pagó."; return; }
     if (!d.fecha) { msg.textContent = "Indique la fecha del pago."; return; }
-    const saldo = p.total - p.pagado_registrado;
-    if (d.monto > saldo + 0.001 && !confirm(`El monto (${fmt(d.monto)}) es mayor que lo que falta (${fmt(Math.max(0, saldo))}). ¿Registrar igual?`)) return;
+    const saldo = actualizarTotal() - (Number(V.pedido?.pagado_registrado) || 0);
+    if (d.monto > saldo + 0.001 && !confirm(`El monto (${fmt(d.monto)}) es mayor que lo que falta (${fmt(Math.max(0, saldo))}). ¿Cobrar igual?`)) return;
+    // una sola pregunta: si la venta no está guardada, se guarda junto con el cobro
+    const guardarPrimero = !V.pedido || V.dirty;
+    const COMO = { efectivo: "en efectivo", tarjeta: "con tarjeta", sinpe: "por SINPE", transferencia: "por transferencia", cheque: "con cheque", anterior: "como abonado en Moriah" };
+    let pregunta = d.metodo === "anterior" ? `¿Anotar ${fmt(d.monto)} como abonado en Moriah? Rebaja lo que debe esta venta, pero no entra en la caja de hoy.`
+      : d.verificado && !AUTO_VERIF.includes(d.metodo) ? (d.metodo === "cheque" ? `¿Confirma que el banco ya pagó el cheque ${d.referencia} por ${fmt(d.monto)}?`
+        : `¿Confirma que ve ${fmt(d.monto)} con el comprobante ${d.referencia || "(sin número)"} en la app del banco?`)
+      : null;
+    if (guardarPrimero) pregunta = `Se guarda la venta y se cobran ${fmt(d.monto)} ${COMO[d.metodo] || ""}.` + (pregunta ? "\n\n" + pregunta : " ¿Seguir?");
+    if (pregunta && !confirm(pregunta)) return;
+    // al guardar la venta el formulario se vuelve a pintar: lo que falta se toma antes
+    const archivoSel = f.comprobante.files[0] || null, compId = f.dataset.compId || null, rutaComp = f.dataset.ruta || null;
+    if (guardarPrimero && !(await guardarVenta())) return;
+    const p = V.pedido;
+    d.pedido_id = p.id;
     if (V.local) {
       const rec = cola.buscar(V.local);
       if (!rec) return;
@@ -4918,10 +4978,6 @@
       abrirLocal(rec.id); pintarVentas();
       return;
     }
-    if (d.metodo === "anterior") {
-      if (!confirm(`¿Anotar ${fmt(d.monto)} como abonado en Moriah? Rebaja lo que debe esta venta, pero no entra en la caja de hoy.`)) return;
-    } else if (d.verificado && !AUTO_VERIF.includes(d.metodo) && !confirm(d.metodo === "cheque" ? `¿Confirma que el banco ya pagó el cheque ${d.referencia} por ${fmt(d.monto)}?`
-      : `¿Confirma que ve ${fmt(d.monto)} con el comprobante ${d.referencia || "(sin número)"} en la app del banco?`)) return;
     // sin internet: queda en la compu y se manda solo al volver la conexión
     const pagoSinRed = () => {
       const { pedido_id, ...pago } = d;
@@ -4935,14 +4991,14 @@
     };
     if (!enLinea()) {
       if (!V19) { msg.textContent = "Para cobrar ventas ya enviadas sin internet falta correr supabase/v19_sin_internet.sql."; return; }
-      if (f.comprobante.files[0]) { msg.textContent = "Sin internet no se puede subir la foto del comprobante: quítela o súbala cuando vuelva la conexión."; return; }
+      if (archivoSel) { msg.textContent = "Sin internet no se puede subir la foto del comprobante: quítela o súbala cuando vuelva la conexión."; return; }
       return pagoSinRed();
     }
 
     const btn = $("#btnGuardarPago");
     btn.disabled = true; msg.textContent = "";
     try {
-      if (f.dataset.ruta) d.comprobante_path = f.dataset.ruta;
+      if (rutaComp) d.comprobante_path = rutaComp;
       const r = await db.from("pagos").insert(V19 ? { ...d, offline_id: oid } : d).select("id").single();
       if (r.error) {
         if (r.error.code === "23505") {
@@ -4952,11 +5008,11 @@
         }
         throw r.error;
       }
-      if (f.dataset.compId) {
-        const u = await db.from("comprobantes_cliente").update({ estado: "registrado", pago_id: r.data.id }).eq("id", f.dataset.compId);
+      if (compId) {
+        const u = await db.from("comprobantes_cliente").update({ estado: "registrado", pago_id: r.data.id }).eq("id", compId);
         if (u.error) toast("El pago quedó registrado, pero no se pudo marcar el comprobante del cliente: " + errTxt(u.error), true);
       }
-      const archivo = f.dataset.ruta ? null : f.comprobante.files[0];
+      const archivo = rutaComp ? null : archivoSel;
       if (archivo) {
         try {
           const ruta = await subirComprobante(archivo);
@@ -4972,7 +5028,7 @@
       const sig = ["#btnFETiquete", "#btnFEFactura"].map((x) => $(x)).find((b) => b && !b.hidden && !b.disabled && b.offsetParent);
       if (sig) { sig.scrollIntoView({ block: "center", behavior: "smooth" }); sig.focus({ preventScroll: true }); }
     } catch (err) {
-      if (U.esErrorRed(err) && V19 && !f.dataset.compId && !f.comprobante.files[0]) { sinSenal(err); btn.disabled = false; delete d.comprobante_path; return pagoSinRed(); }   // se cayó la señal
+      if (U.esErrorRed(err) && V19 && !compId && !archivoSel) { sinSenal(err); btn.disabled = false; delete d.comprobante_path; return pagoSinRed(); }   // se cayó la señal
       msg.textContent = errTxt(err);
     } finally { btn.disabled = false; }
   });
