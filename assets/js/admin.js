@@ -381,6 +381,7 @@
     if (!sinRed) ponerLS(LS_PERMISO, { email: user.email, acceso: ACCESO, hasta: Date.now() + HORAS_SIN_RED * 3600 * 1000 });
     if (panelListo) return;
     panelListo = true;
+    idbProd.usuario(user.email || user.id);
     vigilarInactividad();
     pintarDiasHorario();
     if (sinRed) {
@@ -466,6 +467,7 @@
     if (V21 && puede("compras")) contarRecibidos();
     addEventListener("online", estadoRedPanel);
     addEventListener("offline", estadoRedPanel);
+    vigilarProductos();
     estadoRedPanel();
     prepararFESinRed();
     irA(new URLSearchParams(location.search).get("ir"));
@@ -646,20 +648,133 @@
   const productoCorto = (p) => ({ id: p.id, nombre: p.nombre, codigo: p.codigo, precio: p.precio, unidad: p.unidad, categoria_id: p.categoria_id,
     activo: p.activo, agotado: p.agotado, destacado: p.destacado, existencia: p.existencia,
     cabys: p.cabys, iva_codigo: p.iva_codigo, precio_oferta: p.precio_oferta, oferta_hasta: p.oferta_hasta, precio2: p.precio2 });
-  async function cargarProductos() {
-    let data = null, error = null;
-    if (SIN_RED) data = copia.leer().productos || null;
-    else {
-      try { data = await leerTabla("productos", "nombre", (n, total) => carga("productos", total ? n / total : 0.5, `${n.toLocaleString("es-CR")} de ${total.toLocaleString("es-CR")}`)); } catch (e) { error = e; }
-      if (error && U.esErrorRed(error)) { data = copia.leer().productos || null; error = data ? null : error; }
-      else if (!error) copia.poner("productos", data.map(productoCorto));
-    }
-    if (error || !data) return toast(errTxt(error || { message: "Failed to fetch" }), true);
+  // Copia completa de los productos en esta compu (IndexedDB, sirve en el navegador y en la app instalada).
+  // Al entrar se usa la copia de una vez y después se traen solo los productos que cambiaron
+  // (todo cambio en productos actualiza updated_at). Una vez al día, o si no cuadra la cantidad, se baja todo.
+  const VER_CACHE_PROD = 1, DIA_MS = 24 * 3600 * 1000;
+  const idbProd = (() => {
+    let usr = "anon", abierto = null;
+    const abrir = () => abierto ||= new Promise((res) => {
+      try {
+        const r = indexedDB.open(`lc_productos_${usr}`, 1);
+        r.onupgradeneeded = () => { const d = r.result; d.createObjectStore("p", { keyPath: "id" }); d.createObjectStore("meta"); };
+        r.onsuccess = () => res(r.result);
+        r.onerror = () => res(null);
+        r.onblocked = () => res(null);
+      } catch { res(null); }
+    });
+    return {
+      usuario(u) {
+        const n = String(u || "anon").toLowerCase().replace(/[^a-z0-9@._-]/g, "_");
+        if (n !== usr) { usr = n; abierto = null; }
+      },
+      async leer() {
+        const d = await abrir(); if (!d) return null;
+        return new Promise((res) => {
+          try {
+            const t = d.transaction(["p", "meta"]); let rows = null, meta = null;
+            t.objectStore("p").getAll().onsuccess = (e) => { rows = e.target.result; };
+            t.objectStore("meta").get("m").onsuccess = (e) => { meta = e.target.result; };
+            t.oncomplete = () => res(rows && meta ? { rows, meta } : null);
+            t.onerror = () => res(null); t.onabort = () => res(null);
+          } catch { res(null); }
+        });
+      },
+      async guardar(rows, meta, completo) {
+        const d = await abrir(); if (!d) return false;
+        return new Promise((res) => {
+          try {
+            const t = d.transaction(["p", "meta"], "readwrite"), st = t.objectStore("p");
+            if (completo) st.clear();
+            for (const r of rows) st.put(r);
+            t.objectStore("meta").put(meta, "m");
+            t.oncomplete = () => res(true); t.onerror = () => res(false); t.onabort = () => res(false);
+          } catch { res(false); }
+        });
+      }
+    };
+  })();
+  let prodMeta = null, prodSyncAt = 0, prodCola = Promise.resolve();
+  const colsProd = (r) => (r ? Object.keys(r).sort().join(",") : "");
+  const maxActualizado = (rows, prev = "") => rows.reduce((m, r) => (r.updated_at && r.updated_at > m ? r.updated_at : m), prev || "");
+  const ordenarProd = (l) => l.sort((a, b) => String(a.nombre || "").localeCompare(String(b.nombre || ""), "es", { sensitivity: "base" }));
+  function usarProductos(data) {
     productos = data;
     V9 = V9 || productos.some((p) => "codigo" in p) || !!copia.leer().v9;
     document.documentElement.classList.toggle("sin-v9", !V9);
-    if (!SIN_RED && !error) copia.poner("v9", V9);
     pintarProductos();
+  }
+  // cargarProductos() se llama al entrar y después de cada cambio; las llamadas van en fila para no pisarse
+  async function cargarProductos(o = {}) {
+    if (!SIN_RED && !productos.length && !prodMeta) {
+      const c = await idbProd.leer();
+      if (c?.rows?.length && c.meta?.v === VER_CACHE_PROD) {
+        prodMeta = c.meta;
+        usarProductos(ordenarProd(c.rows));
+        carga("productos", 1, `${c.rows.length.toLocaleString("es-CR")} guardados en esta compu`);
+        encolarProductos({});            // lo que cambió se trae por detrás
+        return;
+      }
+    }
+    return encolarProductos(o);
+  }
+  function encolarProductos(o) {
+    const p = prodCola.then(() => syncProductos(o));
+    prodCola = p.catch(() => {});
+    return p;
+  }
+  async function syncProductos(o = {}) {
+    if (SIN_RED) {
+      const c = await idbProd.leer();
+      const data = c?.rows?.length ? ordenarProd(c.rows) : copia.leer().productos || null;
+      if (!data) return toast(errTxt({ message: "Failed to fetch" }), true);
+      return usarProductos(data);
+    }
+    const completo = o.completo || !prodMeta || !productos.length || Date.now() - (prodMeta.completo || 0) > DIA_MS;
+    let error = null;
+    try {
+      if (completo) {
+        const primera = !productos.length;
+        const data = await leerTabla("productos", "nombre", primera
+          ? (n, total) => carga("productos", total ? n / total : 0.5, `${n.toLocaleString("es-CR")} de ${total.toLocaleString("es-CR")}`) : null);
+        prodMeta = { v: VER_CACHE_PROD, completo: Date.now(), sync: maxActualizado(data), cols: colsProd(data[0]) };
+        if (!await idbProd.guardar(data, prodMeta, true)) copia.poner("productos", data.map(productoCorto));
+        usarProductos(data);
+      } else {
+        // 5 minutos de traslape por si algo se guardó mientras tanto
+        const ult = Date.parse(prodMeta.sync || "");
+        const desde = new Date(Math.max(0, (Number.isNaN(ult) ? 0 : ult) - 5 * 60 * 1000)).toISOString();
+        const [cambios, cuenta] = await Promise.all([
+          leerTabla("productos", "id", null, (q) => q.gte("updated_at", desde)),
+          db.from("productos").select("id", { count: "exact", head: true })
+        ]);
+        if (cuenta.error) throw cuenta.error;
+        // columnas nuevas en la base: la copia vieja no las tiene
+        if (cambios.length && colsProd(cambios[0]) !== prodMeta.cols) return syncProductos({ completo: true });
+        const mapa = new Map(productos.map((p) => [p.id, p]));
+        for (const r of cambios) mapa.set(r.id, r);
+        // borraron productos (aquí o en otra compu): se baja todo
+        if (cuenta.count != null && cuenta.count !== mapa.size) return syncProductos({ completo: true });
+        prodMeta = { ...prodMeta, sync: maxActualizado(cambios, prodMeta.sync) };
+        await idbProd.guardar(cambios, prodMeta, false);
+        if (cambios.length) usarProductos(ordenarProd([...mapa.values()]));
+      }
+      prodSyncAt = Date.now();
+    } catch (e) { error = e; }
+    if (!error) return;
+    if (U.esErrorRed(error)) {
+      sinSenal(error);
+      if (productos.length) return;                    // se sigue con la copia
+      const data = copia.leer().productos;
+      if (data) return usarProductos(data);
+    }
+    toast(errTxt(error), true);
+  }
+  // si el panel quedó abierto, al volver a la ventana (o cada 5 minutos) se traen los cambios de las otras compus
+  function vigilarProductos() {
+    const tocar = () => { if (!SIN_RED && enLinea() && document.visibilityState === "visible" && Date.now() - prodSyncAt > 60 * 1000) cargarProductos(); };
+    document.addEventListener("visibilitychange", tocar);
+    setInterval(tocar, 5 * 60 * 1000);
   }
 
   const hoyCRp = () => new Intl.DateTimeFormat("en-CA", { timeZone: C.ZONA_HORARIA }).format(new Date());
@@ -5810,9 +5925,12 @@
   }
 
   // la primera página dice cuántas hay; las demás se piden de 4 en 4 a la vez
-  async function leerTabla(tabla, orden, progreso) {
+  async function leerTabla(tabla, orden, progreso, filtro) {
     const P = 1000;
-    const pag = (desde, conteo) => db.from(tabla).select("*", conteo ? { count: "exact" } : undefined).order(orden).range(desde, desde + P - 1);
+    const pag = (desde, conteo) => {
+      const q = db.from(tabla).select("*", conteo ? { count: "exact" } : undefined);
+      return (filtro ? filtro(q) : q).order(orden).range(desde, desde + P - 1);
+    };
     const pri = await pag(0, true);
     if (pri.error) throw pri.error;
     const total = pri.count ?? pri.data.length;
