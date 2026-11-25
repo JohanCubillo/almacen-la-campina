@@ -21,7 +21,7 @@
 // =====================================================================
 import { createClient } from "@supabase/supabase-js";
 import {
-  armarComprobante, armarNotaCredito, armarNotaCreditoParcial, armarMensajeReceptor, firmar, conectar, enviar, enviarMensaje, consultar, revisarEmisor,
+  armarComprobante, armarNotaCredito, armarNotaCreditoParcial, armarFacturaCompra, armarMensajeReceptor, firmar, conectar, enviar, enviarMensaje, consultar, revisarEmisor,
   ErrorComprobante, TARIFAS, type Emisor, type Linea,
 } from "./comprobante.ts";
 
@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
   const auth = req.headers.get("Authorization") || "";
   const usuario = createClient(URL_SB, LLAVE_PUBLICA, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } });
   const accion = String(b.accion || "");
-  const necesario = accion === "probar" ? null : accion === "anular" || accion === "devolucion" ? "anular" : accion.startsWith("recibido_") ? "compras"
+  const necesario = accion === "probar" ? null : accion === "anular" || accion === "devolucion" ? "anular" : accion.startsWith("recibido_") || accion === "compra" ? "compras"
     : accion === "cabys" ? "productos" : "ventas";
   let permitido = false;
   if (necesario) {
@@ -441,6 +441,29 @@ Deno.serve(async (req) => {
       const doc = await guardarFirmado(c, firmado, pedidoId, receptor, null, { situacion: "3", dispositivo: bloque.dispositivo });
       await db.from("fe_dispositivos").update({ usado_at: new Date().toISOString() }).eq("id", bloque.dispositivo);
       if (tipo === "01") await db.from("facturas").update({ clave: c.clave, consecutivo: c.consecutivo, estado: "enviada" }).eq("pedido_id", pedidoId);
+      await enviarYConsultar(doc);
+      return await devolver(doc.id);
+    }
+
+    // ---------- factura electrónica de compra (08) ----------
+    if (b.accion === "compra") {
+      const pv = (b.proveedor || {}) as Record<string, string>;
+      const ref = (b.referencia || {}) as Record<string, string>;
+      if (!["14", "16", "99"].includes(String(ref.tipo))) return resp({ ok: false, error: "Escoja qué tipo de proveedor es." });
+      const lineas = (Array.isArray(b.lineas) ? b.lineas : []).map((l: Record<string, unknown>) => ({
+        cabys: String(l.cabys || ""), detalle: String(l.detalle || ""), cantidad: Number(l.cantidad), precio: Number(l.precio),
+        iva_codigo: String(l.iva_codigo || "08"), unidad: (l.unidad as string) || null, codigo: (l.codigo as string) || null,
+      }));
+      const credito = b.condicion === "credito" ? { dias: Number(b.dias) || 30 } : null;
+      const datos = { emisor: em, proveedor: { tipo_id: pv.tipo_id, identificacion: pv.identificacion, nombre: pv.nombre, correo: pv.correo || null, senas: pv.senas || null },
+        referencia: { tipo: ref.tipo as "14" | "16" | "99", numero: ref.numero || null, fecha: ref.fecha, otro: ref.otro || null },
+        lineas, credito, medioPago: String(b.medio || "efectivo") };
+      armarFacturaCompra({ numero: 1, ...datos });                    // se revisa antes de gastar un número
+      const { data: numero, error: eN } = await db.rpc("fe_reservar", { p_ambiente: em.ambiente, p_tipo: "08", p_sucursal: em.sucursal, p_terminal: em.terminal });
+      if (eN) throw eN;
+      const c = armarFacturaCompra({ numero: Number(numero), ...datos });
+      const firmado = await firmar(c.xml, s.p12!, s.pin);
+      const doc = await guardarFirmado(c, firmado, null as never, c.doc.emisor, null, { entrada_id: Number(b.entrada_id) > 0 ? Number(b.entrada_id) : null });
       await enviarYConsultar(doc);
       return await devolver(doc.id);
     }

@@ -412,6 +412,7 @@
         <div class="barra-herr">
           <h2>Compras</h2>
           <div class="barra-herr__der">
+            <button type="button" class="btn btn--linea btn--sm v25" id="btnNuevaFEC" title="Para cuando le compra a alguien que no factura">Factura de compra</button>
             <button type="button" class="btn btn--linea btn--sm" id="btnNuevoProv">Nuevo proveedor</button>
             <label class="btn btn--negro btn--sm" id="btnSubirXml">Subir factura del proveedor (XML)<input type="file" id="xmlRecibido" accept=".xml,text/xml,application/xml" multiple hidden /></label>
           </div>
@@ -1442,6 +1443,58 @@
       <div class="dlg__btns">
         <button type="button" class="btn btn--linea" data-cerrar-dlg>Cancelar</button>
         <button type="submit" class="btn btn--negro" id="btnDevGuardar" disabled>Devolver</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgFEC" class="dlg dlg--ancho" aria-labelledby="fecTit">
+    <form id="formFEC" class="dlg__form" novalidate>
+      <h2 id="fecTit">Factura electrónica de compra</h2>
+      <p class="ayuda">Para cuando el almacén le compra a alguien que <b>no da factura electrónica</b>. La hace el almacén con su firma y la manda a Hacienda. Pregúntele al contador en qué casos usarla.</p>
+      <fieldset class="fec-grupo">
+        <legend>Proveedor</legend>
+        <div class="dos">
+          <label>Cédula<input name="identificacion" inputmode="numeric" maxlength="14" autocomplete="off" /></label>
+          <label>Tipo
+            <select name="tipo_id"><option value="fisica">Cédula física</option><option value="juridica">Cédula jurídica</option><option value="dimex">DIMEX</option><option value="nite">NITE</option></select></label>
+        </div>
+        <p class="ayuda recep-busca" id="fecBusca" aria-live="polite"></p>
+        <div class="dos">
+          <label>Nombre<input name="nombre" maxlength="100" autocomplete="off" /></label>
+          <label>Dirección (señas)<input name="senas" maxlength="250" autocomplete="off" placeholder="Ej.: Finca La Esperanza, Cariari" /></label>
+        </div>
+        <div class="dos">
+          <label>Qué tipo de proveedor es
+            <select name="ref_tipo">
+              <option value="14">Productor del régimen especial agropecuario</option>
+              <option value="99">Otro que no factura (no inscrito)</option>
+            </select></label>
+          <label>N.º del recibo o comprobante que le dio (opcional)<input name="ref_numero" maxlength="50" autocomplete="off" /></label>
+        </div>
+      </fieldset>
+      <h3 class="subt">Productos que compró</h3>
+      <div class="buscar-item">
+        <label class="sr" for="fecBuscar">Agregar del catálogo</label>
+        <input id="fecBuscar" type="search" placeholder="Agregar del catálogo: nombre o código…" autocomplete="off" />
+        <ul id="fecRes" class="buscar-item__res" hidden></ul>
+      </div>
+      <div class="items-wrap">
+        <table class="items">
+          <thead><tr><th>Producto</th><th class="num">Cantidad</th><th class="num">Precio unit. sin IVA ₡</th><th>IVA</th><th class="num">Subtotal</th><th><span class="sr">Quitar</span></th></tr></thead>
+          <tbody id="fecItems"></tbody>
+          <tfoot><tr><th colspan="4">Total con IVA</th><td class="num" id="fecTotal">₡0</td><td></td></tr></tfoot>
+        </table>
+      </div>
+      <div class="tres">
+        <label>Se pagó<select name="condicion"><option value="contado">De contado</option><option value="credito">A crédito</option></select></label>
+        <label id="fecMedioLbl">Cómo<select name="medio"><option value="efectivo">Efectivo</option><option value="sinpe">SINPE</option><option value="transferencia">Transferencia</option></select></label>
+        <label id="fecDiasLbl" hidden>Plazo (días)<input name="dias" type="number" min="1" max="365" value="30" /></label>
+      </div>
+      <label class="check"><input type="checkbox" name="inventario" checked /> Sumar estos productos al inventario (entrada de mercadería)</label>
+      <p class="msg msg--error" id="fecMsg" role="alert"></p>
+      <div class="dlg__btns">
+        <button type="button" class="btn btn--linea" data-cerrar-dlg>Cancelar</button>
+        <button type="submit" class="btn btn--negro" id="btnFECEmitir">Hacer factura de compra</button>
       </div>
     </form>
   </dialog>

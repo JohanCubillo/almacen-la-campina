@@ -12,7 +12,7 @@
 // =====================================================================
 import { Buffer } from "node:buffer";
 import {
-  buildClave, buildFacturaXml, buildTiqueteXml, buildNotaCreditoXml, buildMensajeReceptorXml,
+  buildClave, buildFacturaXml, buildTiqueteXml, buildNotaCreditoXml, buildMensajeReceptorXml, buildFacturaCompraXml,
   calculateLineItemTotals, calculateInvoiceSummary,
   signXml, validateDocumentXml,
   getEnvironmentConfig, Environment, TokenManager, HttpClient, loadCredentials,
@@ -307,6 +307,85 @@ export function armarNotaCreditoParcial(op: {
            total: Number(resumen.totalComprobante), impuesto: Number(resumen.totalImpuesto), doc, xml };
 }
 
+// ---------- factura electrónica de compra (08) ----------
+// La hace el almacén cuando le compra a alguien que no factura. En el XML el proveedor es el
+// Emisor y el almacén el Receptor; la clave lleva la cédula del almacén.
+export type RenglonCompra = { cabys: string; detalle: string; cantidad: number; precio: number; iva_codigo: string; unidad?: string | null; codigo?: string | null };
+export function armarFacturaCompra(op: {
+  numero: number; emisor: Emisor;               // el almacén (comprador)
+  proveedor: { tipo_id: string; identificacion: string; nombre: string; correo?: string | null;
+               provincia?: string | null; canton?: string | null; distrito?: string | null; senas?: string | null };
+  referencia: { tipo: "14" | "16" | "99"; numero?: string | null; fecha: string; otro?: string | null };
+  lineas: RenglonCompra[]; credito?: { dias: number } | null; medioPago?: string; fecha?: Date;
+}): Comprobante {
+  const faltan = revisarEmisor(op.emisor);
+  if (faltan.length) falla("Faltan datos del negocio: " + faltan.join(", ") + ".");
+  const pv = op.proveedor;
+  const tipoPv = ID_TIPOS[pv.tipo_id] || pv.tipo_id;
+  const numPv = String(pv.identificacion || "").replace(/\D/g, "");
+  if (!/^0[1-4]$/.test(tipoPv) || !/^\d{9,12}$/.test(numPv)) falla("Revise la cédula del proveedor.");
+  const nombrePv = String(pv.nombre || "").replace(/\s+/g, " ").trim().slice(0, 100);
+  if (nombrePv.length < 3) falla("Escriba el nombre del proveedor.");
+  if (!op.lineas.length) falla("Agregue al menos un producto.");
+  if (op.lineas.length > 1000) falla("Máximo 1000 renglones.");
+  const items = op.lineas.map((l, i) => {
+    const t = TARIFAS[l.iva_codigo];
+    if (t === undefined) falla(`Renglón ${i + 1}: tarifa de IVA no válida.`);
+    if (!/^[0-9]{13}$/.test(String(l.cabys || ""))) falla(`“${l.detalle}” no tiene código CABYS.`);
+    if (!(Number(l.cantidad) > 0)) falla(`“${l.detalle}”: la cantidad debe ser mayor que 0.`);
+    if (!(Number(l.precio) > 0)) falla(`“${l.detalle}”: falta el precio.`);
+    return calculateLineItemTotals({
+      numeroLinea: i + 1, codigoCabys: String(l.cabys),
+      ...(l.codigo ? { codigoComercial: [{ tipo: "02", codigo: String(l.codigo).slice(0, 20) }] } : {}),   // 02 = código del comprador
+      cantidad: Number(l.cantidad), unidadMedida: UNIDADES[String(l.unidad || "").trim().toLowerCase()] || "Unid",
+      detalle: String(l.detalle).replace(/\s+/g, " ").trim().slice(0, 200),
+      precioUnitario: r5(Number(l.precio)),                 // en la compra se pone el precio SIN IVA
+      impuesto: [{ codigo: "01", codigoTarifaIVA: l.iva_codigo, tarifa: t }],
+    } as never);
+  });
+  const resumen = calculateInvoiceSummary(items as never) as unknown as Record<string, unknown>;
+  const dias = op.credito ? Math.round(Number(op.credito.dias)) : 0;
+  if (op.credito && !(dias >= 1 && dias <= 99999)) falla("El plazo del crédito debe ser de 1 a 99999 días.");
+  if (!op.credito) resumen.medioPago = repartirPagos([{ metodo: op.medioPago || "efectivo", monto: Number(resumen.totalComprobante) }], Number(resumen.totalComprobante));
+  const fecha = op.fecha || new Date();
+  const e = op.emisor;
+  const clave = buildClave({ date: fecha, taxpayerId: e.identificacion, branch: e.sucursal, pos: e.terminal, documentType: "08", sequence: op.numero, situation: "1" } as never);
+  const ref = op.referencia;
+  const refFecha = /^\d{4}-\d{2}-\d{2}$/.test(String(ref.fecha || "")) ? `${ref.fecha}T00:00:00-06:00` : fechaCR(fecha);
+  const doc: Record<string, unknown> = {
+    clave,
+    proveedorSistemas: e.proveedor_sistemas,
+    codigoActividadReceptor: e.actividad,
+    numeroConsecutivo: `${e.sucursal}${e.terminal}08${String(op.numero).padStart(10, "0")}`,
+    fechaEmision: fechaCR(fecha),
+    emisor: { nombre: nombrePv, identificacion: { tipo: tipoPv, numero: numPv },
+      // dirección del proveedor: provincia/cantón/distrito (si no se dan, los del almacén) y sus señas
+      ubicacion: { provincia: pv.provincia || e.provincia, canton: pv.canton || e.canton, distrito: pv.distrito || e.distrito,
+                   otrasSenas: (String(pv.senas || "").replace(/\s+/g, " ").trim() || "Sin dirección").slice(0, 250).padEnd(5, ".") },
+      ...(pv.correo ? { correoElectronico: String(pv.correo).trim() } : {}) },
+    receptor: {
+      nombre: e.nombre, identificacion: { tipo: e.tipo_id, numero: e.identificacion },
+      ...(e.nombre_comercial ? { nombreComercial: e.nombre_comercial } : {}),
+      ubicacion: { provincia: e.provincia, canton: e.canton, distrito: e.distrito, otrasSenas: e.otras_senas },
+      ...(e.telefono ? { telefono: { codigoPais: "506", numTelefono: e.telefono } } : {}),
+      correoElectronico: e.correo,
+    },
+    condicionVenta: op.credito ? "02" : "01",
+    ...(op.credito ? { plazoCredito: String(dias) } : {}),
+    detalleServicio: items,
+    resumenFactura: resumen,
+    informacionReferencia: [{
+      tipoDoc: ref.tipo,
+      ...(ref.tipo === "99" ? { tipoDocOtros: String(ref.otro || "Compra a proveedor no inscrito como emisor electrónico").slice(0, 100) } : {}),
+      ...(ref.numero ? { numero: String(ref.numero).slice(0, 50) } : {}),
+      fechaEmision: refFecha, codigo: "04", razon: "Factura electrónica de compra",
+    }],
+  };
+  const xml = buildFacturaCompraXml(doc as never);
+  return { tipo: "08", clave, consecutivo: doc.numeroConsecutivo as string, fechaEmision: doc.fechaEmision as string,
+           total: Number(resumen.totalComprobante), impuesto: Number(resumen.totalImpuesto), doc, xml };
+}
+
 // ---------- mensaje de receptor (aceptar o rechazar la factura de un proveedor) ----------
 // mensaje: 1 acepta (consecutivo tipo 05), 2 acepta en parte (06), 3 rechaza (07)
 // condición del IVA: 01 da crédito completo, 02 crédito parcial, 03 bienes de capital,
@@ -427,8 +506,11 @@ export async function conectar(ambiente: "pruebas" | "produccion", usuario: stri
 }
 
 export async function enviar(http: HttpClient, c: { clave: string; fechaEmision: string; doc: Record<string, unknown> }, firmado: string) {
-  const em = (c.doc.emisor as { identificacion: { tipo: string; numero: string } }).identificacion;
-  const rid = (c.doc.receptor as { identificacion?: { tipo: string; numero: string } } | undefined)?.identificacion;
+  const compra = String(c.doc.numeroConsecutivo || "").slice(8, 10) === "08";
+  const xEm = (c.doc.emisor as { identificacion: { tipo: string; numero: string } }).identificacion;
+  const xRe = (c.doc.receptor as { identificacion?: { tipo: string; numero: string } } | undefined)?.identificacion;
+  // en la factura de compra quien la emite ante Hacienda es el comprador (el Receptor del XML, dueño de la clave)
+  const em = compra && xRe ? xRe : xEm, rid = compra ? xEm : xRe;
   return await submitDocument(http, {
     clave: c.clave,
     fecha: c.fechaEmision,

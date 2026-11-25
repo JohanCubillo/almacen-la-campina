@@ -87,7 +87,8 @@
   let V21 = false;         // salidas/conteos, compras y proveedores, facturas recibidas (v21_compras_ajustes.sql)
   let V22 = false;
   let V23 = false;
-  let V24 = false;         // precio 2 y descuento por cliente (v24_precios_cliente.sql)         // devoluciones parciales (v23_devoluciones.sql)         // exoneración de IVA en ventas (v22_exoneracion.sql)
+  let V24 = false;
+  let V25 = false;         // factura electrónica de compra (v25_factura_compra.sql)         // precio 2 y descuento por cliente (v24_precios_cliente.sql)         // devoluciones parciales (v23_devoluciones.sql)         // exoneración de IVA en ventas (v22_exoneracion.sql)
   // pestañas y pantallas: sin v17 todos los del panel las ven, como antes
   const soyAdministrador = () => !ACCESO || ACCESO.rol === "administrador";
   // borrar ventas y cambiar roles: sin v17 se usa el rol de v16
@@ -391,7 +392,7 @@
     } else {
       // todas las preguntas a la base salen juntas (antes iban una por una y sumaban segundos)
       const probar = (q) => Promise.resolve(q).then((x) => x, (e) => ({ error: e }));
-      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22, r23, r24] = await Promise.all([
+      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22, r23, r24, r25] = await Promise.all([
         probar(db.from("avisos").select("id").limit(1)),
         probar(db.from("productos").select("codigo").limit(1)),
         probar(db.from("fe_emisor").select("*").eq("id", 1).maybeSingle()),
@@ -407,6 +408,7 @@
         probar(db.from("pedidos").select("exoneracion").limit(1)),
         probar(db.from("devoluciones").select("id").limit(1)),
         probar(db.from("productos").select("precio2").limit(1)),
+        probar(db.from("fe_documentos").select("entrada_id").limit(1)),
         cargarCategorias()
       ]);
       V4 = r.error && U.esErrorRed(r.error) ? !!copia.leer().v4 : !r.error;
@@ -416,7 +418,7 @@
       V10 = !r10.error; FE = r10.data || null;
       V11 = !r11.error; V12 = !r12.error; V13 = !r13.error;
       if (V13) cargarClientes();
-      V14 = !r14.error; V15 = !r15.error; V16 = !r16.error; V18 = !r18.error; V19 = !r19.error; V21 = !r21.error; V22 = !r22.error; V23 = !r23.error; V24 = !r24.error;
+      V14 = !r14.error; V15 = !r15.error; V16 = !r16.error; V18 = !r18.error; V19 = !r19.error; V21 = !r21.error; V22 = !r22.error; V23 = !r23.error; V24 = !r24.error; V25 = !r25.error;
       // para poder abrir el panel sin internet con lo mismo que tiene la base
       if (!r16.error || !U.esErrorRed(r16.error)) {
         copia.poner("versiones", { V10, V12, V13, V14, V18, V19 });
@@ -430,6 +432,7 @@
     document.documentElement.classList.toggle("sin-v18", !V18);
     document.documentElement.classList.toggle("sin-v21", !V21);
     document.documentElement.classList.toggle("sin-v24", !V24);
+    document.documentElement.classList.toggle("sin-v25", !(V25 && V10 && !!FE?.activo));
     $("#tabCom").hidden = !V21;
     // formas de pago de v18: sin la base nueva no se ofrecen; lo abonado en Moriah solo lo anota el administrador
     $$("option[data-v18]").forEach((o) => { if (!V18 || (o.hasAttribute("data-solo-admin") && !esAdministradorReal())) o.remove(); });
@@ -3239,7 +3242,7 @@
   });
 
   // ---------- facturación electrónica (función "facturar") ----------
-  const FE_TIPO = { "01": "Factura electrónica", "03": "Nota de crédito", "04": "Tiquete electrónico" };
+  const FE_TIPO = { "01": "Factura electrónica", "03": "Nota de crédito", "04": "Tiquete electrónico", "08": "Factura de compra" };
   const FE_ESTADO = {
     firmado: ["Sin enviar", "etq--error"], enviado: ["Enviado a Hacienda", "etq--por_verificar"], procesando: ["Hacienda lo está revisando", "etq--por_verificar"],
     aceptado: ["Aceptado por Hacienda", "etq--pagado"], rechazado: ["Rechazado por Hacienda", "etq--error"], error: ["Con error", "etq--error"],
@@ -3773,7 +3776,7 @@
     const lista = compDocs.filter(pasa).filter((d) => !q || norm([numeroFE(d), d.consecutivo, d.clave, clienteFE(d), d.pedidos?.codigo].join(" ")).includes(q));
     const ok = compDocs.filter((d) => d.estado === "aceptado");
     const suma = (a, k) => a.reduce((t, d) => t + Number(d[k] || 0), 0);
-    const ventas = ok.filter((d) => d.tipo !== "03"), notas = ok.filter((d) => d.tipo === "03");
+    const ventas = ok.filter((d) => d.tipo === "01" || d.tipo === "04"), notas = ok.filter((d) => d.tipo === "03");
     const problemas = compDocs.filter((d) => PROBLEMA_FE.includes(d.estado)).length;
     $("#compCifras").innerHTML = `
       <div><dt>Total facturado</dt><dd>${fmt(suma(ventas, "total") - suma(notas, "total"))}<small>${ventas.length} ${ventas.length === 1 ? "comprobante" : "comprobantes"}${notas.length ? ` − ${notas.length} ${notas.length === 1 ? "nota" : "notas"} de crédito` : ""}</small></dd></div>
@@ -3785,7 +3788,7 @@
       const acc = [];
       if (["firmado", "error"].includes(d.estado)) acc.push(`<button type="button" class="btn btn--sm btn--negro" data-comp="enviar" data-id="${d.id}">Enviar de nuevo</button>`);
       if (["enviado", "procesando"].includes(d.estado)) acc.push(`<button type="button" class="btn btn--sm btn--linea" data-comp="consultar" data-id="${d.id}">Consultar</button>`);
-      acc.push(`<button type="button" class="btn btn--sm btn--linea" data-comp="venta" data-id="${d.pedido_id}">Ver venta</button>`);
+      if (d.pedido_id) acc.push(`<button type="button" class="btn btn--sm btn--linea" data-comp="venta" data-id="${d.pedido_id}">Ver venta</button>`);
       acc.push(`<button type="button" class="enlace" data-comp="xml" data-id="${d.id}">XML</button>`);
       return `<li class="fila fila--pago ${d.anulado ? "fila--oculta" : ""}">
         <div class="fila__monto"><b>${d.tipo === "03" ? "−" : ""}${fmt(d.total)}</b><small class="comp-tipo">${FE_TIPO[d.tipo] || d.tipo}</small></div>
@@ -4223,7 +4226,7 @@
   const TARIFA_NOM = { "08": "13 %", "07": "8 %", "04": "4 %", "06": "4 % (transitoria)", "03": "2 %", "02": "1 %", "09": "0,5 %",
                        "01": "0 % (art. 32)", "05": "0 % (transitoria)", "11": "0 % sin crédito", "10": "Exento" };
   const ORDEN_TARIFA = ["08", "07", "04", "06", "03", "02", "09", "01", "05", "11", "10"];
-  const TIPO_FE_NOM = { "01": "Factura", "03": "Nota de crédito", "04": "Tiquete" };
+  const TIPO_FE_NOM = { "01": "Factura", "03": "Nota de crédito", "04": "Tiquete", "08": "Factura de compra" };
   const ESTADO_FE_NOM = { aceptado: "Aceptado", rechazado: "Rechazado", firmado: "Sin enviar", enviado: "Enviado", procesando: "Procesando", error: "Con error" };
   const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
   const fechaHora = (iso) => iso ? new Date(iso).toLocaleString("es-CR", { timeZone: TZ, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
@@ -4281,9 +4284,11 @@
     const intentar = async (nombre, fn) => { try { return await fn(); } catch (err) { avisos.push(`${nombre}: ${errTxt(err)}`); return null; } };
     try {
       // ---- datos ----
-      const docs = await intentar("Comprobantes emitidos", () => todasLasFilas(() => db.from("fe_documentos")
+      const todosDocs = await intentar("Comprobantes emitidos", () => todasLasFilas(() => db.from("fe_documentos")
         .select("id,pedido_id,tipo,clave,consecutivo,fecha_emision,receptor,total,impuesto,estado,detalle,referencia_id,anulado,datos,pedidos(codigo,cliente_nombre)")
         .eq("ambiente", amb).gte("fecha_emision", desde).lt("fecha_emision", hasta).order("fecha_emision"))) || [];
+      // las facturas de compra (08) las hace el almacén, pero son compras: van con las de proveedores
+      const docs = todosDocs.filter((d) => d.tipo !== "08"), fecs = todosDocs.filter((d) => d.tipo === "08");
       const recs = V21 ? (await intentar("Facturas de proveedores", () => todasLasFilas(() => db.from("fe_recibidos")
         .select("id,clave,tipo_doc,emisor_id,emisor_nombre,consecutivo_doc,fecha_emision,moneda,tipo_cambio,total,impuesto,mensaje,condicion_impuesto,impuesto_acreditar,estado,ambiente,xml,xml_firmado,respuesta_xml")
         .gte("fecha_emision", desde).lt("fecha_emision", hasta).order("fecha_emision"))) || []) : [];
@@ -4339,7 +4344,19 @@
         }
         if (r.estado === "aceptado" && r.mensaje !== "3") acreditable += s * Number(r.impuesto_acreditar ?? 0) * tc;
         return { r, t, tc, s };
-      });
+      }).concat(fecs.map((d) => {
+        const t = tarifasEmitido(d.datos), ok = d.estado === "aceptado";
+        const r = { fecha_emision: d.fecha_emision, tipo_doc: "08", emisor_nombre: d.receptor?.nombre || "", emisor_id: d.receptor?.identificacion?.numero || "",
+          consecutivo_doc: d.consecutivo, impuesto: Number(d.impuesto), total: Number(d.total), moneda: "CRC", mensaje: null, condicion_impuesto: null,
+          impuesto_acreditar: null, estado: d.estado, clave: d.clave };
+        if (ok) {
+          sumarTarifas(comprasT, t, 1, 1);
+          const p = porProv.get(r.emisor_id) || { nombre: r.emisor_nombre, ced: r.emisor_id, n: 0, base: 0, iva: 0, total: 0 };
+          p.n += 1; p.total += r.total; p.iva += r.impuesto; p.base += r.total - r.impuesto;
+          porProv.set(r.emisor_id, p);
+        }
+        return { r, t, tc: 1, s: 1 };
+      }));
       const tarCom = tarifasOrden(...filasCom.map((x) => x.t));
       const hojaCompras = [["Fecha", "Tipo", "Proveedor", "Cédula", "Consecutivo",
         ...tarCom.flatMap((k) => TARIFA_PCT[k] > 0 ? [`Base ${TARIFA_NOM[k]}`, `IVA ${TARIFA_NOM[k]}`] : [`Compra ${TARIFA_NOM[k]}`]),
@@ -4349,8 +4366,8 @@
         hojaCompras.push([fechaHora(r.fecha_emision), TIPO_DOC_REC[r.tipo_doc] || r.tipo_doc, r.emisor_nombre, r.emisor_id, r.consecutivo_doc || "",
           ...tarCom.flatMap((k) => TARIFA_PCT[k] > 0 ? [r2(s * (t[k]?.base || 0) * tc), r2(s * (t[k]?.iva || 0) * tc)] : [r2(s * (t[k]?.base || 0) * tc)]),
           r2(s * r.impuesto * tc), r2(s * r.total * tc), r.moneda, tc === 1 ? "" : tc,
-          r.mensaje ? MSJ[r.mensaje] : "Sin contestar", COND[r.condicion_impuesto] || "", r.impuesto_acreditar != null ? r2(s * r.impuesto_acreditar * tc) : "",
-          r.mensaje ? (ESTADO_FE_NOM[r.estado] || r.estado) + (r.ambiente === "pruebas" ? " (pruebas)" : "") : "", r.clave]);
+          r.tipo_doc === "08" ? "La hizo el almacén" : r.mensaje ? MSJ[r.mensaje] : "Sin contestar", COND[r.condicion_impuesto] || "", r.impuesto_acreditar != null ? r2(s * r.impuesto_acreditar * tc) : "",
+          r.tipo_doc === "08" || r.mensaje ? (ESTADO_FE_NOM[r.estado] || r.estado) + (r.ambiente === "pruebas" ? " (pruebas)" : "") : "", r.clave]);
       }
       const dinCom = []; for (let i = 5; i < 5 + tarCom.reduce((n, k) => n + (TARIFA_PCT[k] > 0 ? 2 : 1), 0) + 2; i++) dinCom.push(i);
       dinCom.push(hojaCompras[0].indexOf("IVA acreditable"));
@@ -4434,8 +4451,8 @@
       const archivos = [{ nombre: `contador-${mes}.xlsx`, datos: new Uint8Array(await xlsx.arrayBuffer()) }];
       if (conXml) {
         msg.textContent = "Bajando los XML…";
-        for (let k = 0; k < docs.length; k += 100) {
-          const ids = docs.slice(k, k + 100).map((d) => d.id);
+        for (let k = 0; k < todosDocs.length; k += 100) {
+          const ids = todosDocs.slice(k, k + 100).map((d) => d.id);
           const { data, error } = await db.from("fe_documentos").select("tipo,clave,xml_firmado,respuesta_xml").in("id", ids);
           if (error) { avisos.push("XML emitidos: " + errTxt(error)); break; }
           for (const d of data) {
@@ -4633,6 +4650,111 @@
     $("#provMsg").textContent = ""; $("#provMsg").className = "msg";
     $("#dlgProveedor").showModal(); f.nombre.focus();
   }
+  // ---------- factura electrónica de compra ----------
+  let FEC = [];
+  const IVA_OPC = ["08", "04", "03", "02", "09", "10", "01"];
+  function abrirFEC() {
+    const f = $("#formFEC"); f.reset(); FEC = [];
+    $("#fecMsg").textContent = ""; $("#fecBusca").textContent = "";
+    pintarFEC();
+    $("#dlgFEC").showModal(); f.identificacion.focus();
+  }
+  function pintarFEC() {
+    $("#fecItems").innerHTML = FEC.map((l, n) => `<tr data-n="${n}">
+        <td>${U.esc(l.detalle)}${l.cabys ? "" : '<small class="stock-nota">Sin CABYS: póngaselo en Productos</small>'}</td>
+        <td class="num"><input data-k="cantidad" type="number" min="0.01" step="0.01" value="${U.esc(l.cantidad)}" aria-label="Cantidad" /></td>
+        <td class="num"><input data-k="precio" type="number" min="0.01" step="0.01" value="${U.esc(l.precio)}" aria-label="Precio unitario sin IVA" /></td>
+        <td><select data-k="iva_codigo" aria-label="IVA">${IVA_OPC.map((k) => `<option value="${k}"${k === l.iva_codigo ? " selected" : ""}>${U.esc(TARIFA_NOM[k] || k)}</option>`).join("")}</select></td>
+        <td class="num" data-sub>${fmt(subFEC(l))}</td>
+        <td><button type="button" class="cerrar-x" data-quitar="${n}" aria-label="Quitar">✕</button></td>
+      </tr>`).join("") || `<tr><td colspan="6" class="vacio-adm">Busque arriba los productos que compró.</td></tr>`;
+    $("#fecTotal").textContent = fmt(FEC.reduce((a, l) => a + subFEC(l), 0));
+    const f = $("#formFEC");
+    $("#fecMedioLbl").hidden = f.condicion.value !== "contado";
+    $("#fecDiasLbl").hidden = f.condicion.value !== "credito";
+  }
+  const subFEC = (l) => r2((Number(l.cantidad) || 0) * (Number(l.precio) || 0) * (1 + (TARIFA_PCT[l.iva_codigo] || 0) / 100));
+  buscadorProductos($("#fecBuscar"), $("#fecRes"), (p) => {
+    const ya = FEC.find((l) => l.producto_id === p.id);
+    if (ya) ya.cantidad = Number(ya.cantidad) + 1;
+    else {
+      const t = TARIFA_PCT[p.iva_codigo || "08"] ?? 13;
+      FEC.push({ producto_id: p.id, detalle: p.nombre, cabys: p.cabys || "", codigo: p.codigo || null, unidad: p.unidad || null, iva_codigo: p.iva_codigo || "08",
+        cantidad: 1, precio: p.costo != null ? r2(Number(p.costo) / (1 + t / 100)) : "" });
+    }
+    pintarFEC();
+  }, { nada: "No está en el catálogo: créelo primero en Productos (con su CABYS)." });
+  $("#fecItems").addEventListener("input", (e) => {
+    const tr = e.target.closest("tr[data-n]"), k = e.target.dataset.k; if (!tr || !k) return;
+    const l = FEC[Number(tr.dataset.n)]; l[k] = k === "iva_codigo" ? e.target.value : e.target.value;
+    tr.querySelector("[data-sub]").textContent = fmt(subFEC(l));
+    $("#fecTotal").textContent = fmt(FEC.reduce((a, x) => a + subFEC(x), 0));
+  });
+  $("#fecItems").addEventListener("change", (e) => { if (e.target.dataset.k === "iva_codigo") pintarFEC(); });
+  $("#fecItems").addEventListener("click", (e) => { const b = e.target.closest("[data-quitar]"); if (b) { FEC.splice(Number(b.dataset.quitar), 1); pintarFEC(); } });
+  $("#formFEC").condicion.addEventListener("change", pintarFEC);
+  $("#formFEC").identificacion.addEventListener("input", (e) => {
+    const f = e.target.form, id = U.soloDigitos(e.target.value), info = $("#fecBusca");
+    clearTimeout(abrirFEC.t);
+    if (id.length === 9) f.tipo_id.value = "fisica"; else if (id.length === 10) f.tipo_id.value = "juridica"; else if (id.length >= 11) f.tipo_id.value = "dimex";
+    info.textContent = ""; info.className = "ayuda recep-busca";
+    if (id.length < 9 || !enLinea()) return;
+    abrirFEC.t = setTimeout(async () => {
+      try {
+        const r = await llamarFE({ accion: "contribuyente", identificacion: id });
+        if (U.soloDigitos(f.identificacion.value) !== id) return;
+        if (r.encontrado) { if (!f.nombre.value.trim()) f.nombre.value = r.nombre; info.textContent = `Registrado en Hacienda: ${r.nombre}`; info.className = "ayuda recep-busca recep-busca--ok"; }
+        else info.textContent = "No aparece en el registro de Hacienda: escriba el nombre como sale en la cédula.";
+      } catch { /* sin respuesta */ }
+    }, 450);
+  });
+  $("#btnNuevaFEC").addEventListener("click", abrirFEC);
+  $("#formFEC").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#fecMsg"), btn = $("#btnFECEmitir");
+    const prov = { tipo_id: f.tipo_id.value, identificacion: U.soloDigitos(f.identificacion.value), nombre: f.nombre.value.trim(), senas: f.senas.value.trim() };
+    msg.textContent = "";
+    if (!RE_ID[prov.tipo_id].test(prov.identificacion)) { msg.textContent = "Revise la cédula del proveedor."; f.identificacion.focus(); return; }
+    if (prov.nombre.length < 3) { msg.textContent = "Escriba el nombre del proveedor."; f.nombre.focus(); return; }
+    if (prov.senas.length < 5) { msg.textContent = "Escriba la dirección del proveedor (señas)."; f.senas.focus(); return; }
+    if (!FEC.length) { msg.textContent = "Agregue los productos que compró."; return; }
+    if (FEC.some((l) => !(Number(l.cantidad) > 0) || !(Number(l.precio) > 0))) { msg.textContent = "Cada producto necesita cantidad y precio."; return; }
+    if (!enLinea()) { msg.textContent = "Sin internet no se puede hacer la factura de compra."; return; }
+    if (!(await asegurarCabys(FEC.map((l) => ({ producto_id: l.producto_id, descripcion: l.detalle }))))) return;
+    for (const l of FEC) l.cabys = prodDe(l.producto_id)?.cabys || l.cabys;
+    const total = FEC.reduce((a, l) => a + subFEC(l), 0), cred = f.condicion.value === "credito", inv = f.inventario.checked;
+    if (!await preguntar(`Se hace la factura de compra a ${prov.nombre} por ${fmt(total)} y se manda a Hacienda (${FE?.ambiente === "produccion" ? "producción" : "pruebas"}).`
+      + (inv ? `\nSe suman ${FEC.length} ${FEC.length === 1 ? "producto" : "productos"} al inventario.` : ""), { titulo: "¿Hacer la factura de compra?", si: "Hacer factura" })) return;
+    btn.disabled = true; msg.className = "msg"; msg.textContent = "Firmando y enviando a Hacienda…";
+    try {
+      let entrada_id = null;
+      if (inv && V21) {
+        let pv = provPorNombre(prov.nombre);
+        if (!pv && cred) {
+          const { data: np, error: eP } = await db.from("proveedores").insert({ nombre: prov.nombre }).select("*").single();
+          if (eP) throw eP;
+          PROVS.push(np); pv = np;
+        }
+        const { data, error } = await db.rpc("registrar_compra", { p: {
+          proveedor: prov.nombre, proveedor_id: pv?.id ?? "", documento: "Factura de compra", fecha: hoyCR(), nota: `Factura electrónica de compra · ${prov.identificacion}`,
+          condicion: cred ? "credito" : "contado", vence: "", total_factura: cred ? String(r2(total)) : "",
+          items: FEC.map((l) => ({ producto_id: l.producto_id, cantidad: String(Number(l.cantidad)), costo: String(r2(Number(l.precio) * (1 + (TARIFA_PCT[l.iva_codigo] || 0) / 100))), precio: "" }))
+        } });
+        if (error) throw error;
+        entrada_id = data?.id || null;
+      }
+      const r = await llamarFE({ accion: "compra", proveedor: prov, entrada_id,
+        referencia: { tipo: f.ref_tipo.value, numero: f.ref_numero.value.trim() || null, fecha: hoyCR() },
+        condicion: cred ? "credito" : "contado", dias: Number(f.dias.value) || 30, medio: f.medio.value,
+        lineas: FEC.map((l) => ({ cabys: l.cabys, detalle: l.detalle, cantidad: Number(l.cantidad), precio: Number(l.precio), iva_codigo: l.iva_codigo, unidad: l.unidad, codigo: l.codigo })) });
+      const d = r.documento || {};
+      $("#dlgFEC").close();
+      toast(d.estado === "aceptado" ? "Factura de compra aceptada por Hacienda." : `Factura de compra enviada (${(FE_ESTADO[d.estado] || [d.estado])[0]}). Véala en Comprobantes.`, d.estado === "rechazado");
+      if (inv) { cargarCompras?.(); refrescarExistencias(FEC.map((l) => l.producto_id)); }
+    } catch (err) { msg.className = "msg msg--error"; msg.textContent = errTxt(err); }
+    finally { btn.disabled = false; }
+  });
+
   $("#btnNuevoProv").addEventListener("click", () => {
     if (!(puede("compras") || puede("inventario"))) return toast("No tiene permiso para esto.", true);
     abrirProveedor(null);

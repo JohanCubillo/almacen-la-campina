@@ -725,3 +725,5 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 .espera__ficha:hover { border-color: var(--negro); }
 @media (max-width: 600px) { .venta__head { grid-template-columns: minmax(0, 1fr) auto auto; } }
 .sin-v24 .v24 { display: none !important; }
+.sin-v25 .v25 { display: none !important; }
+.fec-grupo { border: 0; padding: 0; margin: 0; display: grid; gap: .6rem; } .fec-grupo legend { font-weight: 600; margin-bottom: .3rem; } #fecItems input { width: 7rem; text-align: right; } #fecItems select { width: auto; }

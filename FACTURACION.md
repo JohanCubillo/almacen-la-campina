@@ -185,3 +185,19 @@ Para cuando el cliente devuelve solo parte de lo que compró. Correr `supabase/v
 - En la venta: **Devolver productos** → cuánto de cada renglón, el motivo y (si ya pagó) cómo se le devuelve la plata: efectivo (sale de la caja abierta), SINPE, transferencia o tarjeta.
 - Lo devuelto vuelve al inventario (movimiento "Devolución"), el total de la venta baja y, si era a crédito, baja lo que debe. Los renglones de la venta quedan como se vendieron.
 - Con facturación electrónica, primero tiene que estar el tiquete o factura **aceptado**; la devolución sale en una **nota de crédito parcial** (código 06, "devolución de mercancía") con los mismos precios, impuestos y exoneración del original. Una venta con devoluciones ya no se anula entera: se devuelve lo que queda.
+
+## Factura electrónica de compra (v25)
+
+Para cuando el almacén le compra a alguien que **no da factura electrónica** (por ejemplo, un productor del régimen especial agropecuario). Correr `supabase/v25_factura_compra.sql` y volver a publicar `facturar`.
+
+- **Compras → Factura de compra**: cédula del proveedor (el nombre se busca en Hacienda), dirección, tipo de proveedor, los productos del catálogo con su precio **sin IVA** y el IVA de cada uno, y cómo se pagó.
+- En el XML el proveedor va como **Emisor** y el almacén como **Receptor**, pero la **clave** lleva la cédula del almacén y la firma el almacén (así lo pide Hacienda en la 4.4). Lleva `InformacionReferencia` 14 (régimen especial) o 99 (otro no inscrito).
+- Si se marca **Sumar al inventario**, se hace la entrada de mercadería con el costo con IVA.
+- Sale en **Comprobantes** y, en el paquete del contador, en la hoja de **Compras** (no en ventas).
+- ⚠️ Cuándo corresponde una factura de compra y con qué IVA es una decisión tributaria: **confírmelo con el contador** y pruébelo primero en el ambiente de pruebas.
+
+### Orden para activar todo lo nuevo
+
+1. SQL en Supabase, en este orden: `v22_exoneracion.sql`, `v23_devoluciones.sql`, `v24_precios_cliente.sql`, `v25_factura_compra.sql`.
+2. `npx supabase functions deploy facturar --project-ref osuhkkojtwweepniwxtp --use-api`
+3. Ctrl+F5 en el panel.
