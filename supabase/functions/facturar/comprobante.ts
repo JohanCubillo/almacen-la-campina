@@ -44,12 +44,26 @@ export type Emisor = {
   actividad: string; provincia: string; canton: string; distrito: string; otras_senas: string;
   telefono?: string | null; correo: string; sucursal: string; terminal: string; proveedor_sistemas: string;
 };
+// exoneración (EXONET) que cubre un renglón
+export type Exoneracion = {
+  tipo: string; numero: string; institucion: string; institucion_otro?: string | null; tipo_otro?: string | null;
+  fecha_emision: string; puntos: number;           // puntos de IVA exonerados (13 = todo el 13 %)
+};
 export type Linea = {
   cabys: string; codigo?: string | null; detalle: string; cantidad: number;
-  precio: number;          // precio unitario CON IVA (como se cobra en el almacén)
+  precio: number;          // precio unitario CON IVA (como se cobra en el almacén; si hay exoneración, ya con el IVA rebajado)
   iva_codigo: string;      // "08" = 13 %
   unidad?: string | null; servicio?: boolean;
+  ex?: Exoneracion | null;
 };
+// fecha del documento de exoneración como la pide el XML (con hora y zona)
+function fechaEx(f: string) {
+  const s = String(f || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s + "T00:00:00-06:00";
+  const d = new Date(s);
+  if (isNaN(d.getTime())) falla("Revise la fecha de emisión de la exoneración.");
+  return /[+-]\d{2}:\d{2}$|Z$/.test(s) ? s.replace(/\.\d+/, "").replace(/Z$/, "-00:00") : s.replace(/\.\d+$/, "") + "-06:00";
+}
 export type Pago = { metodo: string; monto: number };
 export type Receptor = { tipo_id?: string | null; identificacion?: string | null; nombre: string; correo?: string | null };
 export type Referencia = { tipo: string; clave: string; fecha: string; codigo: string; razon: string };
@@ -119,17 +133,30 @@ function lineasXml(lineas: Linea[]) {
     if (!(cantidad > 0)) falla(`“${l.detalle}”: la cantidad debe ser mayor que 0.`);
     if (!(precio > 0)) falla(`“${l.detalle}” no tiene precio.`);
     const unidad = l.servicio ? "Sp" : (UNIDADES[String(l.unidad || "").trim().toLowerCase()] || "Unid");
-    return calculateLineItemTotals({
+    // con exoneración el precio cobrado lleva solo el IVA que no se exonera
+    const puntos = l.ex && t > 0 ? Math.min(Number(l.ex.puntos), t) : 0;
+    if (l.ex && !(puntos > 0)) falla(`“${l.detalle}”: la exoneración no tiene porcentaje.`);
+    const impuesto: Record<string, unknown> = { codigo: "01", codigoTarifaIVA: l.iva_codigo, tarifa: t };
+    if (puntos) impuesto.exoneracion = {
+      tipoDocumento: l.ex!.tipo, numeroDocumento: String(l.ex!.numero).slice(0, 40), nombreInstitucion: l.ex!.institucion,
+      fechaEmision: fechaEx(l.ex!.fecha_emision), tarifaExonerada: Math.round(puntos * 100) / 100,
+    };
+    const linea = calculateLineItemTotals({
       numeroLinea: i + 1,
       codigoCabys: String(l.cabys),
       ...(l.codigo ? { codigoComercial: [{ tipo: "01", codigo: String(l.codigo).slice(0, 20) }] } : {}),
       cantidad,
       unidadMedida: unidad,
       detalle: String(l.detalle).replace(/\s+/g, " ").trim().slice(0, 200),
-      precioUnitario: r5(precio / (1 + t / 100)),        // el precio del almacén ya trae el IVA
-      impuesto: [{ codigo: "01", codigoTarifaIVA: l.iva_codigo, tarifa: t }],
+      precioUnitario: r5(precio / (1 + (t - puntos) / 100)),   // el precio del almacén ya trae el IVA (el que se cobra)
+      impuesto: [impuesto],
       esServicio: !!l.servicio,
-    } as never);
+    } as never) as unknown as Record<string, unknown>;
+    // "Otros" (99) lleva su descripción, que la librería no pasa sola
+    const exo = puntos ? ((linea.impuesto as Record<string, unknown>[])[0].exoneracion as Record<string, unknown>) : null;
+    if (exo && l.ex!.tipo === "99") exo.tipoDocumentoOtros = String(l.ex!.tipo_otro || "Autorización de exoneración").slice(0, 100);
+    if (exo && l.ex!.institucion === "99") exo.nombreInstitucionOtros = String(l.ex!.institucion_otro || "Otra institución").slice(0, 160);
+    return linea;
   });
 }
 

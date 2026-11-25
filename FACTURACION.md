@@ -166,3 +166,14 @@ Con `v21_compras_ajustes.sql` y la función `facturar` publicada otra vez (`inde
 ## Sin facturación encendida
 
 Si **Facturar desde el panel** está apagado, todo sigue como antes: el cliente pide factura desde la tienda o el panel, los datos quedan en `facturas` y se emite en el sistema que el almacén use, anotando el resultado a mano en la venta.
+
+## Exoneración de IVA (v22)
+
+Para clientes con autorización de exoneración de EXONET (número `AL-00012345-24`).
+
+1. Correr `supabase/v22_exoneracion.sql` y volver a publicar la función `facturar`.
+2. En la venta, antes de cobrar: **Cliente exonerado…** → escribir el número → **Consultar**. El panel le pregunta a Hacienda (`api.hacienda.go.cr/fe/ex`) el tipo, la institución, la cédula, los puntos de IVA que exonera, el vencimiento y los CABYS que cubre.
+3. **Aplicar a la venta**: los productos cubiertos se cobran con el IVA rebajado (13 puntos = sin IVA; 12 puntos = se cobra 1 %). Los que no cubre quedan con IVA completo.
+4. Se cobra normal y se toca **Emitir factura**: sale a la cédula del exonerado, con el nodo `Exoneracion` (4.4) en cada renglón cubierto. Con exoneración no se hace tiquete.
+
+La función revisa otra vez que no esté vencida, que la factura vaya a la cédula de la autorización y que cubra al menos un producto. Hacienda valida el número al recibir la factura.

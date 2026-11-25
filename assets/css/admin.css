@@ -691,3 +691,16 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 .carga-panel__pasos li[data-det]::after { content: attr(data-det); margin-left: auto; color: var(--gris); font-variant-numeric: tabular-nums; font-size: .9rem; }
 @keyframes girar { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .carga-panel__pasos li.va::before { animation: none; } .carga-panel__barra span { transition: none; } }
+
+/* exoneración */
+.venta__exo { margin: .25rem 0 .25rem; }
+.venta__exo[hidden], .exo-banda[hidden] { display: none; }
+.exo-banda { margin: .3rem 0 0; padding: .6em .8em; border-radius: 12px; background: #EEF7F0; border-left: 4px solid #1E8E3E; line-height: 1.45; }
+.exo-banda small { color: var(--gris); }
+.exo-buscar { display: flex; gap: .6rem; align-items: end; flex-wrap: wrap; }
+.exo-buscar label { flex: 1 1 14rem; display: grid; gap: .3rem; font-weight: 600; }
+.exo-buscar input { text-transform: uppercase; letter-spacing: .02em; }
+.exo-res[hidden] { display: none; }
+.exo-datos { display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem; margin: 0; padding: .8rem 1rem; background: var(--fondo-2); border-radius: 12px; }
+.exo-datos dt { color: var(--gris); }
+.exo-datos dd { margin: 0; }

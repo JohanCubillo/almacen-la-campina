@@ -22,7 +22,7 @@
 import { createClient } from "@supabase/supabase-js";
 import {
   armarComprobante, armarNotaCredito, armarMensajeReceptor, firmar, conectar, enviar, enviarMensaje, consultar, revisarEmisor,
-  ErrorComprobante, type Emisor, type Linea,
+  ErrorComprobante, TARIFAS, type Emisor, type Linea,
 } from "./comprobante.ts";
 
 const ORIGENES = (Deno.env.get("PANEL_ORIGENES") || "https://johancubillo.github.io").split(",").map((s) => s.trim());
@@ -49,6 +49,7 @@ function secretos() {
   };
 }
 const espera = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const hoyCR = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Costa_Rica" }).format(new Date());
 const corto = (e: unknown) => String((e as Error)?.message || e).replace(/\s+/g, " ").slice(0, 400);
 
 Deno.serve(async (req) => {
@@ -66,7 +67,7 @@ Deno.serve(async (req) => {
   const usuario = createClient(URL_SB, LLAVE_PUBLICA, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } });
   const accion = String(b.accion || "");
   const necesario = accion === "probar" ? null : accion === "anular" ? "anular" : accion.startsWith("recibido_") ? "compras"
-    : accion === "cabys" ? "productos" : accion === "contribuyente" ? "ventas" : "ventas";
+    : accion === "cabys" ? "productos" : "ventas";
   let permitido = false;
   if (necesario) {
     const r = await usuario.rpc("puede", { p_permiso: necesario });
@@ -99,6 +100,44 @@ Deno.serve(async (req) => {
         categorias: Array.isArray(x.categorias) ? (x.categorias as unknown[]).map(String).slice(-2) : [],
       })).filter((x) => /^[0-9]{13}$/.test(x.codigo));
       return resp({ ok: true, resultados });
+    }
+
+    // ---------- exoneración (EXONET): se consulta el número de autorización en Hacienda ----------
+    if (accion === "exoneracion") {
+      const num = String(b.numero || "").trim().toUpperCase().replace(/\s+/g, "");
+      if (!/^AL-\d{8}-\d{2}$/.test(num)) return resp({ ok: false, error: "El número de autorización va así: AL-00012345-24." });
+      let r: Response;
+      try { r = await fetch(`https://api.hacienda.go.cr/fe/ex?autorizacion=${encodeURIComponent(num)}`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) }); }
+      catch (e) { return resp({ ok: false, error: "No se pudo consultar a Hacienda: " + corto(e) }); }
+      if (r.status === 404) return resp({ ok: true, encontrado: false });
+      if (!r.ok) return resp({ ok: false, error: `Hacienda respondió ${r.status}. Intente de nuevo en un rato.` });
+      const j = await r.json().catch(() => null) as Record<string, unknown> | null;
+      if (!j || typeof j !== "object" || !Object.keys(j).length) return resp({ ok: true, encontrado: false });
+      // los nombres de los campos se buscan sin importar mayúsculas (la API no los documenta)
+      const campo = (o: Record<string, unknown> | null | undefined, ...ns: string[]) => {
+        if (!o) return undefined;
+        const ks = Object.keys(o);
+        for (const n of ns) { const k = ks.find((x) => x.toLowerCase() === n.toLowerCase()); if (k !== undefined && o[k] !== null && o[k] !== "") return o[k]; }
+        return undefined;
+      };
+      const td = campo(j, "tipoDocumento", "tipoDocumentoEX1");
+      const tipo = String((td && typeof td === "object" ? campo(td as Record<string, unknown>, "codigo") : td) ?? "").padStart(2, "0").slice(-2);
+      const tipoDesc = String((td && typeof td === "object" ? campo(td as Record<string, unknown>, "descripcion") : "") ?? "");
+      const instNom = String(campo(j, "nombreInstitucion", "institucion") ?? "");
+      let inst = String(campo(j, "codigoInstitucion", "CodigoInstitucion") ?? "").padStart(2, "0").slice(-2);
+      if (!/^\d{2}$/.test(inst) || inst === "00") {
+        const n = instNom.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+        inst = /hacienda/.test(n) ? "01" : /relaciones exteriores/.test(n) ? "02" : /agricultura/.test(n) ? "03" : /economia/.test(n) ? "04" : instNom ? "99" : "01";
+      }
+      const lista = campo(j, "cabys", "CABYS");
+      const cabys = Array.isArray(lista) ? lista.map((x) => String(typeof x === "object" && x ? (campo(x as Record<string, unknown>, "codigo", "cabys") ?? "") : x).replace(/\D/g, "")).filter((x) => /^\d{13}$/.test(x)) : [];
+      const fechaDia = (v: unknown) => { const t = String(v ?? ""); const m = t.match(/^(\d{4}-\d{2}-\d{2})/); return m ? m[1] : ""; };
+      return resp({ ok: true, encontrado: true, numero: String(campo(j, "numeroDocumento", "autorizacion") ?? num).toUpperCase(),
+        tipo: /^\d{2}$/.test(tipo) ? tipo : "04", tipo_desc: tipoDesc.slice(0, 160), institucion: inst, institucion_nombre: instNom.slice(0, 160),
+        identificacion: String(campo(j, "identificacion") ?? "").replace(/\D/g, ""),
+        porcentaje: Number(campo(j, "porcentajeExoneracion", "porcentaje", "tarifaExonerada") ?? 0),
+        fecha_emision: String(campo(j, "fechaEmision") ?? ""), vence: fechaDia(campo(j, "fechaVencimiento", "vencimiento")),
+        posee_cabys: !!campo(j, "poseeCabys") || cabys.length > 0, cabys });
     }
 
     // ---------- nombre de un cliente por su cédula (registro de Hacienda) ----------
@@ -299,8 +338,18 @@ Deno.serve(async (req) => {
 
     // productos, pagos y cliente de una venta, listos para el comprobante
     async function datosVenta(pedidoId: number, tipo: "01" | "04", anuladaSirve = false) {
-      const { data: p, error: eP } = await db.from("pedidos").select("id,codigo,estado,cliente_nombre").eq("id", pedidoId).single();
+      // la columna exoneracion existe desde v22: si la base es vieja se sigue sin ella
+      let r = await db.from("pedidos").select("id,codigo,estado,cliente_nombre,exoneracion").eq("id", pedidoId).single();
+      if (r.error && /exoneracion/.test(r.error.message || "")) r = await db.from("pedidos").select("id,codigo,estado,cliente_nombre").eq("id", pedidoId).single();
+      const { data: p, error: eP } = r as { data: Record<string, unknown> & { estado: string }; error: unknown };
       if (eP) throw eP;
+      const exo = (p.exoneracion || null) as null | { numero: string; tipo: string; institucion: string; institucion_otro?: string; identificacion?: string;
+        porcentaje: number; fecha_emision: string; vence: string; cabys?: string[] | null };
+      if (exo && tipo === "04") throw new ErrorComprobante("Esta venta tiene exoneración: se emite factura (con la cédula del exonerado), no tiquete.");
+      if (exo && String(exo.vence) < hoyCR()) throw new ErrorComprobante(`La exoneración ${exo.numero} venció el ${exo.vence}. Quítela de la venta o consulte una vigente.`);
+      const exLinea = exo ? { tipo: exo.tipo, numero: exo.numero, institucion: exo.institucion, institucion_otro: exo.institucion_otro || null,
+        fecha_emision: exo.fecha_emision, puntos: Number(exo.porcentaje) } : null;
+      const cubre = (cabys: string) => !!exo && (!Array.isArray(exo.cabys) || !exo.cabys.length || exo.cabys.includes(cabys));
       if (p.estado === "anulada" && !anuladaSirve) throw new ErrorComprobante("La venta está anulada.");
       const { data: items, error: eI } = await db.from("pedido_items")
         .select("descripcion,cantidad,precio_unit,producto_id,productos(cabys,codigo,iva_codigo,unidad)").eq("pedido_id", pedidoId).order("id");
@@ -318,13 +367,17 @@ Deno.serve(async (req) => {
         const sufijo = pr.unidad ? ` (${pr.unidad})` : "";
         const detalle = sufijo && desc.endsWith(sufijo) ? desc.slice(0, -sufijo.length) : desc;
         return { cabys: pr.cabys, codigo: pr.codigo, detalle, cantidad: Number(i.cantidad),
-                 precio: Number(i.precio_unit), iva_codigo: pr.iva_codigo || "08", unidad: pr.unidad };
+                 precio: Number(i.precio_unit), iva_codigo: pr.iva_codigo || "08", unidad: pr.unidad,
+                 ex: exLinea && cubre(pr.cabys) && (TARIFAS[pr.iva_codigo || "08"] || 0) > 0 ? exLinea : null };
       });
+      if (exo && !lineas.some((l) => l.ex)) throw new ErrorComprobante(`La exoneración ${exo.numero} no cubre ningún producto de esta venta (sus CABYS no están autorizados).`);
       const { data: pagos } = await db.from("pagos").select("metodo,monto").eq("pedido_id", pedidoId).eq("anulado", false);
       let receptor = null;
       if (tipo === "01") {
         const { data: f } = await db.from("facturas").select("tipo_id,identificacion,nombre,correo").eq("pedido_id", pedidoId).maybeSingle();
         if (!f) throw new ErrorComprobante("Faltan los datos del cliente para la factura: toque “Emitir factura” y llénelos.");
+        if (exo?.identificacion && String(f.identificacion || "").replace(/\D/g, "") !== exo.identificacion)
+          throw new ErrorComprobante(`La exoneración es de la cédula ${exo.identificacion}: la factura tiene que salir a esa cédula.`);
         receptor = f;
       }
       return { lineas, pagos: pagos || [], receptor };

@@ -1236,6 +1236,11 @@
         </div>
       </div>
 
+      <div class="venta__exo" id="boxExo" hidden>
+        <button type="button" class="enlace" id="btnExo">Cliente exonerado…</button>
+        <p class="exo-banda" id="exoBanda" hidden></p>
+      </div>
+
       <h3 class="subt">Productos</h3>
       <div class="items-wrap">
         <table class="items">
@@ -1395,6 +1400,23 @@
       <div class="dlg__btns">
         <button type="button" class="btn btn--linea" data-cerrar-dlg>Cancelar</button>
         <button type="submit" class="btn btn--negro" id="btnRecepEmitir">Emitir factura</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgExo" class="dlg" aria-labelledby="exoTit">
+    <form id="formExo" class="dlg__form" novalidate>
+      <h2 id="exoTit">Exoneración de IVA</h2>
+      <p class="ayuda">Escriba el número de autorización que trae el cliente (EXONET). El panel lo consulta en Hacienda: porcentaje, vencimiento y productos que cubre.</p>
+      <div class="exo-buscar">
+        <label>Número de autorización<input name="numero" maxlength="20" autocomplete="off" placeholder="AL-00012345-24" autocapitalize="characters" spellcheck="false" /></label>
+        <button type="submit" class="btn btn--linea" id="btnExoConsultar">Consultar</button>
+      </div>
+      <div class="exo-res" id="exoRes" hidden></div>
+      <p class="msg msg--error" id="exoMsg" role="alert"></p>
+      <div class="dlg__btns">
+        <button type="button" class="btn btn--linea" data-cerrar-dlg>Cancelar</button>
+        <button type="button" class="btn btn--negro" id="btnExoAplicar" disabled>Aplicar a la venta</button>
       </div>
     </form>
   </dialog>

@@ -85,6 +85,7 @@
   let ACCESO = null, V17 = false;   // V17: la base tiene empleados con permisos (v17_permisos.sql)
   let V18 = false;         // cheque, saldos de Moriah y apartados (v18_cheque_saldos_apartados.sql)
   let V21 = false;         // salidas/conteos, compras y proveedores, facturas recibidas (v21_compras_ajustes.sql)
+  let V22 = false;         // exoneración de IVA en ventas (v22_exoneracion.sql)
   // pestañas y pantallas: sin v17 todos los del panel las ven, como antes
   const soyAdministrador = () => !ACCESO || ACCESO.rol === "administrador";
   // borrar ventas y cambiar roles: sin v17 se usa el rol de v16
@@ -388,7 +389,7 @@
     } else {
       // todas las preguntas a la base salen juntas (antes iban una por una y sumaban segundos)
       const probar = (q) => Promise.resolve(q).then((x) => x, (e) => ({ error: e }));
-      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21] = await Promise.all([
+      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22] = await Promise.all([
         probar(db.from("avisos").select("id").limit(1)),
         probar(db.from("productos").select("codigo").limit(1)),
         probar(db.from("fe_emisor").select("*").eq("id", 1).maybeSingle()),
@@ -401,6 +402,7 @@
         probar(db.from("pedidos").select("apartado").limit(1)),
         probar(db.from("fe_dispositivos").select("id").limit(1)),
         probar(db.from("proveedores").select("id").limit(1)),
+        probar(db.from("pedidos").select("exoneracion").limit(1)),
         cargarCategorias()
       ]);
       V4 = r.error && U.esErrorRed(r.error) ? !!copia.leer().v4 : !r.error;
@@ -410,7 +412,7 @@
       V10 = !r10.error; FE = r10.data || null;
       V11 = !r11.error; V12 = !r12.error; V13 = !r13.error;
       if (V13) cargarClientes();
-      V14 = !r14.error; V15 = !r15.error; V16 = !r16.error; V18 = !r18.error; V19 = !r19.error; V21 = !r21.error;
+      V14 = !r14.error; V15 = !r15.error; V16 = !r16.error; V18 = !r18.error; V19 = !r19.error; V21 = !r21.error; V22 = !r22.error;
       // para poder abrir el panel sin internet con lo mismo que tiene la base
       if (!r16.error || !U.esErrorRed(r16.error)) {
         copia.poner("versiones", { V10, V12, V13, V14, V18, V19 });
@@ -1940,6 +1942,7 @@
     $("#itemsAcc").hidden = !edit;
     $("#itemsBloqueo").hidden = edit;
     pintarCondicion();
+    pintarExo();
 
     const cerrada = p && p.estado !== "abierta";
     const web = p?.origen === "web";
@@ -2188,7 +2191,7 @@
     if (despues === 0) toast(`Es lo último que hay de ${p.nombre}.`);
     else if (despues < STOCK_BAJO) toast(`Ya casi no quedan: después de esta venta ${quedaTxt(despues)} de ${p.nombre}.`);
     if (ya) ya.cantidad = Math.round((Number(ya.cantidad) + suma) * 100) / 100;
-    else V.items.push({ producto_id: p.id, descripcion: p.nombre + (p.unidad ? ` (${p.unidad})` : ""), cantidad: suma, precio_unit: p.precio != null ? Number(p.precio) : 0 });
+    else V.items.push({ producto_id: p.id, descripcion: p.nombre + (p.unidad ? ` (${p.unidad})` : ""), cantidad: suma, precio_unit: p.precio != null ? precioConExo(p, Number(p.precio)) : 0 });
     V.dirty = true;
     pintarVenta();
   }
@@ -2447,6 +2450,11 @@
         cargarClientes();
       }
       if (!aviso && apQuiere && (!apTenia || antes.apartado_vence !== V.apVence)) aviso = await ponerApartado(id, true, V.apVence);
+    }
+    if (!aviso && V.exoCambio && V22) {
+      const { error } = await db.rpc("poner_exoneracion", { p_pedido: id, p_ex: V.exo || null });
+      if (error) aviso = `La venta se guardó, pero la exoneración no: ${errTxt(error)}`;
+      else V.exoCambio = false;
     }
     toast(aviso || "Venta guardada", !!aviso);
     refrescarExistencias(V.items.map((i) => i.producto_id));
@@ -3190,6 +3198,7 @@
     // sin internet el comprobante se hace aquí con su clave y se firma y manda al volver la señal
     const sr = !enLinea() || !!V.local;
     $("#btnFETiquete").textContent = sr ? "Hacer tiquete sin internet" : "Emitir tiquete";
+    $("#btnFETiquete").hidden = !!V.exo;          // con exoneración solo factura
     $("#btnFEFactura").textContent = sr ? "Hacer factura sin internet" : "Emitir factura";
     $("#feSinRedInfo").hidden = !sr;
     if (sr) {
@@ -3229,6 +3238,7 @@
   // venta a crédito: el comprobante sale con condición crédito y el plazo hasta el vencimiento
   const plazoFE = () => (V.pedido?.credito && V.pedido.vence ? { credito_dias: Math.max(1, diasEntre(String(V.pedido.created_at).slice(0, 10), V.pedido.vence)) } : {});
   $("#btnFETiquete").addEventListener("click", async () => {
+    if (V.exo) { $("#feMsg").className = "msg msg--error"; $("#feMsg").textContent = "Esta venta tiene exoneración: se emite factura con la cédula del exonerado."; return; }
     if (!enLinea() || V.local) return hacerFESinRed("04");
     if (V.dirty) return accionFE({}, "");
     if (!(await asegurarCabys(V.items))) return;
@@ -3238,6 +3248,108 @@
     if (V.dirty && !V.local) return accionFE({}, "");
     if ((!enLinea() || V.local) && V.factura) return hacerFESinRed("01");
     abrirReceptor();
+  });
+
+  // ---------- exoneración de IVA (EXONET) ----------
+  // Se aplica en la venta (antes de cobrar): los productos que cubre se cobran con el IVA rebajado
+  // sin lista de CABYS la autorización cubre todo; con lista, solo esos
+  const exoCubre = (exo, prod) => !!exo && !!prod && (!Array.isArray(exo.cabys) || !exo.cabys.length || (!!prod.cabys && exo.cabys.includes(prod.cabys)));
+  function precioConExo(prod, precio) {
+    const exo = V?.exo, t = TARIFA_PCT[prod?.iva_codigo || "08"] ?? 13;
+    if (!exoCubre(exo, prod) || !(t > 0)) return precio;
+    const pts = Math.min(Number(exo.porcentaje), t);
+    return r2(precio / (1 + t / 100) * (1 + (t - pts) / 100));
+  }
+  // vuelve a poner los precios del catálogo y, si hay exoneración, rebaja el IVA de lo que cubre
+  function aplicarExoPrecios() {
+    for (const it of V.items) {
+      const prod = prodDe(it.producto_id); if (!prod) continue;
+      const cat = precioCatalogo(prod.id); if (cat == null) continue;
+      it.precio_unit = precioConExo(prod, cat);
+    }
+    V.dirty = true;
+  }
+  function pintarExo() {
+    const p = V.pedido, box = $("#boxExo"), exo = V.exo === undefined ? (V.exo = p?.exoneracion || null) : V.exo;
+    box.hidden = !V22 || !V10 || !FE?.activo || !!V.copia || !!V.local || p?.estado === "anulada" || (!exo && !itemsEditables());
+    if (box.hidden) return;
+    $("#btnExo").hidden = !!exo || !itemsEditables();
+    const banda = $("#exoBanda");
+    banda.hidden = !exo;
+    if (!exo) return;
+    const conCat = V.items.filter((i) => prodDe(i.producto_id));
+    const cubiertos = conCat.filter((i) => exoCubre(exo, prodDe(i.producto_id))).length;
+    const vencida = exo.vence < hoyCR();
+    banda.innerHTML = `<b>Exoneración ${U.esc(exo.numero)}</b> · ${String(exo.porcentaje).replace(".", ",")} puntos de IVA · vence ${U.esc(fechaLarga(exo.vence))}${vencida ? ' <span class="etq etq--error">Vencida</span>' : ""}`
+      + `<br><small>${conCat.length ? `Cubre ${cubiertos} de ${conCat.length} ${conCat.length === 1 ? "producto" : "productos"}` : "Agregue los productos"}${exo.identificacion ? ` · la factura sale a la cédula ${U.esc(exo.identificacion)}` : ""} · solo factura, no tiquete</small>`
+      + (itemsEditables() ? ` <button type="button" class="enlace enlace--peligro" id="btnExoQuitar">Quitar</button>` : "");
+  }
+  $("#boxExo").addEventListener("click", async (e) => {
+    if (e.target.closest("#btnExo")) return abrirExo();
+    if (e.target.closest("#btnExoQuitar")) {
+      if (!await preguntar("Se quita la exoneración y los productos vuelven a su precio con IVA completo.", { titulo: "¿Quitar la exoneración?", si: "Quitar", peligro: true })) return;
+      V.exo = null; V.exoCambio = true; aplicarExoPrecios(); pintarVenta();
+    }
+  });
+  let EXO_NUEVA = null;
+  function abrirExo() {
+    const f = $("#formExo"); f.reset(); EXO_NUEVA = null;
+    $("#exoRes").hidden = true; $("#exoMsg").textContent = ""; $("#btnExoAplicar").disabled = true;
+    $("#dlgExo").showModal(); f.numero.focus();
+  }
+  $("#formExo").numero.addEventListener("input", (e) => {
+    // "al00012345 24" → "AL-00012345-24"
+    const d = e.target.value.toUpperCase().replace(/[^0-9]/g, "");
+    if (d.length === 10 && !/^AL-/.test(e.target.value.toUpperCase())) e.target.value = `AL-${d.slice(0, 8)}-${d.slice(8)}`;
+    EXO_NUEVA = null; $("#btnExoAplicar").disabled = true;
+  });
+  $("#formExo").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#exoMsg"), res = $("#exoRes"), btn = $("#btnExoConsultar");
+    const numero = f.numero.value.trim().toUpperCase().replace(/\s+/g, "");
+    msg.textContent = ""; res.hidden = true; EXO_NUEVA = null; $("#btnExoAplicar").disabled = true;
+    if (!/^AL-\d{8}-\d{2}$/.test(numero)) { msg.textContent = "El número va así: AL-00012345-24."; f.numero.focus(); return; }
+    if (!enLinea()) { msg.textContent = "Sin internet no se puede consultar la exoneración en Hacienda."; return; }
+    btn.disabled = true; btn.textContent = "Consultando…";
+    try {
+      const r = await llamarFE({ accion: "exoneracion", numero });
+      if (!r.encontrado) { msg.textContent = `Hacienda no tiene la autorización ${numero}. Revise el número con el cliente.`; return; }
+      // el porcentaje va en puntos de IVA (13 = todo); si viniera como % del impuesto (100), se pasa a puntos
+      let pts = Number(r.porcentaje) || 0;
+      if (pts > 13) pts = r2(13 * Math.min(pts, 100) / 100);
+      const exo = { numero: r.numero || numero, tipo: r.tipo, institucion: r.institucion, institucion_otro: r.institucion === "99" ? (r.institucion_nombre || null) : null,
+        identificacion: r.identificacion || "", porcentaje: pts, fecha_emision: r.fecha_emision, vence: r.vence,
+        cabys: r.posee_cabys && r.cabys?.length ? r.cabys : null, tipo_desc: r.tipo_desc || "", institucion_nombre: r.institucion_nombre || "" };
+      const problemas = [];
+      if (!(pts > 0)) problemas.push("Hacienda no indica el porcentaje exonerado.");
+      if (!exo.vence) problemas.push("Hacienda no indica la fecha de vencimiento.");
+      else if (exo.vence < hoyCR()) problemas.push(`Venció el ${fechaLarga(exo.vence)}: ya no se puede usar.`);
+      if (!exo.fecha_emision) problemas.push("Hacienda no indica la fecha de emisión.");
+      const conCat = V.items.filter((i) => prodDe(i.producto_id));
+      const fuera = conCat.filter((i) => !exoCubre(exo, prodDe(i.producto_id)));
+      res.innerHTML = `<dl class="exo-datos">
+          <dt>Tipo</dt><dd>${U.esc(exo.tipo)}${exo.tipo_desc ? ` · ${U.esc(exo.tipo_desc)}` : ""}</dd>
+          <dt>Institución</dt><dd>${U.esc(exo.institucion_nombre || exo.institucion)}</dd>
+          ${exo.identificacion ? `<dt>Cédula</dt><dd>${U.esc(exo.identificacion)}</dd>` : ""}
+          <dt>Exonera</dt><dd><b>${String(pts).replace(".", ",")} puntos</b> del IVA${pts >= 13 ? " (todo el 13 %)" : ""}</dd>
+          <dt>Vence</dt><dd>${exo.vence ? U.esc(fechaLarga(exo.vence)) : "—"}</dd>
+          <dt>Productos</dt><dd>${exo.cabys ? `Solo ${exo.cabys.length} CABYS autorizados` : "Todos"}${conCat.length ? ` · de esta venta cubre ${conCat.length - fuera.length} de ${conCat.length}` : ""}</dd>
+        </dl>`
+        + (fuera.length ? `<p class="ayuda">No cubre: ${fuera.slice(0, 6).map((i) => U.esc(i.descripcion)).join(", ")}${fuera.length > 6 ? "…" : ""}. Esos se cobran con IVA completo.</p>` : "")
+        + (problemas.length ? `<p class="msg msg--error">${problemas.map(U.esc).join(" ")}</p>` : "");
+      res.hidden = false;
+      if (!problemas.length) { EXO_NUEVA = exo; $("#btnExoAplicar").disabled = false; $("#btnExoAplicar").focus(); }
+    } catch (err) { msg.textContent = errTxt(err); }
+    finally { btn.disabled = false; btn.textContent = "Consultar"; }
+  });
+  $("#btnExoAplicar").addEventListener("click", () => {
+    if (!EXO_NUEVA) return;
+    const { tipo_desc, institucion_nombre, ...exo } = EXO_NUEVA;
+    V.exo = { ...exo, institucion_nombre }; V.exoCambio = true;
+    aplicarExoPrecios();
+    $("#dlgExo").close();
+    pintarVenta();
+    toast("Exoneración aplicada: los productos que cubre ya tienen el IVA rebajado.");
   });
 
   // ---------- datos del cliente para la factura ----------
@@ -3251,6 +3363,10 @@
     if (fac) { f.tipo_id.value = fac.tipo_id || "fisica"; f.identificacion.value = fac.identificacion || ""; f.nombre.value = fac.nombre || ""; f.correo.value = fac.correo || ""; }
     else if (cli) { f.tipo_id.value = cli.tipo_id || "fisica"; f.identificacion.value = cli.identificacion || ""; f.nombre.value = cli.nombre || nom; f.correo.value = cli.correo || ""; }
     else f.nombre.value = nom;
+    // con exoneración la factura va a la cédula del exonerado
+    if (V.exo?.identificacion && U.soloDigitos(f.identificacion.value) !== V.exo.identificacion) {
+      f.identificacion.value = V.exo.identificacion; f.nombre.value = ""; f.identificacion.dispatchEvent(new Event("input"));
+    }
     $("#dlgReceptor").showModal();
     (f.identificacion.value ? f.correo : f.identificacion).focus();
   }
