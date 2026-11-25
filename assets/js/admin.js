@@ -17,6 +17,31 @@
   let categorias = [], productos = [], ajustesCache = {};
   let V4 = false;          // la base ya tiene las mejoras v4
   const norm = (s) => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  // Búsqueda por pedazos de palabra: "pa trup" encuentra "PALA TRUPER", "trupper" también (letras dobles = una),
+  // sin tildes y en cualquier orden. Cada pedazo tiene que estar; los que empiezan palabra pesan más.
+  const normBusca = (s) => norm(s).replace(/([a-z])\1+/g, "$1").replace(/[^a-z0-9.,/]+/g, " ").replace(/\s+/g, " ").trim();
+  const pedazos = (q) => normBusca(q).split(" ").filter(Boolean);
+  const cacheBusca = new WeakMap();
+  function textoBusca(obj, armar) {
+    let t = cacheBusca.get(obj);
+    if (t === undefined) { t = " " + normBusca(armar(obj)) + " "; cacheBusca.set(obj, t); }
+    return t;
+  }
+  // 0 = no coincide; más alto = más parecido
+  function puntajeBusca(texto, ps) {
+    if (!ps.length) return 1;
+    let pts = 0;
+    for (const w of ps) {
+      if (texto.includes(" " + w + " ")) pts += 4;          // palabra completa
+      else if (texto.includes(" " + w)) pts += 3;           // empieza una palabra: "trup" → "truper"
+      else if (w.length >= 3 && texto.includes(w)) pts += 1; // en medio de una palabra
+      else return 0;
+    }
+    if (texto.startsWith(" " + ps[0])) pts += 2;            // el nombre empieza con lo primero que escribió
+    return pts;
+  }
+  const textoProd = (p) => textoBusca(p, (x) => `${x.nombre || ""} ${x.codigo || ""}`);
+  const textoCli = (c) => textoBusca(c, (x) => x.nombre || "");
   const SIN_FOTO = `<svg viewBox="0 0 48 48" width="28" height="28" aria-hidden="true"><rect x="7" y="11" width="34" height="26" rx="3" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="18" cy="21" r="3.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M9 35l10-9 7 6 5-4 9 7" fill="none" stroke="currentColor" stroke-width="2"/></svg>`;
   let factorPendiente = null;
 
@@ -783,7 +808,12 @@
   const PASA_PROD = { todos: () => true, agotados: (p) => p.agotado, ofertas: ofertaVigente, sinprecio: (p) => p.precio == null, sinfoto: (p) => !p.imagen_url, ocultos: (p) => !p.activo, sincabys: (p) => p.activo && !p.cabys };
   function pintarProductos() {
     const q = norm($("#aBuscar").value);
-    const todos = productos.filter((p) => PASA_PROD[filtroProd](p) && (!q || norm(p.nombre).includes(q) || (p.codigo && String(p.codigo).toLowerCase().includes(q))));
+    const ps = pedazos(q);
+    let todos = productos.filter((p) => PASA_PROD[filtroProd](p));
+    if (q) {
+      todos = todos.map((p) => [puntajeBusca(textoProd(p), ps) || (p.codigo && String(p.codigo).toLowerCase().includes(q) ? 1 : 0), p])
+        .filter((x) => x[0] > 0).sort((a, b) => b[0] - a[0]).map((x) => x[1]);
+    }
     const lista = todos.slice(0, MAX_LISTA_PROD);
     const cat = (id) => categorias.find((c) => c.id === id);
     $("#listaProd").innerHTML = lista.map((p) => {
@@ -2294,15 +2324,17 @@
     function buscar() {
       const q = norm(input.value);
       if (q.length < 2) { res.hidden = true; res.innerHTML = ""; return; }
-      const exactos = [], hallados = [];
+      const ps = pedazos(q), exactos = [], hallados = [];
       for (const x of productos) {
         if (!opciones.ocultos && !x.activo) continue;
         const cod = x.codigo ? String(x.codigo).toLowerCase() : "";
-        if (cod && cod === q) exactos.push(x);
-        else if (norm(x.nombre).includes(q) || (cod && q.length >= 3 && cod.startsWith(q))) hallados.push(x);
-        if (exactos.length + hallados.length >= 40) break;
+        if (cod && cod === q) { exactos.push(x); continue; }
+        let pts = puntajeBusca(textoProd(x), ps);
+        if (!pts && cod && q.length >= 3 && cod.startsWith(q)) pts = 1;
+        if (pts) hallados.push([pts, x]);
       }
-      const lista = exactos.concat(hallados).slice(0, 12);
+      hallados.sort((a, b) => b[0] - a[0]);   // empates: el orden del catálogo
+      const lista = exactos.concat(hallados.map((h) => h[1])).slice(0, 12);
       res.innerHTML = lista.map((x) => `<li><button type="button" data-item-id="${x.id}">
           <span>${U.esc(x.nombre)}${x.codigo ? ` <small>· ${U.esc(x.codigo)}</small>` : ""}</span>
           <span class="buscar-item__det">${x.precio != null ? fmt(x.precio) : "sin precio"}${x.existencia != null ? ` · hay ${Number(x.existencia).toLocaleString("es-CR")}` : ""}${x.agotado ? " · agotado" : ""}</span>
@@ -2737,7 +2769,9 @@
     function buscar() {
       const q = norm(input.value), qd = U.soloDigitos(input.value);
       if (q.length < 2) { res.hidden = true; res.innerHTML = ""; return; }
-      const lista = clientes.filter((c) => norm(c.nombre).includes(q) || (qd.length >= 4 && (U.soloDigitos(c.identificacion).includes(qd) || U.soloDigitos(c.telefono).includes(qd)))).slice(0, 10);
+      const ps = pedazos(q);
+      const lista = clientes.filter((c) => puntajeBusca(textoCli(c), ps) > 0 || (qd.length >= 4 && (U.soloDigitos(c.identificacion).includes(qd) || U.soloDigitos(c.telefono).includes(qd))))
+        .sort((a, b) => puntajeBusca(textoCli(b), ps) - puntajeBusca(textoCli(a), ps)).slice(0, 10);
       res.innerHTML = lista.map((c) => `<li><button type="button" data-cli-id="${c.id}">
           <span>${U.esc(c.nombre)}${c.activo ? "" : " <small>· desactivado</small>"}</span>
           <span class="buscar-item__det">debe ${fmt(c.saldo)}${Number(c.vencido) > 0 ? ` · vencido ${fmt(c.vencido)}` : ""}</span>
@@ -2812,7 +2846,8 @@
     ajustarSaldos();
     const q = norm($("#credBuscar").value), qd = U.soloDigitos($("#credBuscar").value);
     const pasa = { saldo: (c) => c.activo && Number(c.saldo) > 0, vencidos: (c) => Number(c.vencido) > 0, todos: (c) => c.activo, inactivos: (c) => !c.activo }[credFiltro];
-    const lista = clientes.filter(pasa).filter((c) => !q || norm(c.nombre).includes(q) || (qd.length >= 4 && (U.soloDigitos(c.identificacion).includes(qd) || U.soloDigitos(c.telefono).includes(qd))))
+    const psCli = pedazos(q);
+    const lista = clientes.filter(pasa).filter((c) => !q || puntajeBusca(textoCli(c), psCli) > 0 || (qd.length >= 4 && (U.soloDigitos(c.identificacion).includes(qd) || U.soloDigitos(c.telefono).includes(qd))))
       .sort((a, b) => Number(b.vencido) - Number(a.vencido) || Number(b.saldo) - Number(a.saldo) || a.nombre.localeCompare(b.nombre, "es"));
     const suma = (k) => clientes.reduce((t, c) => t + Number(c[k] || 0), 0);
     const conSaldo = clientes.filter((c) => Number(c.saldo) > 0).length, vencidos = clientes.filter((c) => Number(c.vencido) > 0).length;
@@ -3894,7 +3929,7 @@
   function pintarComprobantes() {
     const q = norm($("#compBuscar").value);
     const pasa = (d) => compTipo === "todos" || (compTipo === "problemas" ? PROBLEMA_FE.includes(d.estado) : d.tipo === compTipo);
-    const lista = compDocs.filter(pasa).filter((d) => !q || norm([numeroFE(d), d.consecutivo, d.clave, clienteFE(d), d.pedidos?.codigo].join(" ")).includes(q));
+    const lista = compDocs.filter(pasa).filter((d) => !q || puntajeBusca(" " + normBusca([numeroFE(d), d.consecutivo, d.clave, clienteFE(d), d.pedidos?.codigo].join(" ")) + " ", pedazos(q)) > 0);
     const ok = compDocs.filter((d) => d.estado === "aceptado");
     const suma = (a, k) => a.reduce((t, d) => t + Number(d[k] || 0), 0);
     const ventas = ok.filter((d) => d.tipo === "01" || d.tipo === "04"), notas = ok.filter((d) => d.tipo === "03");
@@ -4752,7 +4787,7 @@
   function pintarProveedores() {
     const q = norm($("#provBuscar").value), debe = {};
     for (const c of PAGAR) if (c.proveedor_id) debe[c.proveedor_id] = (debe[c.proveedor_id] || 0) + Number(c.saldo);
-    const lista = PROVS.filter((p) => !q || norm(p.nombre).includes(q) || String(p.identificacion || "").includes(q));
+    const lista = PROVS.filter((p) => !q || puntajeBusca(" " + normBusca(p.nombre) + " ", pedazos(q)) > 0 || String(p.identificacion || "").includes(q));
     $("#listaProveedores").innerHTML = lista.map((p) => `<li class="fila ${p.activo ? "" : "fila--oculta"}">
         <div class="fila__txt">
           <b>${U.esc(p.nombre)}</b>
@@ -5508,7 +5543,7 @@
   const ORIGEN_MOV = { ajuste: "Ajuste de precios", producto: "Editar producto", importacion: "Importación" };
   function pintarMovs() {
     const q = norm($("#ajMovBuscar").value);
-    const lista = movs.filter((m) => !q || norm([m.productos?.nombre, m.productos?.codigo, m.documento, m.nota].join(" ")).includes(q));
+    const lista = movs.filter((m) => !q || puntajeBusca(" " + normBusca([m.productos?.nombre, m.productos?.codigo, m.documento, m.nota].join(" ")) + " ", pedazos(q)) > 0);
     $("#ajMovFilas").innerHTML = lista.map((m) => `<tr>
         <td>${fechaCR(m.created_at, { dateStyle: "short", timeStyle: "short" })}</td>
         <td>${U.esc(m.productos?.nombre || "(borrado)")}${m.productos?.codigo ? `<small class="imp__cod">${U.esc(m.productos.codigo)}</small>` : ""}</td>

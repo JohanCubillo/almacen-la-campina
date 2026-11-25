@@ -41,6 +41,7 @@
   const LS_VISTA = "lc_vista_v1";
 
   const norm = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const normBusca = (s) => norm(s).replace(/([a-z])\1+/g, "$1").replace(/[^a-z0-9.,/]+/g, " ").replace(/\s+/g, " ").trim();
   const waNum = () => U.soloDigitos(S.ajustes.whatsapp) || C.WHATSAPP;
   const sinpeNum = () => { const d = U.soloDigitos(S.ajustes.sinpe_numero); return d.length === 8 ? d : ""; };
 
@@ -332,15 +333,27 @@
   // texto de búsqueda de cada producto, calculado una sola vez (con miles de productos importa)
   function prepararProductos() {
     for (const p of S.productos) {
-      Object.defineProperty(p, "_q", { value: norm(p.nombre + " " + (p.descripcion || "") + " " + (catDe(p.categoria_id).nombre || "") + " " + (p.codigo || "")), enumerable: false, configurable: true });
+      Object.defineProperty(p, "_q", { value: " " + normBusca(p.nombre + " " + (p.descripcion || "") + " " + (catDe(p.categoria_id).nombre || "") + " " + (p.codigo || "")), enumerable: false, configurable: true });
     }
   }
   const filtrados = () => {
-    const palabras = norm(S.q).split(" ").filter(Boolean);
-    const l = S.productos.filter((p) =>
-      (!S.cat || String(p.categoria_id) === String(S.cat)) &&
-      (!S.rango || RANGOS[S.rango](p)) &&
-      (!palabras.length || palabras.every((w) => (p._q || norm(p.nombre)).includes(w))));
+    // "pa trup" encuentra "Pala Truper": cada pedazo tiene que estar; lo que empieza palabra va primero
+    const palabras = normBusca(S.q).split(" ").filter(Boolean);
+    const pts = new Map();
+    const l = S.productos.filter((p) => {
+      if (S.cat && String(p.categoria_id) !== String(S.cat)) return false;
+      if (S.rango && !RANGOS[S.rango](p)) return false;
+      if (!palabras.length) return true;
+      const t = p._q || " " + normBusca(p.nombre);
+      let n = 0;
+      for (const w of palabras) {
+        if (t.includes(" " + w)) n += 3;
+        else if (t.includes(w)) n += 1;
+        else return false;
+      }
+      pts.set(p, n);
+      return true;
+    });
     const pr = (p, alto) => (precioDe(p) > 0 ? precioDe(p) : alto);
     if (S.orden === "pmen") l.sort((a, b) => pr(a, Infinity) - pr(b, Infinity));
     else if (S.orden === "pmay") l.sort((a, b) => pr(b, -1) - pr(a, -1));
@@ -348,7 +361,8 @@
     else {
       // recomendados: primero los destacados, luego los que tienen foto y precio
       const peso = (p) => (p.destacado ? 4 : 0) + (p.imagen_url ? 2 : 0) + (precioDe(p) > 0 ? 1 : 0);
-      l.sort((a, b) => peso(b) - peso(a) || a.nombre.localeCompare(b.nombre, "es"));
+      // con búsqueda, primero lo que más se parece a lo que escribió
+      l.sort((a, b) => (pts.get(b) || 0) - (pts.get(a) || 0) || peso(b) - peso(a) || a.nombre.localeCompare(b.nombre, "es"));
     }
     // lo agotado siempre al final
     return l.sort((a, b) => (a.agotado === true) - (b.agotado === true));
