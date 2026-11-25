@@ -451,6 +451,7 @@
     // botones de Productos e Inventario
     $("#btnNuevoProd").hidden = !puede("productos");
     $("#btnFotos").hidden = !puede("productos");
+    $("#btnCabys").hidden = !puede("productos");
     $("#btnImportar").classList.toggle("sin-permiso", !(puede("productos") && puede("precios")));
     $("#btnAjustePrecios").classList.toggle("sin-permiso", !puede("precios"));
     $("#btnNuevaEntrada").classList.toggle("sin-permiso", !puede("inventario"));
@@ -615,7 +616,7 @@
   const hoyCRp = () => new Intl.DateTimeFormat("en-CA", { timeZone: C.ZONA_HORARIA }).format(new Date());
   const ofertaVigente = (p) => p.precio_oferta != null && !!p.oferta_hasta && String(p.oferta_hasta) >= hoyCRp();
   let filtroProd = "todos";
-  const PASA_PROD = { todos: () => true, agotados: (p) => p.agotado, ofertas: ofertaVigente, sinprecio: (p) => p.precio == null, sinfoto: (p) => !p.imagen_url, ocultos: (p) => !p.activo };
+  const PASA_PROD = { todos: () => true, agotados: (p) => p.agotado, ofertas: ofertaVigente, sinprecio: (p) => p.precio == null, sinfoto: (p) => !p.imagen_url, ocultos: (p) => !p.activo, sincabys: (p) => p.activo && !p.cabys };
   function pintarProductos() {
     const q = norm($("#aBuscar").value);
     const todos = productos.filter((p) => PASA_PROD[filtroProd](p) && (!q || norm(p.nombre).includes(q) || (p.codigo && String(p.codigo).toLowerCase().includes(q))));
@@ -668,6 +669,7 @@
     fp.activo.checked = p ? !!p.activo : true;
     fp.agotado.checked = !!p?.agotado;
     fp.codigo.value = p?.codigo || "";
+    fp.cabys.value = p?.cabys || "";
     fp.iva_codigo.value = p?.iva_codigo || "08";
     fp.existencia.value = p?.existencia ?? "";
     fp.precio_oferta.value = p?.precio_oferta ?? "";
@@ -844,6 +846,9 @@
         const cod = fp.codigo.value.replace(/[\s'"]/g, "");
         if (cod.length > 40) throw new Error("El código es muy largo (máximo 40 caracteres).");
         d.codigo = cod || null;
+        const cab = U.soloDigitos(fp.cabys.value);
+        if (cab && cab.length !== 13) throw new Error("El CABYS tiene 13 números.");
+        d.cabys = cab || null;
         d.existencia = fp.existencia.value === "" ? null : Math.round(Number(fp.existencia.value) * 100) / 100;
         if (d.existencia != null && !Number.isFinite(d.existencia)) throw new Error("La existencia debe ser un número.");
         // si viene de Moriah sin existencia, se marca agotado (lo mismo que hace la importación)
@@ -3518,6 +3523,122 @@
     cargarProductos();
   });
 
+
+  // =========================================================
+  //  CABYS: ponerle el código a los productos que no lo tienen
+  // =========================================================
+  const IVA_DE_TARIFA = { 13: "08", 4: "04", 2: "03", 1: "02", 0.5: "09" };
+  const NO_PALABRA = new Set(["para", "con", "sin", "por", "los", "las", "del", "una", "uno", "tipo", "marca", "color", "unidad", "unid", "pulg", "mts", "plg"]);
+  const palabras = (t) => [...new Set(norm(t).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 3 && !/^[0-9]+$/.test(w) && !NO_PALABRA.has(w)))];
+  const CAB = { modo: "lista", cola: [], i: 0, prod: null, sel: null };
+  function parecidosConCabys(p) {
+    const pal = palabras(p.nombre); if (!pal.length) return [];
+    const grupos = new Map();
+    for (const x of productos) {
+      if (!x.cabys || x.id === p.id) continue;
+      const px = new Set(palabras(x.nombre));
+      let pts = 0; pal.forEach((w, k) => { if (px.has(w)) pts += k === 0 ? 2 : 1; });
+      if (pts < 2) continue;
+      const g = grupos.get(x.cabys) || { codigo: x.cabys, pts: 0, n: 0, ejemplos: [], iva: x.iva_codigo };
+      g.pts = Math.max(g.pts, pts); g.n++; if (g.ejemplos.length < 2) g.ejemplos.push(x.nombre);
+      grupos.set(x.cabys, g);
+    }
+    return [...grupos.values()].sort((a, b) => b.pts - a.pts || b.n - a.n).slice(0, 6);
+  }
+  function pendientesParecidos(p) {
+    const pal = palabras(p.nombre); if (!pal.length) return [];
+    return CAB.cola.slice(CAB.i + 1).map((x) => {
+      const px = new Set(palabras(x.nombre)); let pts = 0; pal.forEach((w, k) => { if (px.has(w)) pts += k === 0 ? 2 : 1; });
+      return { x, pts };
+    }).filter((o) => o.pts >= 2).sort((a, b) => b.pts - a.pts).slice(0, 15);
+  }
+  const filaCabys = (o, clave) => `<li><button type="button" class="cab__op ${CAB.sel?.clave === clave ? "cab__op--sel" : ""}" data-cab="${U.esc(clave)}">
+      <b>${U.esc(o.codigo)}</b> <span>${U.esc(o.descripcion || "")}</span>
+      <small>${o.impuesto != null ? `IVA ${String(o.impuesto).replace(".", ",")} %` : ""}${o.ejemplos ? `Lo usan: ${o.ejemplos.map(U.esc).join(" · ")}${o.n > 2 ? ` y ${o.n - 2} más` : ""}` : ""}${o.categorias?.length ? ` · ${o.categorias.map(U.esc).join(" › ")}` : ""}</small>
+    </button></li>`;
+  let CAB_OPC = {};
+  function pintarCabys() {
+    const p = CAB.prod;
+    $("#cabCuenta").textContent = CAB.modo === "lista" ? `${CAB.i + 1} de ${CAB.cola.length}` : "";
+    $("#cabProd").innerHTML = `<b>${U.esc(p.nombre)}</b><small>${[p.codigo && "Cód. " + p.codigo, p.unidad, U.colones(p.precio)].filter(Boolean).map(U.esc).join(" · ")}</small>`;
+    const sug = parecidosConCabys(p);
+    CAB_OPC = {};
+    sug.forEach((g, k) => { CAB_OPC["s" + k] = { codigo: g.codigo, iva: g.iva, ejemplos: g.ejemplos, n: g.n }; });
+    $("#cabSugBox").hidden = !sug.length;
+    $("#cabSug").innerHTML = sug.map((g, k) => filaCabys(CAB_OPC["s" + k], "s" + k)).join("");
+    (CAB.res || []).forEach((r, k) => { CAB_OPC["h" + k] = r; });
+    $("#cabRes").innerHTML = CAB.res == null ? "" : CAB.res.length ? CAB.res.map((r, k) => filaCabys(r, "h" + k)).join("")
+      : `<li class="vacio-adm">No salió nada. Pruebe con otra palabra (qué es, no la marca).</li>`;
+    const tam = CAB.modo === "lista" && CAB.sel ? pendientesParecidos(p) : [];
+    $("#cabTambienBox").hidden = !tam.length;
+    $("#cabTambien").innerHTML = tam.map((o) => `<li><label class="check"><input type="checkbox" data-cab-tambien="${o.x.id}" ${o.pts >= 3 ? "checked" : ""} /> ${U.esc(o.x.nombre)}</label></li>`).join("");
+    $("#btnCabGuardar").disabled = !CAB.sel;
+    $("#btnCabGuardar").textContent = CAB.modo === "lista" ? "Guardar y seguir" : "Usar este";
+    $("#btnCabSaltar").hidden = CAB.modo !== "lista";
+  }
+  async function buscarCabys(q) {
+    $("#cabRes").innerHTML = `<li class="vacio-adm">Buscando en Hacienda…</li>`;
+    try {
+      const r = await llamarFE(/^[0-9]{13}$/.test(q) ? { accion: "cabys", codigo: q } : { accion: "cabys", q });
+      CAB.res = r.resultados || [];
+    } catch (err) { CAB.res = null; $("#cabRes").innerHTML = `<li class="vacio-adm">${U.esc(err.message)}</li>`; return; }
+    pintarCabys();
+  }
+  function mostrarProductoCabys() {
+    CAB.prod = CAB.cola[CAB.i]; CAB.sel = null; CAB.res = null;
+    $("#cabMsg").textContent = ""; $("#cabMsg").className = "msg";
+    const q = palabras(CAB.prod.nombre).slice(0, 2).join(" ");
+    $("#formCabysBuscar").q.value = q;
+    pintarCabys();
+    if (q.length >= 3) buscarCabys(q);
+  }
+  $("#btnCabys").addEventListener("click", () => {
+    if (!puede("productos")) return toast("No tiene permiso para editar productos.", true);
+    CAB.modo = "lista";
+    CAB.cola = productos.filter((p) => p.activo && !p.cabys).sort((a, b) => (Number(b.vendido) || 0) - (Number(a.vendido) || 0) || a.nombre.localeCompare(b.nombre, "es"));
+    if (!CAB.cola.length) return toast("Todos los productos a la venta ya tienen CABYS.");
+    CAB.i = 0; mostrarProductoCabys(); $("#dlgCabys").showModal();
+  });
+  $("#btnProdCabys").addEventListener("click", () => {
+    CAB.modo = "uno";
+    CAB.cola = [{ id: Number(fp.id.value) || 0, nombre: fp.nombre.value || "Producto nuevo", codigo: fp.codigo.value, unidad: fp.unidad.value, precio: fp.precio.value === "" ? null : Number(fp.precio.value) }];
+    CAB.i = 0; mostrarProductoCabys(); $("#dlgCabys").showModal();
+  });
+  $("#formCabysBuscar").addEventListener("submit", (e) => {
+    e.preventDefault(); const q = e.currentTarget.q.value.trim();
+    if (q.length < 3) return toast("Escriba al menos 3 letras.", true);
+    CAB.sel = null; buscarCabys(q);
+  });
+  $("#dlgCabys").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-cab]"); if (!b) return;
+    const o = CAB_OPC[b.dataset.cab]; if (!o) return;
+    CAB.sel = { clave: b.dataset.cab, codigo: o.codigo, iva: o.iva || (o.impuesto != null ? IVA_DE_TARIFA[o.impuesto] : null), impuesto: o.impuesto };
+    pintarCabys();
+  });
+  $("#btnCabSaltar").addEventListener("click", () => {
+    if (CAB.i + 1 >= CAB.cola.length) { $("#dlgCabys").close(); return toast("Ya no quedan más sin CABYS."); }
+    CAB.i++; mostrarProductoCabys();
+  });
+  $("#btnCabGuardar").addEventListener("click", async () => {
+    const sel = CAB.sel; if (!sel) return;
+    if (CAB.modo === "uno") {
+      fp.cabys.value = sel.codigo;
+      if (sel.iva && V10) fp.iva_codigo.value = sel.iva;
+      $("#dlgCabys").close();
+      return toast(sel.iva ? "CABYS puesto (y el IVA que le corresponde). Guarde el producto." : "CABYS puesto. Revise el IVA y guarde el producto.");
+    }
+    const ids = [CAB.prod.id, ...$$("#cabTambien [data-cab-tambien]").filter((c) => c.checked).map((c) => Number(c.dataset.cabTambien))];
+    const d = { cabys: sel.codigo }; if (sel.iva && V10) d.iva_codigo = sel.iva;
+    const b = $("#btnCabGuardar"); b.disabled = true;
+    const { error } = await db.from("productos").update(d).in("id", ids);
+    b.disabled = false;
+    if (error) { $("#cabMsg").className = "msg msg--error"; $("#cabMsg").textContent = errTxt(error); return; }
+    for (const id of ids) { const x = productos.find((y) => y.id === id); if (x) Object.assign(x, d); }
+    CAB.cola = CAB.cola.filter((x, k) => k <= CAB.i || !ids.includes(x.id));
+    toast(`CABYS ${sel.codigo} puesto a ${ids.length} ${ids.length === 1 ? "producto" : "productos"}${sel.impuesto === 0 ? " · revise el IVA (tarifa 0)" : ""}`);
+    if (CAB.i + 1 >= CAB.cola.length) { $("#dlgCabys").close(); pintarProductos(); return toast("Listo: ya no quedan productos sin CABYS."); }
+    CAB.i++; mostrarProductoCabys(); pintarProductos();
+  });
   // =========================================================
   //  v21 · SALIDAS Y CONTEOS, COMPRAS, PROVEEDORES Y FACTURAS RECIBIDAS
   // =========================================================

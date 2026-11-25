@@ -13,6 +13,7 @@
 //   { accion: "recibido_responder", recibido_id, mensaje: "1"|"2"|"3", detalle?, condicion?, acreditar? }
 //        → acepta, acepta en parte o rechaza la factura de un proveedor (mensaje de receptor)
 //   { accion: "recibido_consultar", recibido_id }  /  { accion: "recibido_enviar", recibido_id }
+//   { accion: "cabys", q?, codigo? }  → busca en el catálogo CABYS de Hacienda (permiso "productos")
 //
 //  Secretos (Supabase → Edge Functions → Secrets), nunca en el código ni en la base:
 //   HACIENDA_USUARIO, HACIENDA_CLAVE, HACIENDA_P12_BASE64, HACIENDA_PIN
@@ -64,7 +65,8 @@ Deno.serve(async (req) => {
   const auth = req.headers.get("Authorization") || "";
   const usuario = createClient(URL_SB, LLAVE_PUBLICA, { global: { headers: { Authorization: auth } }, auth: { persistSession: false } });
   const accion = String(b.accion || "");
-  const necesario = accion === "probar" ? null : accion === "anular" ? "anular" : accion.startsWith("recibido_") ? "compras" : "ventas";
+  const necesario = accion === "probar" ? null : accion === "anular" ? "anular" : accion.startsWith("recibido_") ? "compras"
+    : accion === "cabys" ? "productos" : "ventas";
   let permitido = false;
   if (necesario) {
     const r = await usuario.rpc("puede", { p_permiso: necesario });
@@ -73,11 +75,32 @@ Deno.serve(async (req) => {
     permitido = (await usuario.rpc("is_admin")).data === true;
   }
   if (!permitido) return resp({ ok: false, error: necesario === "anular" ? "No tiene permiso para anular (nota de crédito)."
-    : necesario === "compras" ? "No tiene permiso para contestar facturas de proveedores." : necesario ? "No tiene permiso para facturar." : "Solo el administrador." }, 403);
+    : necesario === "compras" ? "No tiene permiso para contestar facturas de proveedores."
+    : necesario === "productos" ? "No tiene permiso para editar productos." : necesario ? "No tiene permiso para facturar." : "Solo el administrador." }, 403);
   const { data: quien } = await usuario.auth.getUser();
   const db = createClient(URL_SB, LLAVE_SERVICIO, { auth: { persistSession: false } });
 
   try {
+    // ---------- buscar en el catálogo CABYS (no necesita credenciales) ----------
+    if (accion === "cabys") {
+      const q = String(b.q || "").replace(/\s+/g, " ").trim().slice(0, 80), codigo = String(b.codigo || "").replace(/\D/g, "");
+      if (!codigo && q.length < 3) return resp({ ok: false, error: "Escriba al menos 3 letras." });
+      const url = codigo ? `https://api.hacienda.go.cr/fe/cabys?codigo=${codigo}` : `https://api.hacienda.go.cr/fe/cabys?q=${encodeURIComponent(q)}&top=30`;
+      let r: Response;
+      try { r = await fetch(url, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(12000) }); }
+      catch (e) { return resp({ ok: false, error: "No se pudo consultar el catálogo de Hacienda: " + corto(e) }); }
+      if (r.status === 404) return resp({ ok: true, resultados: [] });
+      if (!r.ok) return resp({ ok: false, error: `El catálogo de Hacienda respondió ${r.status}. Intente de nuevo en un rato.` });
+      const j = await r.json().catch(() => null) as unknown;
+      const lista = (Array.isArray(j) ? j : (j as { cabys?: unknown[] } | null)?.cabys || []) as Record<string, unknown>[];
+      const resultados = lista.slice(0, 30).map((x) => ({
+        codigo: String(x.codigo || ""), descripcion: String(x.descripcion || ""),
+        impuesto: x.impuesto == null ? null : Number(x.impuesto),
+        categorias: Array.isArray(x.categorias) ? (x.categorias as unknown[]).map(String).slice(-2) : [],
+      })).filter((x) => /^[0-9]{13}$/.test(x.codigo));
+      return resp({ ok: true, resultados });
+    }
+
     const { data: emisorFila, error: eE } = await db.from("fe_emisor").select("*").eq("id", 1).maybeSingle();
     if (eE) throw eE;
     const em = emisorFila as (Emisor & { activo: boolean; ambiente: "pruebas" | "produccion"; cabys_envio: string | null }) | null;

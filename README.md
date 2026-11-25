@@ -191,6 +191,21 @@ Necesita `supabase/v18_cheque_saldos_apartados.sql` (después de v17).
 
 **Mientras se usen Moriah y el panel a la vez:** Moriah no sabe lo que vende el panel, ni el panel lo que vende Moriah. Mientras Moriah sea el principal, importe su Excel con **Actualizar existencias desde el archivo** marcado. El día que el panel pase a ser el principal, haga un conteo, importe una última vez y desde entonces importe con esa casilla **sin marcar**, para no pisar lo que lleva el panel.
 
+## CABYS de los productos
+
+Para facturar, cada producto necesita su **CABYS** (el código de Hacienda que dice qué es y qué IVA lleva).
+
+- **Productos → Sin CABYS:** los que están a la venta y no lo tienen.
+- **Productos → Poner CABYS:** va uno por uno, empezando por los más vendidos. Para cada producto muestra:
+  - **Parecidos que ya tienen CABYS:** productos del mismo almacén con nombre parecido (útil para la misma familia: láminas, tubos, clavos…).
+  - **Buscar en el catálogo de Hacienda:** busca por palabras (*qué es*, no la marca) o por el código de 13 números, con su IVA.
+  - Al escoger uno se puede poner **el mismo CABYS a los parecidos** que todavía no tienen (se marcan solos los más parecidos; revíselos).
+  - El IVA del producto se pone según el CABYS. Si sale **0 %**, revíselo a mano.
+- En **Productos → Editar** también está el campo **CABYS** con **Buscar en Hacienda**.
+- Al importar el Excel de Moriah, el CABYS viene de la columna *Codigo Cabys*; si en Moriah está vacío, queda sin CABYS.
+
+Necesita la función `facturar` publicada otra vez (la búsqueda en Hacienda pasa por ella).
+
 ## Compras y proveedores (v21)
 
 Pestaña **Compras** (administrador o empleado con permiso *Compras y proveedores*):
