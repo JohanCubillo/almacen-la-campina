@@ -3207,7 +3207,7 @@
       if (!enLinea()) { msg.textContent = "Sin internet: la factura de una venta ya enviada se hace cuando vuelva la conexión."; return; }
       const r = V.factura
         ? await db.from("facturas").update({ ...d, estado: "pendiente" }).eq("id", V.factura.id).select().single()
-        : await db.from("facturas").insert({ ...d, estado: "pendiente", pedido_id: V.pedido.id, solicitada_por: "panel" }).select().single();
+        : await db.from("facturas").insert({ ...d, pedido_id: V.pedido.id, solicitada_por: "panel" }).select().single();   // estado: pendiente por defecto
       if (r.error) { msg.textContent = errTxt(r.error); return; }
       V.factura = r.data;
       $("#dlgReceptor").close();
