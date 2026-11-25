@@ -1306,42 +1306,49 @@
       <h3 class="subt">Pagos <span class="saldo" id="ventaSaldo"></span></h3>
       <ul class="pagos" id="pagosVenta"></ul>
 
-      <details class="tarjeta registrar" id="boxPago">
-        <summary>Registrar un pago</summary>
-        <form id="formPago" class="registrar__form">
-          <div class="pegar">
-            <label>Pegue aquí el mensaje o notificación del banco (opcional)
-              <textarea id="txtBanco" rows="2" maxlength="600" placeholder="Ej: Ha recibido ₡45.000,00 de MARIA PEREZ por SINPE Movil. Ref: 2026112012345678"></textarea></label>
-            <button type="button" class="btn btn--sm btn--linea" id="btnLeerBanco">Leer datos del mensaje</button>
+      <section class="tarjeta cobro" id="boxPago">
+        <form id="formPago" class="cobro__form">
+          <h3 class="cobro__tit">Cobrar</h3>
+          <div class="cobro__metodos" role="radiogroup" aria-label="Forma de pago" id="cobroMetodos"></div>
+          <select name="metodo" hidden aria-hidden="true" tabindex="-1">
+            <option value="efectivo">Efectivo</option>
+            <option value="sinpe">SINPE Móvil</option>
+            <option value="tarjeta">Tarjeta</option>
+            <option value="transferencia">Transferencia</option>
+            <option value="cheque" data-v18>Cheque</option>
+            <option value="anterior" data-v18 data-solo-admin>Abonado en Moriah</option>
+          </select>
+          <div class="cobro__fila">
+            <label class="cobro__monto">Monto ₡<input name="monto" type="number" min="1" step="0.01" inputmode="decimal" required /></label>
+            <label class="cobro__paga" id="cobroPagaLbl">Paga con ₡<input id="cobroPaga" type="number" min="0" step="1" inputmode="numeric" placeholder="Opcional" /></label>
+            <p class="cobro__vuelto" id="cobroVuelto" aria-live="polite"></p>
+            <label class="cobro__ref" id="cobroRefLbl"><span id="pagoRefTxt">N.º de comprobante</span><input name="referencia" maxlength="40" pattern="[0-9A-Za-z\-]{4,40}" autocomplete="off" /></label>
           </div>
-          <div class="dos">
-            <label>Forma de pago
-              <select name="metodo">
-                <option value="sinpe">SINPE Móvil</option>
-                <option value="efectivo">Efectivo</option>
-                <option value="transferencia">Transferencia</option>
-                <option value="tarjeta">Tarjeta</option>
-                <option value="cheque" data-v18>Cheque</option>
-                <option value="anterior" data-v18 data-solo-admin>Abonado en Moriah (antes del sistema)</option>
-              </select></label>
-            <label>Monto ₡<input name="monto" type="number" min="1" step="0.01" required /></label>
-          </div>
-          <label><span id="pagoRefTxt">Número de comprobante / referencia</span><input name="referencia" maxlength="40" pattern="[0-9A-Za-z\-]{4,40}" autocomplete="off" /></label>
-          <div class="dos">
-            <label>Teléfono que pagó<input name="telefono_origen" inputmode="tel" maxlength="20" /></label>
-            <label>Nombre que pagó<input name="nombre_origen" maxlength="100" /></label>
-          </div>
-          <div class="dos">
-            <label>Fecha y hora del pago<input name="fecha" type="datetime-local" required /></label>
-            <label>Foto del comprobante<input name="comprobante" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" /></label>
-          </div>
-          <label class="check check--fuerte"><input type="checkbox" name="verificado" /> <span id="pagoVerTxt">Ya vi este dinero en la app del banco</span></label>
-          <p class="ayuda" id="pagoAyuda">Si no lo ha visto en el banco, déjelo sin marcar: la venta queda “por verificar” hasta que lo confirme.</p>
+          <label class="check" id="cobroVerLbl"><input type="checkbox" name="verificado" /> <span id="pagoVerTxt">Ya lo vi en el banco</span></label>
+          <details class="cobro__mas">
+            <summary>Más detalles (opcional)</summary>
+            <div class="cobro__mas-cuerpo">
+              <div class="pegar">
+                <label>Pegar el mensaje del banco
+                  <textarea id="txtBanco" rows="2" maxlength="600" placeholder="Ej: Ha recibido ₡45.000,00 de MARIA PEREZ por SINPE Movil. Ref: 2026112012345678"></textarea></label>
+                <button type="button" class="btn btn--sm btn--linea" id="btnLeerBanco">Leer datos del mensaje</button>
+              </div>
+              <div class="dos">
+                <label>Teléfono que pagó<input name="telefono_origen" inputmode="tel" maxlength="20" /></label>
+                <label>Nombre que pagó<input name="nombre_origen" maxlength="100" /></label>
+              </div>
+              <div class="dos">
+                <label>Fecha y hora del pago<input name="fecha" type="datetime-local" required /></label>
+                <label>Foto del comprobante<input name="comprobante" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" /></label>
+              </div>
+            </div>
+          </details>
+          <p class="ayuda" id="pagoAyuda"></p>
           <p class="aviso-comp" id="avisoComp" hidden>Se va a registrar con el comprobante que envió el cliente.</p>
           <p class="msg msg--error" id="pagoMsg" role="alert"></p>
-          <button class="btn btn--negro" type="submit" id="btnGuardarPago">Registrar pago</button>
+          <button class="btn btn--negro cobro__btn" type="submit" id="btnGuardarPago">Cobrar</button>
         </form>
-      </details>
+      </section>
 
       <div class="venta__cierre">
         <button type="button" class="btn btn--linea" id="btnEntregar">Marcar como entregada</button>

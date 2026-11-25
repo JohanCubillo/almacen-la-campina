@@ -164,7 +164,7 @@ Necesita `supabase/v18_cheque_saldos_apartados.sql` (después de v17).
 
 **Apartados.**
 - En la venta, **Apartado** (al lado de Contado y Crédito) y la fecha hasta la que se le guarda (un mes si no se cambia; máximo un año). Pide el teléfono del cliente.
-- El cliente va abonando como en cualquier venta (**Registrar un pago**). El panel muestra lo abonado y lo que falta; si se pasa la fecha lo marca en rojo.
+- El cliente va abonando como en cualquier venta (cuadro **Cobrar** de la venta). El panel muestra lo abonado y lo que falta; si se pasa la fecha lo marca en rojo.
 - **No se puede entregar** hasta que esté pagado y verificado completo. Al terminar de pagar sale en **Pagadas sin entregar**.
 - En **Ventas** está el filtro **Apartados** (con el número de los que ya se pasaron de la fecha) y la cifra de lo que falta cobrar en apartados. El recibo dice hasta cuándo se le guarda.
 - Si el cliente se arrepiente: quitarle el apartado (Contado) o anular la venta.
@@ -387,3 +387,13 @@ SEGURIDAD.md, FACTURACION.md, GOOGLE-Y-DOMINIO.md
 - Aprobación del sitio → quitar `noindex` (ver **GOOGLE-Y-DOMINIO.md**).
 - Zonas y precios de envío, y si quiere avisos por Telegram.
 - Medidas reales de las láminas que vende (largo y ancho útil) para afinar la calculadora.
+
+### Cobrar una venta
+
+En la venta sale el cuadro **Cobrar** mientras falte plata: se toca la forma de pago (Efectivo, SINPE, Tarjeta, Transferencia, Cheque), el monto ya viene con lo que falta y se toca **Cobrar ₡…**.
+
+- **Efectivo**: “Paga con” calcula el vuelto (no se guarda). Queda verificado solo, sin preguntas.
+- **Tarjeta**: queda verificado solo.
+- **SINPE / transferencia / cheque**: pide el n.º de comprobante (evita usar el mismo dos veces) y la casilla “Ya lo vi en el banco”; sin marcar queda “por verificar”.
+- Lo demás (pegar el mensaje del banco, teléfono, nombre, fecha, foto) está en **Más detalles**, para los pedidos de la web.
+- Al cobrar, el panel lleva directo al botón de **Emitir tiquete**.

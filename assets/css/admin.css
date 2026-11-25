@@ -593,3 +593,37 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 .paq-contador .msg { grid-column: 1 / -1; margin: 0; }
 .paq-contador .msg:empty { display: none; }
 @media (max-width: 760px) { .paq-contador { grid-template-columns: 1fr; } }
+
+/* ============================================================
+   Cobrar (venta): botones de forma de pago, monto, vuelto
+   ============================================================ */
+.cobro { margin-top: .75rem; background: var(--fondo-2); border: 0; }
+.cobro__form { display: grid; gap: .9rem; }
+.cobro__tit { margin: 0; font-family: var(--base); font-weight: 600; font-size: 1.2rem; }
+.cobro__metodos { display: flex; flex-wrap: wrap; gap: .45rem; }
+.cobro__chip { font: 600 1rem var(--base); padding: .6em 1.15em; border-radius: 99px; border: 1.5px solid var(--borde); background: #fff; color: var(--texto); cursor: pointer; min-height: 44px; }
+.cobro__chip:hover { border-color: var(--negro); }
+.cobro__chip[aria-checked="true"] { background: var(--negro); border-color: var(--negro); color: #fff; }
+.cobro__chip--sec { border-style: dashed; color: var(--gris); }
+.cobro__chip:focus-visible { outline: 3px solid var(--cinta); outline-offset: 2px; }
+.cobro__fila { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem 1rem; }
+.cobro__fila label { display: grid; gap: .3rem; font-weight: 600; font-size: .95rem; }
+.cobro__fila label[hidden] { display: none; }
+.cobro__monto input { font: 700 1.5rem var(--base); width: 11rem; }
+.cobro__paga input { font: 600 1.15rem var(--base); width: 9rem; }
+.cobro__ref input { width: 14rem; }
+.cobro__vuelto { margin: 0 0 .55rem; font: 700 1.2rem var(--base); min-height: 1.2em; }
+.cobro__vuelto--ok { color: var(--texto); background: #FFF3C4; padding: .15em .6em; border-radius: 99px; }
+.cobro__vuelto--falta { color: var(--peligro); }
+.cobro .check[hidden] { display: none !important; }
+.cobro__mas summary { cursor: pointer; color: var(--gris); font-weight: 600; font-size: .95rem; }
+.cobro__mas-cuerpo { display: grid; gap: .75rem; margin-top: .75rem; }
+.cobro__mas-cuerpo label { display: grid; gap: .3rem; font-weight: 600; font-size: .95rem; }
+.cobro .ayuda:empty, .cobro .msg:empty { display: none; }
+.cobro__btn { justify-self: start; font-size: 1.15rem; padding: .8em 1.8em; border-radius: 99px; }
+@media (max-width: 600px) {
+  .cobro__monto input, .cobro__paga input, .cobro__ref input { width: 100%; }
+  .cobro__fila label { flex: 1 1 100%; }
+  .cobro__btn { justify-self: stretch; }
+}
+.cobro__vuelto:empty { display: none; }

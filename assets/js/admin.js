@@ -1923,15 +1923,17 @@
     $("#ventaSaldo").textContent = p ? `· Total ${fmt(p.total)} · Registrado ${fmt(p.pagado_registrado)} · Verificado ${fmt(p.pagado_verificado)}` : "";
     $("#pagosVenta").innerHTML = p ? (V.pagos.map(V.local ? pagoLocalHTML : pagoHTML).join("") || `<li class="vacio-adm">Sin pagos registrados.</li>`) : `<li class="vacio-adm">Guarde la venta para registrar pagos.</li>`;
     $$("#formVenta input").forEach((i) => (i.disabled = !!V.copia || p?.estado === "anulada"));
-    $("#boxPago").hidden = !p || p.estado === "anulada";
-    $("#boxPago").open = false;
     const saldoReg = p ? Math.max(0, p.total - p.pagado_registrado) : 0;
+    // el cuadro de cobrar solo sale si falta plata
+    $("#boxPago").hidden = !p || p.estado === "anulada" || saldoReg < 0.005;
     const fp = $("#formPago");
     fp.reset();
     fp.monto.value = saldoReg ? saldoReg : "";
     fp.fecha.value = ahoraLocalCR();
     fp.fecha.max = ahoraLocalCR();
     fp.nombre_origen.value = "";
+    $("#cobroPaga").value = "";
+    fp.querySelector(".cobro__mas").open = false;
     delete fp.dataset.compId; delete fp.dataset.ruta;
     $("#avisoComp").hidden = true;
     fp.comprobante.disabled = false;
@@ -4807,18 +4809,54 @@
     return out;
   }
 
-  // el formulario cambia un poco según cómo pagó: el cheque lleva su número; lo abonado en Moriah no entra en la caja
-  const AYUDA_PAGO = "Si no lo ha visto en el banco, déjelo sin marcar: la venta queda “por verificar” hasta que lo confirme.";
-  function pintarFormaPago() {
-    const f = $("#formPago"), m = f.metodo.value, ant = m === "anterior";
-    $("#pagoRefTxt").textContent = m === "cheque" ? "Número del cheque" : ant ? "Número de recibo de Moriah (opcional)" : "Número de comprobante / referencia";
-    $("#pagoVerTxt").textContent = m === "cheque" ? "El banco ya pagó este cheque" : ant ? "Ya lo había recibido el almacén" : "Ya vi este dinero en la app del banco";
-    $("#pagoAyuda").textContent = ant ? "Lo que el cliente ya había pagado en Moriah antes de pasar al sistema (por ejemplo, los abonos de un apartado). Rebaja lo que debe, pero no entra en la caja ni en los reportes."
-      : m === "cheque" ? "Déjelo sin marcar hasta que el banco pague el cheque: la venta queda “por verificar”. En el cierre de caja el cheque sale aparte del efectivo."
-      : AYUDA_PAGO;
-    f.verificado.disabled = ant;
-    if (ant) f.verificado.checked = true;
+  // cobrar: se elige la forma de pago con botones grandes y solo se pide lo que hace falta
+  const AUTO_VERIF = ["efectivo", "tarjeta"];          // la plata está en la mano: queda verificado solo
+  const CON_REF = ["sinpe", "transferencia", "cheque", "anterior"];
+  const ETQ_CHIP = { efectivo: "Efectivo", sinpe: "SINPE", tarjeta: "Tarjeta", transferencia: "Transferencia", cheque: "Cheque", anterior: "Abonado en Moriah" };
+  function chipsCobro() {
+    const f = $("#formPago"), box = $("#cobroMetodos");
+    const ops = [...f.metodo.options].map((o) => o.value);
+    if (box.dataset.ops === ops.join()) return;
+    box.dataset.ops = ops.join();
+    box.innerHTML = ops.map((v) => `<button type="button" role="radio" class="cobro__chip${v === "anterior" ? " cobro__chip--sec" : ""}" data-metodo="${v}">${ETQ_CHIP[v] || v}</button>`).join("");
   }
+  function pintarVuelto() {
+    const f = $("#formPago"), monto = Number(f.monto.value) || 0, paga = Number($("#cobroPaga").value) || 0;
+    const v = $("#cobroVuelto");
+    if (f.metodo.value !== "efectivo" || !paga) { v.textContent = ""; v.className = "cobro__vuelto"; }
+    else if (paga >= monto) { v.textContent = `Vuelto ${fmt(paga - monto)}`; v.className = "cobro__vuelto cobro__vuelto--ok"; }
+    else { v.textContent = `Faltan ${fmt(monto - paga)}`; v.className = "cobro__vuelto cobro__vuelto--falta"; }
+    $("#btnGuardarPago").textContent = monto > 0 ? `Cobrar ${fmt(monto)}` : "Cobrar";
+  }
+  function pintarFormaPago() {
+    chipsCobro();
+    const f = $("#formPago"), m = f.metodo.value, ant = m === "anterior";
+    $$("#cobroMetodos .cobro__chip").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.metodo === m)));
+    $("#cobroPagaLbl").hidden = m !== "efectivo";
+    $("#cobroRefLbl").hidden = !CON_REF.includes(m);
+    $("#pagoRefTxt").textContent = m === "cheque" ? "N.º del cheque" : ant ? "N.º de recibo de Moriah (opcional)" : "N.º de comprobante";
+    $("#cobroVerLbl").hidden = AUTO_VERIF.includes(m) || ant;
+    $("#pagoVerTxt").textContent = m === "cheque" ? "El banco ya pagó el cheque" : "Ya lo vi en el banco";
+    $("#pagoAyuda").textContent = ant ? "Lo que ya había pagado en Moriah. Rebaja lo que debe, pero no entra en la caja."
+      : m === "cheque" ? "Sin marcar, queda “por verificar” hasta que el banco lo pague."
+      : CON_REF.includes(m) ? "Si todavía no lo ve en el banco, déjelo sin marcar: queda “por verificar”." : "";
+    f.verificado.disabled = ant;
+    if (ant || AUTO_VERIF.includes(m)) f.verificado.checked = true;
+    else if (f.verificado.dataset.auto) f.verificado.checked = false;
+    f.verificado.dataset.auto = (ant || AUTO_VERIF.includes(m)) ? "1" : "";
+    pintarVuelto();
+  }
+  $("#cobroMetodos").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-metodo]");
+    if (!b) return;
+    $("#formPago").metodo.value = b.dataset.metodo;
+    pintarFormaPago();
+    const r = $("#formPago").referencia;
+    if (!$("#cobroRefLbl").hidden && !r.value) r.focus();
+    else if (b.dataset.metodo === "efectivo") $("#cobroPaga").focus();
+  });
+  $("#formPago").monto.addEventListener("input", pintarVuelto);
+  $("#cobroPaga").addEventListener("input", pintarVuelto);
   $("#formPago").metodo.addEventListener("change", pintarFormaPago);
 
   $("#btnLeerBanco").addEventListener("click", () => {
@@ -4853,7 +4891,7 @@
       telefono_origen: f.telefono_origen.value.trim() || null,
       nombre_origen: f.nombre_origen.value.trim() || null,
       fecha: f.fecha.value ? localCRaISO(f.fecha.value) : null,
-      verificado: f.verificado.checked
+      verificado: f.verificado.checked || AUTO_VERIF.includes(f.metodo.value)
     };
     const oid = crypto.randomUUID();
     if (!(d.monto > 0)) { msg.textContent = "Escriba el monto del pago."; return; }
@@ -4882,7 +4920,7 @@
     }
     if (d.metodo === "anterior") {
       if (!confirm(`¿Anotar ${fmt(d.monto)} como abonado en Moriah? Rebaja lo que debe esta venta, pero no entra en la caja de hoy.`)) return;
-    } else if (d.verificado && !confirm(d.metodo === "cheque" ? `¿Confirma que el banco ya pagó el cheque ${d.referencia} por ${fmt(d.monto)}?`
+    } else if (d.verificado && !AUTO_VERIF.includes(d.metodo) && !confirm(d.metodo === "cheque" ? `¿Confirma que el banco ya pagó el cheque ${d.referencia} por ${fmt(d.monto)}?`
       : `¿Confirma que ve ${fmt(d.monto)} con el comprobante ${d.referencia || "(sin número)"} en la app del banco?`)) return;
     // sin internet: queda en la compu y se manda solo al volver la conexión
     const pagoSinRed = () => {
@@ -4927,9 +4965,12 @@
         } catch (err2) { toast("Pago registrado, pero la foto no se subió: " + errTxt(err2), true); }
       }
       $("#txtBanco").value = "";
-      toast(d.verificado ? "Pago registrado y verificado" : "Pago registrado. Queda por verificar en el banco.");
+      toast(d.verificado ? `Cobrado ${fmt(d.monto)}` : "Cobro anotado. Queda por verificar en el banco.");
       await abrirVenta(p.id);
       cargarVentas(); contarPorVerificar();
+      // pagada: lo siguiente es el comprobante
+      const sig = ["#btnFETiquete", "#btnFEFactura"].map((x) => $(x)).find((b) => b && !b.hidden && !b.disabled && b.offsetParent);
+      if (sig) { sig.scrollIntoView({ block: "center", behavior: "smooth" }); sig.focus({ preventScroll: true }); }
     } catch (err) {
       if (U.esErrorRed(err) && V19 && !f.dataset.compId && !f.comprobante.files[0]) { sinSenal(err); btn.disabled = false; delete d.comprobante_path; return pagoSinRed(); }   // se cayó la señal
       msg.textContent = errTxt(err);
@@ -5315,10 +5356,12 @@
     if (!c) return;
     if (b.dataset.registrarComp) {
       const fp = $("#formPago");
-      $("#boxPago").open = true;
+      $("#boxPago").hidden = false;
+      fp.querySelector(".cobro__mas").open = true;
       fp.metodo.value = "sinpe";
       pintarFormaPago();
       if (c.monto_reportado) fp.monto.value = c.monto_reportado;
+      pintarVuelto();
       fp.referencia.value = c.referencia_reportada || "";
       fp.telefono_origen.value = V.pedido.cliente_telefono || "";
       fp.nombre_origen.value = V.pedido.cliente_nombre || "";
