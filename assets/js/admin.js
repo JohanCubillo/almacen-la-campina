@@ -2150,7 +2150,12 @@
       alElegir(p);
     });
   }
-  buscadorProductos($("#agregarItemQ"), $("#agregarItemRes"), (p) => {
+  const POCOS = 2;                             // con 2 o menos se pregunta a la base antes de agregarlo (otra compu pudo venderlo)
+  buscadorProductos($("#agregarItemQ"), $("#agregarItemRes"), async (p) => {
+    if (enLinea() && disponible(p.id) - usadoEnVenta(p.id) <= POCOS) {
+      try { await conTiempo(refrescarExistencias([p.id]), 4000); } catch { /* sin respuesta: se sigue con lo que hay */ }
+      if (!V) return;
+    }
     const ya = V.items.find((i) => i.producto_id === p.id);
     const quedan = disponible(p.id) - usadoEnVenta(p.id);
     if (quedan <= 0) {
