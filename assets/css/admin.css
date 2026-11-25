@@ -665,3 +665,8 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 .pregunta__btns .btn--peligro { background: var(--peligro); border-color: var(--peligro); color: #fff; }
 .pregunta__btns #preguntaNo[hidden] { display: none; }
 @media (max-width: 600px) { .pregunta__btns .btn { flex: 1 1 auto; } }
+
+/* cobrar en verde: es plata que entra */
+.cobro__btn, .pregunta__btns .btn--cobrar { background: #1E8E3E; border-color: #1E8E3E; color: #fff; }
+.cobro__btn:hover, .pregunta__btns .btn--cobrar:hover { background: #17722F; border-color: #17722F; }
+.cobro__btn:focus-visible, .pregunta__btns .btn--cobrar:focus-visible { outline: 3px solid var(--cinta); outline-offset: 2px; }

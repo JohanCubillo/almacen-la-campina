@@ -33,13 +33,13 @@
   }
   // preguntas y avisos con el estilo del panel (en vez de las ventanitas grises del navegador)
   let colaPreg = Promise.resolve();
-  function ventana({ texto, titulo = "", si = "Sí, seguir", no = "Cancelar", peligro = false, campo = null }) {
+  function ventana({ texto, titulo = "", si = "Sí, seguir", no = "Cancelar", peligro = false, cobrar = false, campo = null }) {
     const abrir = () => new Promise((res) => {
       const dl = $("#dlgPregunta"), inp = $("#preguntaCampo"), bSi = $("#preguntaSi"), bNo = $("#preguntaNo");
       $("#preguntaTit").textContent = titulo;
       $("#preguntaTxt").textContent = texto;
       bSi.textContent = si;
-      bSi.className = `btn ${peligro ? "btn--peligro" : "btn--negro"}`;
+      bSi.className = `btn ${peligro ? "btn--peligro" : cobrar ? "btn--cobrar" : "btn--negro"}`;
       bNo.textContent = no || ""; bNo.hidden = !no;
       $("#preguntaCampoLbl").hidden = campo === null;
       inp.value = campo ?? "";
@@ -4986,7 +4986,7 @@
     const paga = Number($("#cobroPaga").value) || 0;
     const vuelto = d.metodo === "efectivo" && paga > d.monto ? `\nVuelto: ${fmt(paga - d.monto)}` : "";
     if (guardarPrimero) pregunta = `Se guarda la venta y se cobran ${fmt(d.monto)} ${COMO[d.metodo] || ""}.${vuelto}` + (pregunta ? "\n\n" + pregunta : "");
-    if (pregunta && !await preguntar(pregunta, { titulo: guardarPrimero ? "¿Cobrar la venta?" : "", si: guardarPrimero ? `Cobrar ${fmt(d.monto)}` : "Sí, seguir" })) return;
+    if (pregunta && !await preguntar(pregunta, { titulo: guardarPrimero ? "¿Cobrar la venta?" : "", si: guardarPrimero ? `Cobrar ${fmt(d.monto)}` : "Sí, seguir", cobrar: guardarPrimero })) return;
     // al guardar la venta el formulario se vuelve a pintar: lo que falta se toma antes
     const archivoSel = f.comprobante.files[0] || null, compId = f.dataset.compId || null, rutaComp = f.dataset.ruta || null;
     if (guardarPrimero && !(await guardarVenta())) return;
