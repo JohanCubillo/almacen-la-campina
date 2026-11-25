@@ -198,6 +198,6 @@ Para cuando el almacén le compra a alguien que **no da factura electrónica** (
 
 ### Orden para activar todo lo nuevo
 
-1. SQL en Supabase, en este orden: `v22_exoneracion.sql`, `v23_devoluciones.sql`, `v24_precios_cliente.sql`, `v25_factura_compra.sql`.
+1. SQL en Supabase, en este orden: `v22_exoneracion.sql`, `v23_devoluciones.sql`, `v24_precios_cliente.sql`, `v25_factura_compra.sql`, `v26_devolucion_sin_caja.sql` (devolución en efectivo sin tener que abrir la caja).
 2. `npx supabase functions deploy facturar --project-ref osuhkkojtwweepniwxtp --use-api`
 3. Ctrl+F5 en el panel.

@@ -2134,9 +2134,13 @@
     </li>`;
   }
 
+  // lo que ya se devolvió de esta venta (las devoluciones bajan el total, no los renglones)
+  const devueltoVenta = () => (V?.devs || []).reduce((a, d) => a + (Number(d.total) || 0), 0);
   function actualizarTotal() {
     const t = V.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_unit) || 0), 0);
-    $("#ventaTotal").textContent = fmt(t);
+    const dev = devueltoVenta();
+    $("#ventaTotal").innerHTML = dev > 0
+      ? `${fmt(t - dev)}<small class="total-dev">${fmt(t)} − ${fmt(dev)} devuelto</small>` : fmt(t);
     refrescarCobro(t);
     return t;
   }
@@ -2476,7 +2480,7 @@
     const abonos = acciones.leer().filter((a) => a.tipo === "abono" && Number(a.datos.cliente_id) === Number(cliId)).reduce((t, a) => t + Number(a.datos.monto), 0);
     return enCompu - abonos;
   }
-  const totalPendienteVenta = () => Math.max(0, actualizarTotal() - (V.pedido ? Number(V.pedido.pagado_registrado) : 0));
+  const totalPendienteVenta = () => Math.max(0, actualizarTotal() - devueltoVenta() - (V.pedido ? Number(V.pedido.pagado_registrado) : 0));
   // sin internet: solo una venta nueva (que se guarda en la compu) se puede poner a crédito o como apartado
   function revisarSinRed(que) {
     if (enLinea() && !V.local) return "";
@@ -3276,7 +3280,7 @@
       if (!d.sinRed && enLinea()) acc.push(`<button type="button" class="enlace" data-fe="xml" data-id="${d.id}">XML</button>`);
       if (d.sinRed) acc.push(`<button type="button" class="enlace" data-fe="pendientes">Ver pendientes</button>`);
       return `<li class="pago fe-doc ${d.anulado ? "pago--anulado" : ""}">
-        <div class="pago__monto">${d.tipo === "03" ? "−" : ""}${fmt(d.total)}<small>${d.parcial ? "Nota de crédito (devolución)" : FE_TIPO[d.tipo] || d.tipo}</small></div>
+        <div class="pago__monto">${d.tipo === "03" ? "−" : ""}${fmt(d.total)}${d.parcial ? "<small>Nota de crédito</small><small>por devolución</small>" : `<small>${FE_TIPO[d.tipo] || d.tipo}</small>`}</div>
         <div class="pago__datos">
           <span>N.º <b>${U.esc(d.consecutivo.slice(-10).replace(/^0+/, ""))}</b> · ${fechaCR(d.fecha_emision, { dateStyle: "short", timeStyle: "short" })}${d.sinRed || String(d.clave).charAt(41) === "3" ? " · sin internet" : ""}</span>
           <span><span class="etq ${cls}">${txt}</span>${d.anulado ? ' <span class="etq">Anulado</span>' : ""}${d.ambiente === "pruebas" ? ' <span class="etq">Pruebas</span>' : ""}</span>
@@ -5493,7 +5497,7 @@
     if (!V || !V.items) return;
     const p = V.pedido, fp = $("#formPago");
     if (total === undefined) total = V.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_unit) || 0), 0);
-    const saldo = Math.max(0, Math.round((total - (Number(p?.pagado_registrado) || 0)) * 100) / 100);
+    const saldo = Math.max(0, Math.round((total - devueltoVenta() - (Number(p?.pagado_registrado) || 0)) * 100) / 100);
     // a crédito no se cobra: primero se guarda a crédito y después, si quiere, se recibe un abono
     const cred = V.cond === "credito", pend = !V.copia && p?.estado !== "anulada" && saldo >= 0.005;
     const credListo = cred && !!p && !!p.credito && !V.dirty && !V.local;
