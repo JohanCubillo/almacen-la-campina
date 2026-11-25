@@ -724,3 +724,4 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 .espera__ficha small { color: var(--gris); font-size: .8rem; }
 .espera__ficha:hover { border-color: var(--negro); }
 @media (max-width: 600px) { .venta__head { grid-template-columns: minmax(0, 1fr) auto auto; } }
+.sin-v24 .v24 { display: none !important; }

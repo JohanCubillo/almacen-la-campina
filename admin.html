@@ -678,6 +678,7 @@
         <p class="ayuda" id="prodSinPrecio" hidden>Su usuario no puede poner ni cambiar precios: guarde el producto y el administrador le pone el precio.</p>
         <label>Se vende por<input name="unidad" maxlength="30" placeholder="saco, unidad, metro…" /></label>
       </div>
+      <label class="v24">Precio 2 en colones (mayoreo, opcional)<input name="precio2" type="number" min="1" step="0.01" placeholder="Para clientes con precio 2" /></label>
       <label>Categoría<select name="categoria_id"></select></label>
       <label class="v10">IVA del producto
         <select name="iva_codigo">
@@ -776,6 +777,11 @@
             <label>Límite de crédito ₡<input name="limite" type="number" min="0" step="1000" placeholder="Vacío = sin límite" /></label>
             <label>Plazo (días)<input name="plazo_dias" type="number" min="1" max="365" step="1" /></label>
             <label class="check"><input type="checkbox" name="activo" checked /> Crédito activo</label>
+          </div>
+          <div class="dos v24">
+            <label>Precio que se le cobra
+              <select name="tipo_precio"><option value="1">Precio 1 (normal)</option><option value="2">Precio 2 (mayoreo)</option></select></label>
+            <label>Descuento general %<input name="descuento" type="number" min="0" max="50" step="0.5" placeholder="0" /></label>
           </div>
           <label>Nota<input name="nota" maxlength="500" placeholder="Opcional" /></label>
           <p class="msg" id="cliMsg" role="status"></p>

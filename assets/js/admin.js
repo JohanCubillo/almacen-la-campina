@@ -86,7 +86,8 @@
   let V18 = false;         // cheque, saldos de Moriah y apartados (v18_cheque_saldos_apartados.sql)
   let V21 = false;         // salidas/conteos, compras y proveedores, facturas recibidas (v21_compras_ajustes.sql)
   let V22 = false;
-  let V23 = false;         // devoluciones parciales (v23_devoluciones.sql)         // exoneración de IVA en ventas (v22_exoneracion.sql)
+  let V23 = false;
+  let V24 = false;         // precio 2 y descuento por cliente (v24_precios_cliente.sql)         // devoluciones parciales (v23_devoluciones.sql)         // exoneración de IVA en ventas (v22_exoneracion.sql)
   // pestañas y pantallas: sin v17 todos los del panel las ven, como antes
   const soyAdministrador = () => !ACCESO || ACCESO.rol === "administrador";
   // borrar ventas y cambiar roles: sin v17 se usa el rol de v16
@@ -390,7 +391,7 @@
     } else {
       // todas las preguntas a la base salen juntas (antes iban una por una y sumaban segundos)
       const probar = (q) => Promise.resolve(q).then((x) => x, (e) => ({ error: e }));
-      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22, r23] = await Promise.all([
+      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22, r23, r24] = await Promise.all([
         probar(db.from("avisos").select("id").limit(1)),
         probar(db.from("productos").select("codigo").limit(1)),
         probar(db.from("fe_emisor").select("*").eq("id", 1).maybeSingle()),
@@ -405,6 +406,7 @@
         probar(db.from("proveedores").select("id").limit(1)),
         probar(db.from("pedidos").select("exoneracion").limit(1)),
         probar(db.from("devoluciones").select("id").limit(1)),
+        probar(db.from("productos").select("precio2").limit(1)),
         cargarCategorias()
       ]);
       V4 = r.error && U.esErrorRed(r.error) ? !!copia.leer().v4 : !r.error;
@@ -414,7 +416,7 @@
       V10 = !r10.error; FE = r10.data || null;
       V11 = !r11.error; V12 = !r12.error; V13 = !r13.error;
       if (V13) cargarClientes();
-      V14 = !r14.error; V15 = !r15.error; V16 = !r16.error; V18 = !r18.error; V19 = !r19.error; V21 = !r21.error; V22 = !r22.error; V23 = !r23.error;
+      V14 = !r14.error; V15 = !r15.error; V16 = !r16.error; V18 = !r18.error; V19 = !r19.error; V21 = !r21.error; V22 = !r22.error; V23 = !r23.error; V24 = !r24.error;
       // para poder abrir el panel sin internet con lo mismo que tiene la base
       if (!r16.error || !U.esErrorRed(r16.error)) {
         copia.poner("versiones", { V10, V12, V13, V14, V18, V19 });
@@ -427,6 +429,7 @@
     document.documentElement.classList.toggle("sin-v17", !V17);
     document.documentElement.classList.toggle("sin-v18", !V18);
     document.documentElement.classList.toggle("sin-v21", !V21);
+    document.documentElement.classList.toggle("sin-v24", !V24);
     $("#tabCom").hidden = !V21;
     // formas de pago de v18: sin la base nueva no se ofrecen; lo abonado en Moriah solo lo anota el administrador
     $$("option[data-v18]").forEach((o) => { if (!V18 || (o.hasAttribute("data-solo-admin") && !esAdministradorReal())) o.remove(); });
@@ -639,7 +642,7 @@
   // copia liviana para usar sin internet (con miles de productos no cabe todo)
   const productoCorto = (p) => ({ id: p.id, nombre: p.nombre, codigo: p.codigo, precio: p.precio, unidad: p.unidad, categoria_id: p.categoria_id,
     activo: p.activo, agotado: p.agotado, destacado: p.destacado, existencia: p.existencia,
-    cabys: p.cabys, iva_codigo: p.iva_codigo, precio_oferta: p.precio_oferta, oferta_hasta: p.oferta_hasta });
+    cabys: p.cabys, iva_codigo: p.iva_codigo, precio_oferta: p.precio_oferta, oferta_hasta: p.oferta_hasta, precio2: p.precio2 });
   async function cargarProductos() {
     let data = null, error = null;
     if (SIN_RED) data = copia.leer().productos || null;
@@ -703,8 +706,9 @@
     fp.nombre.value = p?.nombre || "";
     fp.descripcion.value = p?.descripcion || "";
     fp.precio.value = p?.precio ?? "";
+    fp.precio2.value = p?.precio2 ?? "";
     // sin permiso de precios: se ven pero no se cambian (la base tampoco deja)
-    ["precio", "precio_oferta", "oferta_hasta"].forEach((k) => { if (fp[k]) fp[k].disabled = !puede("precios"); });
+    ["precio", "precio2", "precio_oferta", "oferta_hasta"].forEach((k) => { if (fp[k]) fp[k].disabled = !puede("precios"); });
     $("#prodSinPrecio").hidden = puede("precios");
     fp.unidad.value = p?.unidad || "";
     fp.categoria_id.value = p?.categoria_id || "";
@@ -870,6 +874,7 @@
         nombre: fp.nombre.value.trim(),
         descripcion: fp.descripcion.value.trim() || null,
         precio: fp.precio.value === "" ? null : Math.max(0, Number(fp.precio.value)),
+        ...(V24 && puede("precios") ? { precio2: fp.precio2.value === "" ? null : Math.max(1, Number(fp.precio2.value)) } : {}),
         unidad: fp.unidad.value.trim() || null,
         categoria_id: fp.categoria_id.value ? Number(fp.categoria_id.value) : null,
         destacado: fp.destacado.checked,
@@ -2239,7 +2244,7 @@
     if (despues === 0) toast(`Es lo último que hay de ${p.nombre}.`);
     else if (despues < STOCK_BAJO) toast(`Ya casi no quedan: después de esta venta ${quedaTxt(despues)} de ${p.nombre}.`);
     if (ya) ya.cantidad = Math.round((Number(ya.cantidad) + suma) * 100) / 100;
-    else V.items.push({ producto_id: p.id, descripcion: p.nombre + (p.unidad ? ` (${p.unidad})` : ""), cantidad: suma, precio_unit: p.precio != null ? precioConExo(p, Number(p.precio)) : 0 });
+    else V.items.push({ producto_id: p.id, descripcion: p.nombre + (p.unidad ? ` (${p.unidad})` : ""), cantidad: suma, precio_unit: p.precio != null ? precioVenta(p, precioCatalogo(p.id) ?? Number(p.precio)) : 0 });
     V.dirty = true;
     pintarVenta();
   }
@@ -2284,6 +2289,9 @@
       // a medio camino queda en la compu y al reenviarla no se duplica
       if (!V.pedido && V5) {
         const venta = { ...d, fecha: new Date().toISOString(), items, pagos: [] };
+        // v24: el cliente y la exoneración van con la venta (de ellos depende el precio permitido)
+        if (V24 && V.cond === "credito" && V.credCli) venta.cliente_precio = V.credCli.id;
+        if (V24 && V.exo) venta.exoneracion = V.exo;
         let r;
         try { r = await conTiempo(db.rpc("registrar_venta_sin_internet", { p_id: V.uuid, p_venta: venta }), 15000); } catch (e) { r = { error: e }; }
         if (r.error && U.esErrorRed(r.error)) { sinSenal(r.error); return guardarLocal(d, items); }
@@ -2301,6 +2309,19 @@
         if (r.error) throw r.error;
       }
       if (itemsEditables() && V.dirty) {
+        // antes de cambiar los renglones: el cliente y la exoneración nuevos (el precio permitido depende de ellos)
+        if (V24 && V.pedido) {
+          if (V.exoCambio) {
+            const { error } = await db.rpc("poner_exoneracion", { p_pedido: id, p_ex: V.exo || null });
+            if (error) throw error;
+            V.exoCambio = false;
+          }
+          const quiere = V.cond === "credito" && V.credCli ? V.credCli.id : null;
+          if (quiere && quiere !== V.pedido.cliente_id) {
+            const { error } = await db.rpc("poner_credito", { p_pedido: id, p_cliente: quiere });
+            if (error) throw error;
+          }
+        }
         if (V.pedido) { const del = await db.from("pedido_items").delete().eq("pedido_id", id); if (del.error) throw del.error; }
         const ins = await db.from("pedido_items").insert(items.map((i) => ({ ...i, pedido_id: id })));
         if (ins.error) throw ins.error;
@@ -2577,6 +2598,7 @@
     V.cond = b.dataset.cond; V.dirty = true;
     if (V.cond === "apartado" && !V.apVence) V.apVence = sumarDias(hoyCR(), 30);    // un mes, se puede cambiar
     $("#ventaMsg").textContent = "";
+    repreciarPorCliente();
     pintarCondicion();
     if (V.cond === "credito" && !V.credCli) $("#cliCreditoQ").focus();
   });
@@ -2620,8 +2642,22 @@
     const f = $("#formVenta");
     f.cliente_nombre.value = c.nombre.slice(0, 80);
     if (c.telefono) f.cliente_telefono.value = c.telefono;
+    repreciarPorCliente();
     pintarCondicion();
   });
+  // al cambiar de cliente (o de contado a crédito) los productos toman el precio que le toca
+  function repreciarPorCliente() {
+    if (!V24 || !itemsEditables()) return;
+    const antes = V.items.map((i) => i.precio_unit).join();
+    aplicarExoPrecios();
+    if (V.items.map((i) => i.precio_unit).join() !== antes) {
+      const c = V.cond === "credito" ? V.credCli : null;
+      toast(c && (Number(c.tipo_precio) === 2 || Number(c.descuento) > 0)
+        ? `Precios de ${c.nombre}: ${[Number(c.tipo_precio) === 2 ? "precio 2" : "", Number(c.descuento) > 0 ? `${c.descuento} % de descuento` : ""].filter(Boolean).join(" y ")}.`
+        : "Los productos volvieron al precio normal.");
+      pintarVenta();
+    }
+  }
 
   // ---------- pestaña Crédito: clientes, estado de cuenta y abonos ----------
   let credFiltro = "saldo", CLI = null;
@@ -2689,6 +2725,8 @@
     f.id.value = CLI?.id || "";
     ["nombre", "tipo_id", "identificacion", "telefono", "correo", "limite", "nota"].forEach((k) => (f.elements[k].value = CLI?.[k] ?? ""));
     f.plazo_dias.value = CLI?.plazo_dias ?? 30;
+    f.tipo_precio.value = String(CLI?.tipo_precio || 1);
+    f.descuento.value = Number(CLI?.descuento) > 0 ? CLI.descuento : "";
     f.activo.checked = CLI ? !!CLI.activo : true;
     $("#cliTitulo").textContent = CLI ? CLI.nombre : "Nuevo cliente de crédito";
     $("#boxCliDatos").open = !CLI;
@@ -2816,7 +2854,8 @@
       nombre: f.nombre.value.trim(), tipo_id: f.tipo_id.value || null, identificacion: U.soloDigitos(f.identificacion.value) || null,
       telefono: f.telefono.value.trim() || null, correo: f.correo.value.trim().toLowerCase() || null,
       limite: f.limite.value === "" ? null : Math.max(0, Number(f.limite.value)), plazo_dias: Math.round(Number(f.plazo_dias.value) || 30),
-      activo: f.activo.checked, nota: f.nota.value.trim() || null
+      activo: f.activo.checked, nota: f.nota.value.trim() || null,
+      ...(V24 ? { tipo_precio: Number(f.tipo_precio.value) === 2 ? 2 : 1, descuento: Math.min(50, Math.max(0, Number(f.descuento.value) || 0)) } : {})
     };
     msg.className = "msg msg--error";
     if (d.nombre.length < 2) { msg.textContent = "Escriba el nombre."; return; }
@@ -3304,6 +3343,17 @@
   // Se aplica en la venta (antes de cobrar): los productos que cubre se cobran con el IVA rebajado
   // sin lista de CABYS la autorización cubre todo; con lista, solo esos
   const exoCubre = (exo, prod) => !!exo && !!prod && (!Array.isArray(exo.cabys) || !exo.cabys.length || (!!prod.cabys && exo.cabys.includes(prod.cabys)));
+  // precio del catálogo que le toca a este cliente: precio 2 si es su tipo, menos su descuento general
+  function precioDelCliente(prod, precio) {
+    const c = V?.cond === "credito" ? V?.credCli : null;
+    if (!V24 || !c || precio == null) return precio;
+    let x = Number(precio);
+    if (Number(c.tipo_precio) === 2 && prod?.precio2 != null) x = Math.min(x, Number(prod.precio2));
+    if (Number(c.descuento) > 0) x = x * (1 - Number(c.descuento) / 100);
+    return r2(x);
+  }
+  // precio final del renglón: el del cliente y, si hay exoneración, con el IVA rebajado
+  const precioVenta = (prod, precio) => precioConExo(prod, precioDelCliente(prod, precio));
   function precioConExo(prod, precio) {
     const exo = V?.exo, t = TARIFA_PCT[prod?.iva_codigo || "08"] ?? 13;
     if (!exoCubre(exo, prod) || !(t > 0)) return precio;
@@ -3315,7 +3365,7 @@
     for (const it of V.items) {
       const prod = prodDe(it.producto_id); if (!prod) continue;
       const cat = precioCatalogo(prod.id); if (cat == null) continue;
-      it.precio_unit = precioConExo(prod, cat);
+      it.precio_unit = precioVenta(prod, cat);
     }
     V.dirty = true;
   }
@@ -3324,6 +3374,8 @@
     box.hidden = !V22 || !V10 || !FE?.activo || !!V.copia || !!V.local || p?.estado === "anulada" || (!exo && !itemsEditables());
     if (box.hidden) return;
     $("#btnExo").hidden = !!exo || !itemsEditables();
+    const exCli = V.cond === "credito" ? V.credCli?.exoneracion : null;
+    $("#btnExo").textContent = exCli?.numero && exCli.vence >= hoyCR() ? `Usar la exoneración del cliente (${exCli.numero})…` : "Cliente exonerado…";
     const banda = $("#exoBanda");
     banda.hidden = !exo;
     if (!exo) return;
@@ -3346,6 +3398,9 @@
     const f = $("#formExo"); f.reset(); EXO_NUEVA = null;
     $("#exoRes").hidden = true; $("#exoMsg").textContent = ""; $("#btnExoAplicar").disabled = true;
     $("#dlgExo").showModal(); f.numero.focus();
+    // la del cliente de crédito se vuelve a consultar en Hacienda (pudo cambiar o vencer)
+    const exCli = V.cond === "credito" ? V.credCli?.exoneracion : null;
+    if (exCli?.numero) { f.numero.value = exCli.numero; f.requestSubmit(); }
   }
   $("#formExo").numero.addEventListener("input", (e) => {
     // "al00012345 24" → "AL-00012345-24"
