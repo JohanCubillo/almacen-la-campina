@@ -134,12 +134,37 @@ begin
              where s.nspname = 'public' and p.proname = r.nombre loop
       def := pg_get_functiondef(f.oid);
       if position('lc.pago_sin_internet' in def) > 0 then continue; end if;   -- ya tiene la línea
-      if position(E'\nbegin\n' in def) = 0 then
+      -- el cuerpo puede venir con saltos de línea de Windows (\r\n) si se pegó desde Windows
+      if def !~ '\r?\nbegin\r?\n' then
         raise exception 'No se pudo preparar %: avise para revisarlo.', r.nombre;
       end if;
-      def := regexp_replace(def, '(\nbegin\n)', E'\\1' || replace(linea, '\', '\\'));
+      def := regexp_replace(def, '(\r?\nbegin\r?\n)', E'\\1' || replace(linea, '\', '\\'));
       execute def;
     end loop;
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------------
+-- 4b. Arreglo de v19: un abono hecho sin internet que se manda dos veces no
+--     se repite. En v19 este cambio no se aplicaba si la función se había
+--     pegado desde Windows (saltos de línea \r\n).
+-- ---------------------------------------------------------------------
+do $$
+declare f record; def text;
+begin
+  if not exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'abonos' and column_name = 'offline_id') then
+    return;                                   -- base sin v19: no aplica
+  end if;
+  for f in select p.oid from pg_proc p join pg_namespace s on s.oid = p.pronamespace
+           where s.nspname = 'public' and p.proname = 'registrar_abono' loop
+    def := pg_get_functiondef(f.oid);
+    if position('lc.abono_offline' in def) > 0 then continue; end if;   -- ya lo tiene
+    if def !~ '\r?\nbegin\r?\n' then
+      raise exception 'No se pudo preparar registrar_abono: avise para revisarlo.';
+    end if;
+    def := regexp_replace(def, '(\r?\nbegin\r?\n)', E'\\1  if nullif(p->>''offline_id'', '''') is not null then\n    if exists (select 1 from public.abonos where offline_id = (p->>''offline_id'')::uuid) then\n      return jsonb_build_object(''repetido'', true, ''aplicado'', ''[]''::jsonb);\n    end if;\n    perform set_config(''lc.abono_offline'', p->>''offline_id'', true);\n  end if;\n');
+    execute def;
   end loop;
 end $$;
 
