@@ -8,3 +8,6 @@ Thumbs.db
 herramientas/prueba-emisor.json
 herramientas/salida/
 node_modules/
+
+# programa de escritorio
+escritorio/dist/

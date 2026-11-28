@@ -600,6 +600,12 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 .cobro { margin-top: .75rem; background: var(--fondo-2); border: 0; }
 .cobro__form { display: grid; gap: .9rem; }
 .cobro__tit { margin: 0; font-family: var(--base); font-weight: 600; font-size: 1.2rem; }
+/* v27: la venta la cobra el administrador */
+.cobra-admin { margin-top: .75rem; background: var(--fondo-2); border: 0; border-left: 4px solid var(--cinta); display: grid; gap: .35rem; }
+.cobra-admin p { margin: 0; color: var(--texto); }
+#feAlCobrar { display: grid; gap: .5rem; justify-items: start; }
+#feAlCobrar[hidden] { display: none; }
+#feAlCobrarTxt { margin: 0; }
 .cobro__metodos { display: flex; flex-wrap: wrap; gap: .45rem; }
 .cobro__chip { font: 600 1rem var(--base); padding: .6em 1.15em; border-radius: 99px; border: 1.5px solid var(--borde); background: #fff; color: var(--texto); cursor: pointer; min-height: 44px; }
 .cobro__chip:hover { border-color: var(--negro); }
@@ -751,3 +757,13 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 .buscar-dlg__precio { text-align: right; white-space: nowrap; font-size: 1.05rem; }
 .buscar-item__todos { font-weight: 700; justify-content: center !important; }
 @media (max-width: 600px) { .buscar-dlg__fila { grid-template-columns: 1fr auto; } .buscar-dlg__hay { grid-column: 1; } }
+
+/* v28: precio con lápiz en la venta */
+.precio-cel { display: flex; gap: .25rem; align-items: center; }
+.precio-cel input { flex: 1; min-width: 0; }
+.lapiz { flex: none; width: 36px; height: 36px; border: 1px solid var(--borde); border-radius: 6px; background: #fff; cursor: pointer; font-size: 1rem; line-height: 1; }
+.lapiz:hover, .lapiz:focus-visible { border-color: var(--negro); }
+#dlgPrecio .check { font-weight: 400; display: flex; gap: .5rem; align-items: center; }
+/* v29: aviso de correos de facturas */
+#bandaCorreo { position: static; text-align: center; }
+.banda-red[data-tipo="aviso"] { background: var(--cinta); color: var(--negro); }

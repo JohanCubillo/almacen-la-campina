@@ -15,15 +15,21 @@
 //   { accion: "recibido_consultar", recibido_id }  /  { accion: "recibido_enviar", recibido_id }
 //   { accion: "cabys", q?, codigo? }  → busca en el catálogo CABYS de Hacienda (permiso "productos")
 //
+//   { accion: "correo_enviar", documento_id, para? }  → manda (otra vez) el comprobante por correo al cliente
+//   { accion: "correos_estado" }                       → cuántos correos van y si se llegó al límite de Resend
+//   { accion: "correos_reintentar" }                   → manda los correos que quedaron pendientes
+//
 //  Secretos (Supabase → Edge Functions → Secrets), nunca en el código ni en la base:
 //   HACIENDA_USUARIO, HACIENDA_CLAVE, HACIENDA_P12_BASE64, HACIENDA_PIN
 //   (opcional) PANEL_ORIGENES = https://johancubillo.github.io
+//   (correos) RESEND_API_KEY, CORREO_REMITENTE y opcionales: ver correo.ts
 // =====================================================================
 import { createClient } from "@supabase/supabase-js";
 import {
   armarComprobante, armarNotaCredito, armarNotaCreditoParcial, armarFacturaCompra, armarMensajeReceptor, firmar, conectar, enviar, enviarMensaje, consultar, revisarEmisor,
   ErrorComprobante, TARIFAS, type Emisor, type Linea,
 } from "./comprobante.ts";
+import { enviarCorreo, estadoCorreos, pendientesCorreo, correoConfigurado } from "./correo.ts";
 
 const ORIGENES = (Deno.env.get("PANEL_ORIGENES") || "https://johancubillo.github.io").split(",").map((s) => s.trim());
 const URL_SB = Deno.env.get("SUPABASE_URL")!;
@@ -50,6 +56,14 @@ function secretos() {
 }
 const espera = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const hoyCR = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Costa_Rica" }).format(new Date());
+const textoErrorCorreo = (motivo?: string | null, detalle?: string | null) => ({
+  limite_mes: "No se mandó: se llegó al límite de correos del mes del plan de Resend.",
+  limite_dia: "No se mandó: se llegó al límite de correos de hoy del plan de Resend. Se manda solo después de las 6 p. m. (cuando Resend empieza el día nuevo).",
+  muchos: "Resend pidió esperar un momento. Intente de nuevo.",
+  llave: "Resend no aceptó la llave (RESEND_API_KEY). Revise el secreto en Supabase.",
+  dominio: "Resend no deja mandar desde ese correo: revise que el dominio esté verificado y el secreto CORREO_REMITENTE.",
+  red: "No se pudo hablar con Resend. Intente de nuevo.",
+}[String(motivo)] || "No se mandó el correo: " + (detalle || "error de Resend."));
 const corto = (e: unknown) => String((e as Error)?.message || e).replace(/\s+/g, " ").slice(0, 400);
 
 Deno.serve(async (req) => {
@@ -153,6 +167,29 @@ Deno.serve(async (req) => {
       if (!j || !j.nombre) return resp({ ok: true, encontrado: false });
       const TIPO: Record<string, string> = { "01": "fisica", "02": "juridica", "03": "dimex", "04": "nite" };
       return resp({ ok: true, encontrado: true, nombre: String(j.nombre).trim().slice(0, 100), tipo_id: TIPO[String(j.tipoIdentificacion || "")] || null });
+    }
+
+    // ---------- correos al cliente (no necesitan las credenciales de Hacienda) ----------
+    if (accion === "correos_estado") return resp({ ok: true, ...(await estadoCorreos(db)) });
+    if (accion === "correos_reintentar") {
+      if (!correoConfigurado()) return resp({ ok: true, enviados: 0, configurado: false });
+      let enviados = 0, ultimo: unknown = null;
+      for (const id of await pendientesCorreo(db, 15)) {
+        const r = await enviarCorreo(db, id, { quien: quien?.user?.id ?? null });
+        ultimo = r;
+        if (r.estado === "enviado") enviados++;
+        else if (r.estado === "error") break;          // límite, llave o dominio: no se insiste
+      }
+      return resp({ ok: true, enviados, ultimo, ...(await estadoCorreos(db)) });
+    }
+    if (accion === "correo_enviar") {
+      const id = Number(b.documento_id);
+      if (!(id > 0)) return resp({ ok: false, error: "Falta el documento." }, 400);
+      if (!correoConfigurado()) return resp({ ok: false, error: "Los correos no están configurados: faltan los secretos RESEND_API_KEY y CORREO_REMITENTE (vea CORREO.md)." });
+      const r = await enviarCorreo(db, id, { forzar: true, para: b.para ? String(b.para) : null, quien: quien?.user?.id ?? null });
+      if (r.estado === "sin_correo") return resp({ ok: false, error: "El comprobante no tiene correo del cliente: escriba uno." });
+      if (r.estado === "error") return resp({ ok: false, error: textoErrorCorreo(r.motivo, r.detalle) });
+      return resp({ ok: true, para: r.para });
     }
 
     const { data: emisorFila, error: eE } = await db.from("fe_emisor").select("*").eq("id", 1).maybeSingle();
@@ -318,6 +355,11 @@ Deno.serve(async (req) => {
       if (doc.tipo === "01") {
         const est = { aceptado: "aceptada", rechazado: "rechazada", error: "error" }[estado] || "enviada";
         await db.from("facturas").update({ estado: est, mensaje: estado === "rechazado" ? (motivo || "").slice(0, 500) : null }).eq("pedido_id", doc.pedido_id);
+      }
+      // aceptado: el cliente recibe su factura o nota de crédito por correo (si dejó correo)
+      if (estado === "aceptado" && ["01", "03"].includes(doc.tipo) && correoConfigurado()) {
+        try { await enviarCorreo(db, doc.id, { quien: quien?.user?.id ?? null }); }
+        catch (e) { console.error("correo:", e); }               // un correo que falla no detiene la factura
       }
     }
 

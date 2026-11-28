@@ -1,0 +1,104 @@
+# Respaldo diario de la base de datos en Google Drive.
+# Corre solo cada noche (1:37 a. m. de Costa Rica) y también a mano:
+#   Actions → "Respaldo diario" → Run workflow.
+# Necesita los secretos SUPABASE_DB_URL y DRIVE_TOKEN (vea RESPALDO.md).
+# OJO: el repositorio es público y los registros de Actions también. Aquí nunca se imprime
+# ningún dato ni secreto, y la copia NO se guarda en GitHub: solo va a Drive.
+name: Respaldo diario
+
+on:
+  schedule:
+    - cron: "37 7 * * *"        # 07:37 UTC = 1:37 a. m. en Costa Rica
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: respaldo
+  cancel-in-progress: false
+
+jobs:
+  respaldo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      CLAVE: ${{ secrets.RESPALDO_CLAVE }}
+      RCLONE_CONFIG_DRIVE_TYPE: drive
+      RCLONE_CONFIG_DRIVE_SCOPE: drive
+      RCLONE_CONFIG_DRIVE_TOKEN: ${{ secrets.DRIVE_TOKEN }}
+      CARPETA: ${{ vars.RESPALDO_CARPETA || 'Respaldos La Campina' }}
+    steps:
+      - name: Revisar que estén los secretos
+        run: |
+          [ -n "$DB_URL" ] || { echo "::error::Falta el secreto SUPABASE_DB_URL (vea RESPALDO.md)."; exit 1; }
+          [ -n "$RCLONE_CONFIG_DRIVE_TOKEN" ] || { echo "::error::Falta el secreto DRIVE_TOKEN (vea RESPALDO.md)."; exit 1; }
+
+      - name: Instalar pg_dump 17 y rclone
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common > /dev/null
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y > /dev/null 2>&1
+          sudo apt-get install -y -qq postgresql-client-17 > /dev/null
+          curl -fsSL https://rclone.org/install.sh | sudo bash > /dev/null 2>&1
+          rclone version | head -1
+
+      - name: Sacar la copia de la base de datos
+        id: copia
+        run: |
+          set -euo pipefail
+          export PATH=/usr/lib/postgresql/17/bin:$PATH
+          FECHA=$(TZ=America/Costa_Rica date +%Y-%m-%d_%H%M)
+          mkdir -p copia
+          # 1) todo lo del almacén: productos, ventas, pagos, crédito, inventario, comprobantes…
+          pg_dump "$DB_URL" --format=custom --no-owner --no-privileges --schema=public --file=copia/almacen.dump
+          pg_restore --list copia/almacen.dump > /dev/null          # se puede leer: no quedó a medias
+          # 2) las cuentas del panel (correo y usuario de cada quien), si Supabase deja leerlas
+          if pg_dump "$DB_URL" --format=custom --no-owner --no-privileges --data-only \
+               --table=auth.users --table=auth.identities --file=copia/usuarios.dump 2> /dev/null; then
+            echo "Con las cuentas del panel."
+          else
+            rm -f copia/usuarios.dump
+            echo "::warning::No se pudieron copiar las cuentas del panel; los datos del almacén sí."
+          fi
+          printf 'Respaldo de Almacén La Campiña\nFecha: %s (hora de Costa Rica)\nCómo volver a cargarlo: RESPALDO.md en el repositorio.\n' "$FECHA" > copia/LEAME.txt
+          ARCHIVO="la-campina_${FECHA}.tar.gz"
+          tar -czf "$ARCHIVO" -C copia .
+          if [ -n "${CLAVE:-}" ]; then
+            gpg --batch --yes --pinentry-mode loopback --passphrase-fd 3 --symmetric --cipher-algo AES256 \
+                --output "$ARCHIVO.gpg" "$ARCHIVO" 3<<< "$CLAVE"
+            rm -f "$ARCHIVO"; ARCHIVO="$ARCHIVO.gpg"
+          fi
+          BYTES=$(stat -c %s "$ARCHIVO")
+          [ "$BYTES" -gt 20000 ] || { echo "::error::La copia salió demasiado pequeña ($BYTES bytes)."; exit 1; }
+          echo "archivo=$ARCHIVO" >> "$GITHUB_OUTPUT"
+          echo "bytes=$BYTES" >> "$GITHUB_OUTPUT"
+          echo "Copia lista: $ARCHIVO ($((BYTES / 1024)) KB)"
+
+      - name: Subir a Google Drive
+        id: drive
+        run: |
+          set -euo pipefail
+          A="${{ steps.copia.outputs.archivo }}"
+          rclone copy "$A" "drive:$CARPETA/diarios" --quiet
+          # el día 1 de cada mes también queda en "mensuales", que no se borra nunca
+          if [ "$(TZ=America/Costa_Rica date +%d)" = "01" ]; then rclone copy "$A" "drive:$CARPETA/mensuales" --quiet; fi
+          # se comprueba que quedó arriba
+          rclone lsf "drive:$CARPETA/diarios" --files-only | grep -qxF "$A" || { echo "::error::No aparece en Drive después de subirlo."; exit 1; }
+          # los diarios de más de 30 días se borran (los mensuales quedan)
+          rclone delete "drive:$CARPETA/diarios" --min-age 31d --quiet
+          echo "En Drive: $CARPETA/diarios/$A"
+
+      - name: Anotar el resultado (lo ve el panel)
+        if: always() && env.DB_URL != ''
+        run: |
+          export PATH=/usr/lib/postgresql/17/bin:$PATH
+          if [ "${{ steps.drive.outcome }}" = "success" ]; then OK=true; DET="Subido a Drive"
+          elif [ "${{ steps.copia.outcome }}" != "success" ]; then OK=false; DET="No se pudo sacar la copia de la base de datos"
+          else OK=false; DET="La copia salió pero no se pudo subir a Drive (¿se venció la conexión con Drive?)"; fi
+          # las variables de psql solo se reemplazan en lo que entra por la entrada estándar (no con -c)
+          echo "insert into public.respaldos_nube (ok, archivo, bytes, detalle) values (:'ok'::boolean, nullif(:'archivo', ''), nullif(:'bytes', '')::bigint, :'detalle');" \
+            | psql "$DB_URL" -q -v ON_ERROR_STOP=1 -v ok="$OK" -v archivo="${{ steps.copia.outputs.archivo }}" \
+                   -v bytes="${{ steps.copia.outputs.bytes }}" -v detalle="$DET" > /dev/null 2>&1 \
+            || echo "::warning::No se pudo anotar el resultado en la base (¿falta correr v30_respaldo_nube.sql?)."

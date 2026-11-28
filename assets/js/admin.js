@@ -113,12 +113,22 @@
   let V22 = false;
   let V23 = false;
   let V24 = false;
+  let MI_UID = null;       // id del usuario conectado
+  let V27 = false;         // interruptor "Solo el administrador cobra" (v27_cobra_admin.sql)
+  let COBRO_ADMIN = false; // el interruptor está encendido
+  let V28 = false;         // descuento máximo en la venta (v28_margen_precios.sql)
+  let DESC_MAX = 15;
+  let V29 = false;
+  let V30 = false;         // respaldo automático en Google Drive (v30_respaldo_nube.sql)         // facturas por correo al cliente (v29_correos.sql)       // % que se puede bajar un precio en la venta (con permiso de precios)
   let V25 = false;         // factura electrónica de compra (v25_factura_compra.sql)         // precio 2 y descuento por cliente (v24_precios_cliente.sql)         // devoluciones parciales (v23_devoluciones.sql)         // exoneración de IVA en ventas (v22_exoneracion.sql)
   // pestañas y pantallas: sin v17 todos los del panel las ven, como antes
   const soyAdministrador = () => !ACCESO || ACCESO.rol === "administrador";
   // borrar ventas y cambiar roles: sin v17 se usa el rol de v16
   const esAdministradorReal = () => (ACCESO ? ACCESO.rol === "administrador" : !V16 || YO?.rol === "administrador");
   const puede = (p) => !ACCESO || ACCESO.rol === "administrador" || (ACCESO.permisos || []).includes(p);
+  // v27 "Solo el administrador cobra": un empleado no cobra ni verifica con internet (sin internet sí cobra)
+  const soloAdminCobra = () => V27 && COBRO_ADMIN && !esAdministradorReal();
+  const noCobraAqui = () => soloAdminCobra() && enLinea();
   const PERMISOS = [
     ["ventas", "Ventas y cobros"], ["anular", "Anular ventas"], ["caja", "Caja"], ["credito", "Crédito y abonos"],
     ["inventario", "Inventario (entradas)"], ["productos", "Productos y fotos"], ["precios", "Cambiar precios"],
@@ -406,6 +416,7 @@
     if (!sinRed) ponerLS(LS_PERMISO, { email: user.email, acceso: ACCESO, hasta: Date.now() + HORAS_SIN_RED * 3600 * 1000 });
     if (panelListo) return;
     panelListo = true;
+    MI_UID = user.id;
     idbProd.usuario(user.email || user.id);
     vigilarInactividad();
     pintarDiasHorario();
@@ -413,12 +424,14 @@
       const c = copia.leer(), vs = c.versiones || {};
       V4 = !!c.v4; V9 = !!c.v9;
       V10 = !!vs.V10; V12 = !!vs.V12; V13 = !!vs.V13; V14 = !!vs.V14; V18 = !!vs.V18; V19 = !!vs.V19;
+      V27 = !!c.v27; COBRO_ADMIN = V27 && !!c.cobro_admin;
+      V28 = !!c.v28; DESC_MAX = Number(c.desc_max ?? 15);
       FE = c.fe || null;
       if (V13) cargarClientes();
     } else {
       // todas las preguntas a la base salen juntas (antes iban una por una y sumaban segundos)
       const probar = (q) => Promise.resolve(q).then((x) => x, (e) => ({ error: e }));
-      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22, r23, r24, r25] = await Promise.all([
+      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22, r23, r24, r25, r27, r28, r29, r30] = await Promise.all([
         probar(db.from("avisos").select("id").limit(1)),
         probar(db.from("productos").select("codigo").limit(1)),
         probar(db.from("fe_emisor").select("*").eq("id", 1).maybeSingle()),
@@ -435,6 +448,10 @@
         probar(db.from("devoluciones").select("id").limit(1)),
         probar(db.from("productos").select("precio2").limit(1)),
         probar(db.from("fe_documentos").select("entrada_id").limit(1)),
+        probar(db.from("config_cobro").select("solo_admin").eq("id", 1).maybeSingle()),
+        probar(db.from("config_ventas").select("descuento_max").eq("id", 1).maybeSingle()),
+        probar(db.from("fe_correos").select("id").limit(1)),
+        esAdministradorReal() ? probar(db.from("respaldos_nube").select("id,fecha,ok,archivo,bytes,detalle").order("id", { ascending: false }).limit(20)) : { error: true },
         cargarCategorias()
       ]);
       V4 = r.error && U.esErrorRed(r.error) ? !!copia.leer().v4 : !r.error;
@@ -445,6 +462,13 @@
       V11 = !r11.error; V12 = !r12.error; V13 = !r13.error;
       if (V13) cargarClientes();
       V14 = !r14.error; V15 = !r15.error; V16 = !r16.error; V18 = !r18.error; V19 = !r19.error; V21 = !r21.error; V22 = !r22.error; V23 = !r23.error; V24 = !r24.error; V25 = !r25.error;
+      if (r27.error && U.esErrorRed(r27.error)) { V27 = !!copia.leer().v27; COBRO_ADMIN = !!copia.leer().cobro_admin; }
+      else { V27 = !r27.error; COBRO_ADMIN = V27 && !!r27.data?.solo_admin; copia.poner("v27", V27); copia.poner("cobro_admin", COBRO_ADMIN); }
+      V29 = !r29.error;
+      V30 = !r30.error;
+      if (V30) setTimeout(() => pintarRespaldoNube(r30.data || []), 0);
+      if (r28.error && U.esErrorRed(r28.error)) { V28 = !!copia.leer().v28; DESC_MAX = Number(copia.leer().desc_max ?? 15); }
+      else { V28 = !r28.error; DESC_MAX = V28 ? Number(r28.data?.descuento_max ?? 15) : 15; copia.poner("v28", V28); copia.poner("desc_max", DESC_MAX); }
       // para poder abrir el panel sin internet con lo mismo que tiene la base
       if (!r16.error || !U.esErrorRed(r16.error)) {
         copia.poner("versiones", { V10, V12, V13, V14, V18, V19 });
@@ -463,6 +487,10 @@
     // formas de pago de v18: sin la base nueva no se ofrecen; lo abonado en Moriah solo lo anota el administrador
     $$("option[data-v18]").forEach((o) => { if (!V18 || (o.hasAttribute("data-solo-admin") && !esAdministradorReal())) o.remove(); });
     $("#btnSaldosMoriah").hidden = !V18 || !esAdministradorReal();
+    pintarCobroConf(); vigilarCobros();
+    setTimeout(() => revisarCorreos(true), 4000);
+    $("#formDescuento").hidden = !V28 || !esAdministradorReal();
+    $("#formDescuento").descuento_max.value = DESC_MAX;
     $("#tabBit").hidden = !V16;
     if (V16 && soyAdministrador()) cargarUsuarios();
     document.documentElement.classList.toggle("sin-v13", !V13);
@@ -502,6 +530,8 @@
       if (navigator.onLine && (CAIDA || SIN_RED)) probarRed();
       enviarCola();
       if (enLinea()) prepararFESinRed();          // sin red de nuevo: solo revisa lo que le queda a esta compu
+      if (enLinea()) releerCobroConf().then(vigilarCobros);
+      if (enLinea()) revisarCorreos();
       if (enLinea() && !$("#dlgVenta").open) {
         if (puede("ventas") || puede("caja")) { cargarVentas(); contarPorVerificar(); }
         if (puede("preguntas")) cargarPreguntas();
@@ -1515,7 +1545,7 @@
   }
   async function cargarVentas() {
     let qv = db.from("pedidos")
-      .select("id,codigo,origen,revisado,cliente_nombre,cliente_telefono,estado,estado_pago,total,pagado_registrado,pagado_verificado,created_at,pagos(metodo,monto,anulado,nota)" + (V13 ? ",credito,vence" : "") + (V18 ? ",apartado,apartado_vence" : ""));
+      .select("id,codigo,origen,revisado,cliente_nombre,cliente_telefono,estado,estado_pago,total,pagado_registrado,pagado_verificado,created_at,created_by,pagos(metodo,monto,anulado,nota)" + (V13 ? ",credito,vence" : "") + (V18 ? ",apartado,apartado_vence" : ""));
     if (V18) qv = qv.eq("saldo_inicial", false);       // lo que se debía en Moriah está en Crédito, no es venta
     const { data, error, deCopia } = await consulta("ventas", qv.order("created_at", { ascending: false }).limit(500));
     if (error) { pintarVentas(); return toast(errTxt(error), true); }
@@ -1537,9 +1567,104 @@
     $("#badgeApartados").hidden = !apVencidos; $("#badgeApartados").textContent = apVencidos || "";
     pintarCifras();
     pintarVentas();
+    avisarParaCobrar();
   }
 
   const esNuevo = (v) => v.estado !== "anulada" && (!v.revisado || compNuevos.has(v.id));
+
+  // ---------- v27: ventas que el administrador tiene que cobrar ----------
+  // de contado (o apartado sin ningún abono), hechas en el panel, abiertas y con saldo
+  const paraCobrar = (v) => v.origen !== "web" && v.estado === "abierta" && !v.credito && Number(v.total) > 0
+    && ["sin_pago", "parcial"].includes(v.estado_pago) && (!v.apartado || Number(v.pagado_registrado) <= 0);
+  const cobraAqui = () => V27 && COBRO_ADMIN && esAdministradorReal();
+  let vistosCobrar = null;
+  function avisarParaCobrar() {
+    const activo = cobraAqui();
+    $("#fParaCobrar").hidden = !activo;
+    if (!activo) {
+      vistosCobrar = null; $("#badgeParaCobrar").hidden = true;
+      if (filtroVenta === "para_cobrar") $("#filtroVentas [data-f=nuevos]").click();
+      return;
+    }
+    const l = ventas.filter(paraCobrar);
+    $("#badgeParaCobrar").hidden = !l.length;
+    $("#badgeParaCobrar").textContent = l.length || "";
+    const nuevas = vistosCobrar ? l.filter((v) => !vistosCobrar.has(v.id) && v.created_by !== MI_UID) : [];
+    vistosCobrar = new Set([...(vistosCobrar || []), ...l.map((v) => v.id)]);
+    if (!nuevas.length) return;
+    sonarCobro();
+    const txt = nuevas.length === 1 ? `Para cobrar: ${nuevas[0].cliente_nombre} · ${fmt(nuevas[0].total)}` : `${nuevas.length} ventas nuevas para cobrar`;
+    toast(txt + " (Ventas › Para cobrar)");
+    try {
+      if (document.hidden && "Notification" in window && Notification.permission === "granted") {
+        const n = new Notification("La Campiña · Para cobrar", { body: txt, icon: "assets/img/icono-192.png", tag: "para-cobrar" });
+        n.onclick = () => { window.focus(); irAParaCobrar(); n.close(); };
+      }
+    } catch { /* sin avisos del sistema */ }
+  }
+  function irAParaCobrar() {
+    $("#tabVen")?.click();
+    $("#filtroVentas [data-f=para_cobrar]")?.click();
+  }
+  let audioCobro = null;
+  function sonarCobro() {
+    try {
+      audioCobro = audioCobro || new (window.AudioContext || window.webkitAudioContext)();
+      const ac = audioCobro; if (ac.state === "suspended") ac.resume();
+      [[880, 0], [1320, 0.18]].forEach(([hz, t]) => {
+        const o = ac.createOscillator(), g = ac.createGain();
+        o.frequency.value = hz; o.type = "sine";
+        g.gain.setValueAtTime(0.0001, ac.currentTime + t);
+        g.gain.exponentialRampToValueAtTime(0.3, ac.currentTime + t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + t + 0.16);
+        o.connect(g).connect(ac.destination); o.start(ac.currentTime + t); o.stop(ac.currentTime + t + 0.17);
+      });
+    } catch { /* sin sonido */ }
+  }
+  // la compu del administrador se entera al momento de cada venta (además de la revisión de cada minuto)
+  let canalCobro = null, tCanalCobro = null;
+  function vigilarCobros() {
+    const activo = cobraAqui() && !SIN_RED;
+    if (!activo) { if (canalCobro) { try { db.removeChannel(canalCobro); } catch { /* ya cerrado */ } canalCobro = null; } return; }
+    if (canalCobro) return;
+    try {
+      canalCobro = db.channel("para-cobrar")
+        .on("postgres_changes", { event: "*", schema: "public", table: "pedidos" }, () => {
+          clearTimeout(tCanalCobro);
+          tCanalCobro = setTimeout(() => { if (enLinea()) cargarVentas(); }, 1500);   // la venta termina de guardarse (renglones y total)
+        })
+        .subscribe();
+    } catch { canalCobro = null; }
+  }
+  // el interruptor (Datos del negocio): lo cambia el administrador; los demás lo leen cada minuto
+  function pintarCobroConf() {
+    const f = $("#formCobro");
+    f.hidden = !V27 || !esAdministradorReal();
+    f.solo_admin.checked = COBRO_ADMIN;
+  }
+  async function releerCobroConf() {
+    if (!V27 || !enLinea()) return;
+    let r; try { r = await db.from("config_cobro").select("solo_admin").eq("id", 1).maybeSingle(); } catch { return; }
+    if (r.error || !r.data) return;
+    const antes = COBRO_ADMIN;
+    COBRO_ADMIN = !!r.data.solo_admin; copia.poner("cobro_admin", COBRO_ADMIN);
+    if (antes !== COBRO_ADMIN) {
+      pintarCobroConf(); vigilarCobros(); avisarParaCobrar();
+      if (!esAdministradorReal()) toast(COBRO_ADMIN ? "El administrador encendió “Solo el administrador cobra”: las ventas se mandan a cobrar." : "Ya puede cobrar otra vez: el administrador apagó “Solo el administrador cobra”.");
+      if ($("#dlgVenta").open && V) pintarVenta();
+    }
+  }
+  $("#formCobro").solo_admin.addEventListener("change", async (e) => {
+    const quiere = e.target.checked, msg = $("#cobroMsg");
+    msg.className = "msg"; msg.textContent = "Guardando…";
+    const { data, error } = await db.rpc("poner_solo_admin_cobra", { p_activo: quiere });
+    if (error) { e.target.checked = !quiere; msg.className = "msg msg--error"; msg.textContent = errTxt(error); return; }
+    COBRO_ADMIN = !!data; copia.poner("cobro_admin", COBRO_ADMIN);
+    msg.textContent = COBRO_ADMIN ? "Encendido: solo los administradores cobran. Las ventas de la caja le llegan a Ventas › Para cobrar." : "Apagado: todos los que tienen permiso de ventas pueden cobrar.";
+    if (COBRO_ADMIN && "Notification" in window && Notification.permission === "default") { try { Notification.requestPermission(); } catch { /* sin avisos */ } }
+    if (COBRO_ADMIN) sonarCobro();          // de una vez queda permitido el sonido en esta compu
+    vigilarCobros(); avisarParaCobrar();
+  });
 
   // ---------- cómo queda una venta con lo que se hizo sin internet y todavía no se envía ----------
   const estadoPagoDe = (total, reg, ver) => (reg <= 0 ? "sin_pago" : reg < total ? "parcial" : ver < reg ? "por_verificar" : reg > total ? "sobrepago" : "pagado");
@@ -1636,6 +1761,7 @@
   function pintarVentas() {
     const q = $("#vBuscar").value.trim().toLowerCase();
     const pasa = {
+      para_cobrar: paraCobrar,
       nuevos: esNuevo,
       cobrar: (v) => v.estado === "abierta" && ["sin_pago", "parcial"].includes(v.estado_pago),
       por_verificar: (v) => v.estado !== "anulada" && Number(v.pagado_registrado) > Number(v.pagado_verificado),
@@ -1681,12 +1807,13 @@
             ${esApartado(v) ? `<span class="etq">Apartado${v.apartado_vence ? " · hasta " + U.esc(fechaCorta(v.apartado_vence)) : ""}</span>` : ""}
             ${apartadoVencido(v) ? '<span class="etq etq--error">Se pasó la fecha</span>' : ""}
             ${v.pendiente ? etqPendientes(acciones.deVenta({ id: v.id })) : ""}
+            ${cobraAqui() && paraCobrar(v) ? '<span class="etq etq--por_verificar">Para cobrar</span>' : ""}
           </span>
         </div>
         <div class="fila__monto"><b>${fmt(v.total)}</b>${comoPago(v)}${v.estado !== "anulada" && saldo > 0 ? `<small>Falta ${fmt(saldo)}</small>` : ""}</div>
         <div class="fila__acc"><button type="button" class="btn btn--sm btn--linea" data-ver-venta="${v.id}">Abrir</button></div>
       </li>`;
-    }).join("") || (locales.length ? "" : `<li class="vacio-adm">${filtroVenta === "nuevos" ? "No hay pedidos nuevos. Los pedidos que hagan los clientes en la página aparecen aquí." : filtroVenta === "todas" ? "Todavía no hay ventas." : filtroVenta === "apartados" ? "No hay apartados pendientes. Para apartar, abra una venta y escoja <b>Apartado</b>." : "No hay ventas en este grupo."}</li>`));
+    }).join("") || (locales.length ? "" : `<li class="vacio-adm">${filtroVenta === "nuevos" ? "No hay pedidos nuevos. Los pedidos que hagan los clientes en la página aparecen aquí." : filtroVenta === "todas" ? "Todavía no hay ventas." : filtroVenta === "apartados" ? "No hay apartados pendientes. Para apartar, abra una venta y escoja <b>Apartado</b>." : filtroVenta === "para_cobrar" ? "No hay nada para cobrar. Cuando la caja mande una venta, aparece aquí con un sonido." : "No hay ventas en este grupo."}</li>`));
   }
 
   $("#filtroVentas").addEventListener("click", (e) => {
@@ -1794,9 +1921,16 @@
     if (V4) { try { fac = await db.from("facturas").select("*").eq("pedido_id", id).maybeSingle(); } catch { fac = { data: null }; } }
     let fe = { data: [] };
     if (V10 && FE?.activo) { try { fe = await db.from("v_fe_documentos").select("*").eq("pedido_id", id).order("id"); } catch { fe = { data: [] }; } }
+    let correos = {};
+    if (V29 && (fe.data || []).length) {
+      try {
+        const { data: cs } = await db.from("fe_correos").select("documento_id,para,estado,motivo,detalle,created_at").in("documento_id", fe.data.map((d) => d.id)).order("id");
+        for (const c of cs || []) correos[c.documento_id] = c;         // el último de cada comprobante
+      } catch { correos = {}; }
+    }
     let dev = { data: [] };
     if (V23) { try { dev = await db.from("devoluciones").select("*,devolucion_items(*)").eq("pedido_id", id).order("id"); } catch { dev = { data: [] }; } }
-    V = { devs: dev.data || [], pedido: p.data, items: it.data.map((i) => ({ ...i })), pagos: pg.data, comps: cc.data, factura: fac.data || null, fe: fe.data || [], dirty: false,
+    V = { correos, devs: dev.data || [], pedido: p.data, items: it.data.map((i) => ({ ...i })), pagos: pg.data, comps: cc.data, factura: fac.data || null, fe: fe.data || [], dirty: false,
       base: { pedido: p.data, pagos: pg.data } };
     aplicarPendientesVenta();
     V.cond = p.data.apartado ? "apartado" : p.data.credito ? "credito" : "contado";
@@ -1884,7 +2018,7 @@
       for (const rec of l) {
         if (V && V.local === rec.id && V.dirty) continue;          // la está editando: se manda después
         let r;
-        try { r = await conTiempo(db.rpc("registrar_venta_sin_internet", { p_id: rec.id, p_venta: rec.venta }), 20000); } catch (e) { r = { error: e }; }
+        try { r = await conTiempo(db.rpc("registrar_venta_sin_internet", { p_id: rec.id, p_venta: { ...rec.venta, sin_internet: true } }), 20000); } catch (e) { r = { error: e }; }
         if (r.error && U.esErrorRed(r.error)) { sinSenal(r.error); break; }
         if (r.error && r.error.code === "PGRST202") {
           V5 = false;
@@ -1925,7 +2059,7 @@
   const quedaEnHacienda = (d) => (d.estado === "rechazado" ? { listo: true } : d.estado === "aceptado" ? { listo: true, aceptado: true } : { listo: false });
   const ENVIAR = {
     async pago(a, id) {
-      const r = await db.from("pagos").insert({ ...a.datos, pedido_id: id, offline_id: a.id }).select("id").single();
+      const r = await db.from("pagos").insert({ ...a.datos, pedido_id: id, offline_id: a.id, ...(V27 ? { sin_internet: true } : {}) }).select("id").single();
       if (r.error?.code === "23505") return /offline/.test(r.error.message) ? {} : { error: { message: `El comprobante ${a.datos.referencia || ""} ya está registrado en otra venta.` } };
       return r.error ? { error: r.error } : {};
     },
@@ -1980,7 +2114,7 @@
       return r.error ? { error: r.error } : {};
     },
     async abono(a) {
-      const { error } = await db.rpc("registrar_abono", { p: { ...a.datos, offline_id: a.id } });
+      const { error } = await db.rpc("registrar_abono", { p: { ...a.datos, offline_id: a.id, sin_internet: true } });
       return error ? { error } : {};
     },
     async verificar_abono(a) {
@@ -2143,7 +2277,8 @@
       <tr data-n="${n}">
         <td><input data-k="descripcion" value="${U.esc(i.descripcion)}" maxlength="120" aria-label="Descripción" ${edit ? "" : "disabled"} />${edit ? `<small class="stock-nota" data-stock="${n}">${notaStock(i)}</small>` : ""}</td>
         <td class="num"><input data-k="cantidad" type="number" min="0.01" step="0.01" value="${U.esc(i.cantidad)}" ${edit && isFinite(disponible(i.producto_id)) ? `max="${disponible(i.producto_id)}"` : ""} aria-label="Cantidad" ${edit ? "" : "disabled"} /></td>
-        <td class="num"><input data-k="precio_unit" type="number" min="0" step="0.01" value="${U.esc(i.precio_unit)}" aria-label="Precio unitario" ${edit && (puede("precios") || !i.producto_id || !precioCatalogo(i.producto_id)) ? "" : "disabled"} /></td>
+        <td class="num">${precioConLapiz(i) ? `<div class="precio-cel"><input data-k="precio_unit" type="number" value="${U.esc(i.precio_unit)}" aria-label="Precio unitario" disabled />${edit && puede("precios") ? `<button type="button" class="lapiz" data-precio-item="${n}" title="Cambiar el precio" aria-label="Cambiar el precio de ${U.esc(i.descripcion)}">✎</button>` : ""}</div>`
+          : `<input data-k="precio_unit" type="number" min="0" step="0.01" value="${U.esc(i.precio_unit)}" aria-label="Precio unitario" ${edit ? "" : "disabled"} />`}</td>
         <td class="num" data-sub>${fmt(i.cantidad * i.precio_unit)}</td>
         <td>${edit ? `<button type="button" class="cerrar-x" data-quitar-item="${n}" aria-label="Quitar renglón">✕</button>` : ""}</td>
       </tr>`).join("") || `<tr><td colspan="5" class="vacio-adm">Agregue productos a la venta.</td></tr>`;
@@ -2175,7 +2310,7 @@
       </div>
       <div class="pago__acc">
         <button type="button" class="btn btn--sm btn--linea" data-comp="${U.esc(c.ruta)}">Ver comprobante</button>
-        ${c.estado === "nuevo" && p && p.estado !== "anulada" ? `<button type="button" class="btn btn--sm btn--negro" data-registrar-comp="${c.id}">Registrar como pago</button>
+        ${c.estado === "nuevo" && p && p.estado !== "anulada" && !noCobraAqui() ? `<button type="button" class="btn btn--sm btn--negro" data-registrar-comp="${c.id}">Registrar como pago</button>
         <button type="button" class="enlace enlace--peligro" data-rechazar-comp="${c.id}">Rechazar</button>` : ""}
       </div>
     </li>`).join("");
@@ -2223,7 +2358,7 @@
     // el registro a mano de una factura hecha en otro sistema solo se ve si la venta ya tiene uno
     $("#boxFactura").hidden = !p || !V4 || (V10 && !!FE?.activo) || !V.factura || !!V.copia || (!!V.local && !V19) || !!p.saldo_inicial;
     if (!$("#boxFactura").hidden) pintarFactura();
-    $("#boxFE").hidden = !p || !V10 || !FE?.activo || !!p.saldo_inicial;
+    $("#boxFE").hidden = (!p && !(noCobraAqui() && V.cond === "contado")) || !V10 || !FE?.activo || !!p?.saldo_inicial;
     if (!$("#boxFE").hidden) pintarFEVenta();
     $("#btnAnularVenta").hidden = !p || p.estado === "anulada" || !puede("anular");
     pintarDevoluciones();
@@ -2263,6 +2398,7 @@
     cola.guardar(rec); abrirLocal(rec.id); pintarVentas();
   });
 
+  const nombreUsuario = (uid) => { const u = uid && USUARIOS.find((x) => x.user_id === uid); return u ? u.nombre || u.usuario || u.correo || "" : ""; };
   function pagoHTML(g) {
     const red = enLinea();
     const estado = g.anulado
@@ -2281,11 +2417,11 @@
         ${g.nombre_origen || g.telefono_origen ? `<span>De ${U.esc(g.nombre_origen || "")} ${U.esc(g.telefono_origen || "")}</span>` : ""}
         ${g.nota ? `<span>${U.esc(g.nota)}</span>` : ""}
         <span>${fechaCR(g.fecha)}</span>
-        <span>${estado}</span>
+        <span>${estado}${g.sin_internet ? ` <span class="etq">Cobrado sin internet${nombreUsuario(g.created_by) ? " · " + U.esc(nombreUsuario(g.created_by)) : ""}</span>` : ""}</span>
       </div>
       <div class="pago__acc">
         ${g.comprobante_path && red ? `<button type="button" class="btn btn--sm btn--linea" data-comp="${U.esc(g.comprobante_path)}">Ver comprobante</button>` : ""}
-        ${!g.anulado && !g.verificado ? `<button type="button" class="btn btn--sm btn--negro" data-verificar="${g.id}" data-monto="${g.monto}" data-ref="${U.esc(g.referencia || "")}">Ya lo vi en el banco</button>` : ""}
+        ${!g.anulado && !g.verificado && !soloAdminCobra() ? `<button type="button" class="btn btn--sm btn--negro" data-verificar="${g.id}" data-monto="${g.monto}" data-ref="${U.esc(g.referencia || "")}">Ya lo vi en el banco</button>` : ""}
         ${!g.anulado && !g.pendiente && red ? `<button type="button" class="enlace enlace--peligro" data-anular-pago="${g.id}">Anular</button>` : ""}
         ${g.pendiente && !V.local ? `<button type="button" class="enlace enlace--peligro" data-quitar-pago-pend="${U.esc(String(g.id).slice(4))}">Quitar</button>` : ""}
       </div>
@@ -2323,12 +2459,77 @@
     actualizarTotal();
   });
   $("#itemsVenta").addEventListener("click", (e) => {
+    const lp = e.target.closest("[data-precio-item]");
+    if (lp) return abrirPrecio(Number(lp.dataset.precioItem));
     const b = e.target.closest("[data-quitar-item]");
     if (!b) return;
     V.items.splice(Number(b.dataset.quitarItem), 1);
     V.dirty = true;
     pintarVenta();
   });
+  // ---------- v28: el precio de un producto del catálogo se cambia con el lápiz ✎ ----------
+  // renglón libre o producto "a consultar" (sin precio): el precio se escribe directo, como antes
+  const precioConLapiz = (i) => !!i.producto_id && precioCatalogo(i.producto_id) != null;
+  let precioN = null;
+  // lo que le toca a este renglón sin rebajas a mano (oferta, precio del cliente, exoneración) y lo más bajo permitido
+  function limitesPrecio(it) {
+    const prod = prodDe(it.producto_id), base = r2(precioVenta(prod, precioCatalogo(it.producto_id)));
+    const pct = V28 ? DESC_MAX : 0;
+    return { base, pct, minimo: puede("precios") ? r2(base * (1 - pct / 100)) : base };
+  }
+  function abrirPrecio(n) {
+    const it = V.items[n]; if (!it) return;
+    precioN = n;
+    const { base, pct, minimo } = limitesPrecio(it), admin = esAdministradorReal();
+    $("#precioProd").textContent = it.descripcion;
+    $("#precioNuevo").value = it.precio_unit;
+    $("#precioInfo").textContent = `Precio normal ${fmt(base)}.` + (pct > 0 ? ` Se puede bajar hasta ${fmt(minimo)} (${pct} %).` : " No se puede bajar.")
+      + (admin ? " Usted es administrador: puede bajarlo más, con confirmación." : "");
+    $("#precioCat").checked = false;
+    $("#precioCatLbl").hidden = !puede("precios") || !enLinea() || !!V.local;
+    $("#precioMsg").textContent = "";
+    $("#dlgPrecio").showModal();
+    $("#precioNuevo").focus(); $("#precioNuevo").select();
+  }
+  $("#formPrecio").addEventListener("submit", async (e) => {
+    if (e.submitter?.value !== "si") return;            // Cancelar: cierra sin más
+    e.preventDefault();
+    const it = V.items[precioN], msg = $("#precioMsg");
+    if (!it) { $("#dlgPrecio").close(); return; }
+    const val = r2(Number($("#precioNuevo").value));
+    if (!(val > 0)) { msg.textContent = "Escriba el precio."; return; }
+    const { base, pct, minimo } = limitesPrecio(it);
+    if (val < minimo - 0.005) {
+      if (!esAdministradorReal()) { msg.textContent = pct > 0 ? `No se puede bajar más de ${pct} %: lo mínimo es ${fmt(minimo)}. Pídale al administrador.` : "No se puede bajar el precio. Pídale al administrador."; return; }
+      const baja = Math.round((1 - val / base) * 100);
+      if (!await preguntar(`${it.descripcion}: ${fmt(base)} → ${fmt(val)} es ${baja} % menos, más de lo permitido (${pct} %). ¿Seguro que es ese precio?`, { titulo: "Precio muy bajo", si: `Sí, ${fmt(val)}`, peligro: true })) return;
+    } else if (val > base * 2 && !await preguntar(`${it.descripcion}: ${fmt(base)} → ${fmt(val)} es más del doble del precio normal. ¿Seguro?`, { si: `Sí, ${fmt(val)}` })) return;
+    if ($("#precioCat").checked) {
+      const { error } = await db.from("productos").update({ precio: val }).eq("id", it.producto_id);
+      if (error) { msg.textContent = errTxt(error); return; }
+      const pr = prodDe(it.producto_id); if (pr) pr.precio = val;
+      toast(`Precio de ${it.descripcion} cambiado a ${fmt(val)} en el catálogo.`);
+    }
+    it.precio_unit = val;
+    V.dirty = true;
+    $("#dlgPrecio").close();
+    const tr = $(`#itemsVenta tr[data-n="${precioN}"]`);
+    if (tr) { tr.querySelector('[data-k="precio_unit"]').value = val; tr.querySelector("[data-sub]").textContent = fmt((Number(it.cantidad) || 0) * val); }
+    actualizarTotal();
+    if (V.cond === "credito" || V.cond === "apartado") pintarCondicion();
+    refrescarGuardar();
+  });
+  $("#formDescuento").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#descMsg"), pct = Number(f.descuento_max.value);
+    if (!f.reportValidity()) return;
+    msg.className = "msg"; msg.textContent = "Guardando…";
+    const { data, error } = await db.rpc("poner_descuento_max", { p_pct: pct });
+    if (error) { msg.className = "msg msg--error"; msg.textContent = errTxt(error); return; }
+    DESC_MAX = Number(data); copia.poner("desc_max", DESC_MAX);
+    msg.textContent = DESC_MAX > 0 ? `Listo: en la venta se puede bajar un precio hasta ${DESC_MAX} %.` : "Listo: solo el administrador puede bajar precios en la venta.";
+  });
+
   // ---------- buscador de productos (ventas y ajuste de precios) ----------
   // con miles de productos una lista desplegable no sirve: se escribe parte del nombre o el código
   // (el lector de código de barras escribe el código y da Enter)
@@ -2564,8 +2765,10 @@
     } finally { btn.disabled = false; }
   }
   $("#btnGuardarVenta").addEventListener("click", async () => {
-    const paraDespues = !V.pedido && V.cond === "contado";
+    const paraDespues = !V.pedido && V.cond === "contado", aCobrar = paraDespues && noCobraAqui();
     if (!(await guardarVenta())) return;
+    if (aCobrar && V.local) { $("#dlgVenta").close(); toast("Se cayó el internet: la venta quedó en esta compu. Sin internet puede cobrarla usted (Ventas, arriba)."); return; }
+    if (aCobrar) { $("#dlgVenta").close(); toast("Enviada a cobrar. Le aparece al administrador en Ventas › Para cobrar."); return; }
     if (paraDespues) { $("#dlgVenta").close(); toast("Guardada para después. La encuentra en Ventas › Por cobrar."); }
   });
   // clic afuera de una ventana = tocar su botón de cerrar (así cada una hace su propia pregunta si hay algo sin guardar)
@@ -3060,14 +3263,15 @@
           ${ab.anulado ? `<span><span class="etq">Anulado</span> ${U.esc(ab.motivo_anulacion || "")}</span>` : sinVer ? '<span class="etq etq--por_verificar">Por verificar</span>' : `<span class="etq etq--pagado">Recibido</span>${verPend.has(Number(ab.id)) ? ' <span class="etq etq--por_verificar">Por enviar</span>' : ""}`}
           ${ab.nota ? `<span>${U.esc(ab.nota)}</span>` : ""}
         </div>
-        <div class="pago__acc">${ab.anulado ? "" : `${sinVer ? `<button type="button" class="btn btn--sm btn--negro" data-verificar-abono="${ab.id}">Ya lo vi en el banco</button>` : ""}${enLinea() ? `<button type="button" class="enlace enlace--peligro" data-anular-abono="${ab.id}">Anular</button>` : ""}`}</div>
+        <div class="pago__acc">${ab.anulado ? "" : `${sinVer && !soloAdminCobra() ? `<button type="button" class="btn btn--sm btn--negro" data-verificar-abono="${ab.id}">Ya lo vi en el banco</button>` : ""}${enLinea() ? `<button type="button" class="enlace enlace--peligro" data-anular-abono="${ab.id}">Anular</button>` : ""}`}</div>
       </li>`;
     }).join("") || `<li class="vacio-adm">Todavía no hay abonos.</li>`;
     const fa = $("#formAbono");
     fa.monto.max = CLI.saldo || "";
     $("#btnAbonoTodo").textContent = `Todo lo que debe (${fmt(CLI.saldo)})`;
     $("#btnAbonoTodo").disabled = !(Number(CLI.saldo) > 0);
-    $("#boxAbono").hidden = !(Number(CLI.saldo) > 0);
+    $("#boxAbono").hidden = !(Number(CLI.saldo) > 0) || noCobraAqui();     // v27: con internet los abonos los recibe el administrador
+    $("#abonoSoloAdmin").hidden = !(Number(CLI.saldo) > 0 && noCobraAqui());
   }
   $("#cliSoloSaldo").addEventListener("change", pintarCuentaCliente);
   $("#cliVentas").addEventListener("click", (e) => {
@@ -3127,6 +3331,7 @@
     const monto = Number(f.monto.value), ref = f.referencia.value.trim();
     msg.className = "msg msg--error";
     if (!(monto > 0)) { msg.textContent = "Escriba el monto."; return; }
+    if (noCobraAqui()) { msg.textContent = "Los abonos los recibe el administrador."; return; }
     if (monto > Number(CLI.saldo) + 0.001) { msg.textContent = `Debe ${fmt(CLI.saldo)}: el abono no puede ser mayor.`; return; }
     if (["sinpe", "transferencia", "cheque"].includes(f.metodo.value) && !ref) { msg.textContent = f.metodo.value === "cheque" ? "Ponga el número del cheque." : "Ponga el número de comprobante."; return; }
     const fecha = f.fecha.value ? new Date(f.fecha.value + ":00-06:00").toISOString() : null;
@@ -3504,6 +3709,7 @@
       if (["enviado", "procesando"].includes(d.estado)) acc.push(`<button type="button" class="btn btn--sm btn--linea" data-fe="consultar" data-id="${d.id}">Consultar</button>`);
       if (d.estado === "aceptado" && d.tipo !== "03" && !d.anulado && puede("anular") && !(V.devs || []).length) acc.push(`<button type="button" class="enlace enlace--peligro" data-fe="anular" data-id="${d.id}">Anular con nota de crédito</button>`);
       if (!d.sinRed && enLinea()) acc.push(`<button type="button" class="enlace" data-fe="xml" data-id="${d.id}">XML</button>`);
+      if (V29 && d.estado === "aceptado" && !d.sinRed && enLinea()) acc.push(`<button type="button" class="enlace" data-fe="correo" data-id="${d.id}">${V.correos?.[d.id]?.estado === "enviado" ? "Reenviar por correo" : "Enviar por correo"}</button>`);
       if (d.sinRed) acc.push(`<button type="button" class="enlace" data-fe="pendientes">Ver pendientes</button>`);
       return `<li class="pago fe-doc ${d.anulado ? "pago--anulado" : ""}">
         <div class="pago__monto">${d.tipo === "03" ? "−" : ""}${fmt(d.total)}${d.parcial ? "<small>Nota de crédito</small><small>por devolución</small>" : `<small>${FE_TIPO[d.tipo] || d.tipo}</small>`}</div>
@@ -3511,12 +3717,25 @@
           <span>N.º <b>${U.esc(d.consecutivo.slice(-10).replace(/^0+/, ""))}</b> · ${fechaCR(d.fecha_emision, { dateStyle: "short", timeStyle: "short" })}${d.sinRed || String(d.clave).charAt(41) === "3" ? " · sin internet" : ""}</span>
           <span><span class="etq ${cls}">${txt}</span>${d.anulado ? ' <span class="etq">Anulado</span>' : ""}${d.ambiente === "pruebas" ? ' <span class="etq">Pruebas</span>' : ""}</span>
           ${d.detalle ? `<span>${U.esc(d.detalle)}</span>` : ""}
+          ${correoDocHTML(V.correos?.[d.id])}
           <span class="fe-doc__clave">Clave ${U.esc(d.clave)}</span>
         </div>
         <div class="pago__acc">${acc.join("")}</div>
       </li>`;
     }).join("") || `<li class="vacio-adm">Esta venta todavía no tiene comprobante electrónico.</li>`;
     const vig = feVigente(), anulada = V.pedido?.estado === "anulada";
+    // v27: con "Solo el administrador cobra", el empleado deja los datos y el comprobante sale cuando el administrador cobra
+    const alCobrar = noCobraAqui() && !V.local && !vig && !anulada && V.cond !== "credito" && !V.pedido?.credito;
+    $("#feAlCobrar").hidden = !alCobrar;
+    if (alCobrar) {
+      $("#feEmitir").hidden = true; $("#feSinRedInfo").hidden = true;
+      $("#feAlCobrarTxt").textContent = V.factura
+        ? `Factura a nombre de ${V.factura.nombre} (${V.factura.identificacion}). Sale sola cuando el administrador cobre.`
+        : V.exo ? "Esta venta tiene exoneración: ponga los datos de la factura. Sale sola cuando el administrador cobre."
+        : "El tiquete sale solo cuando el administrador cobre. Si el cliente quiere factura, ponga sus datos.";
+      $("#btnFEPideFactura").textContent = V.factura ? "Cambiar datos de la factura" : "El cliente pide factura";
+      return;
+    }
     $("#feEmitir").hidden = !!vig || anulada;
     $("#btnFEFactura").disabled = false;
     // sin internet el comprobante se hace aquí con su clave y se firma y manda al volver la señal
@@ -3568,6 +3787,25 @@
     if (!(await asegurarCabys(V.items))) return;
     accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "04", ...plazoFE() }, "Firmando y enviando el tiquete a Hacienda…");
   });
+  $("#btnFEPideFactura").addEventListener("click", async () => {
+    // venta nueva: primero se guarda (así los datos quedan con ella)
+    if (!V.pedido || V.dirty) { if (!(await guardarVenta())) return; }
+    if (V.local) return abrirReceptor();       // se cayó el internet: sigue como venta sin internet
+    abrirReceptor(true);
+  });
+  // v27: el administrador cobró la venta completa: sale el comprobante (factura si dejaron los datos, si no tiquete)
+  async function comprobanteAlCobrar() {
+    const p = V?.pedido;
+    if (!cobraAqui() || !V10 || !FE?.activo || !p || V.local || !enLinea() || p.estado === "anulada" || p.credito || p.saldo_inicial) return;
+    if (Number(p.pagado_registrado) + 0.005 < Number(p.total) || feVigente()) return;
+    if (V.factura && V.factura.estado === "pendiente") {
+      if (!(await asegurarCabys(V.items))) return;
+      return accionFE({ accion: "emitir", pedido_id: p.id, tipo: "01", ...plazoFE() }, "Firmando y enviando la factura a Hacienda…");
+    }
+    if (V.exo) return abrirReceptor();             // con exoneración solo factura: se piden los datos
+    if (!(await asegurarCabys(V.items))) return;
+    return accionFE({ accion: "emitir", pedido_id: p.id, tipo: "04", ...plazoFE() }, "Firmando y enviando el tiquete a Hacienda…");
+  }
   $("#btnFEFactura").addEventListener("click", async () => {
     if (V.dirty && !V.local) return accionFE({}, "");
     if ((!enLinea() || V.local) && V.factura) return hacerFESinRed("01");
@@ -3806,10 +4044,14 @@
 
   // ---------- datos del cliente para la factura ----------
   const RE_ID = { fisica: /^[1-9][0-9]{8}$/, juridica: /^[0-9]{10}$/, dimex: /^[0-9]{11,12}$/, nite: /^[0-9]{10}$/ };
-  let recepAuto = false;          // el nombre lo puso Hacienda (si cambia la cédula, se cambia)
-  function abrirReceptor() {
+  let recepAuto = false;
+  let recepSoloGuardar = false;   // v27: el empleado deja los datos; la factura sale cuando el administrador cobra          // el nombre lo puso Hacienda (si cambia la cédula, se cambia)
+  function abrirReceptor(soloGuardar = false) {
     const f = $("#formReceptor"), fac = V.factura, cli = V.credCli;
-    f.reset(); recepAuto = false;
+    f.reset(); recepAuto = false; recepSoloGuardar = soloGuardar;
+    const be = $("#btnRecepEmitir");
+    be.dataset.txt = be.dataset.txt || be.textContent;
+    be.textContent = soloGuardar ? "Guardar datos de la factura" : be.dataset.txt;
     $("#recepMsg").textContent = ""; $("#recepBusca").textContent = ""; $("#recepBusca").className = "ayuda recep-busca";
     const nom = V.pedido?.cliente_nombre && V.pedido.cliente_nombre !== CLIENTE_CONTADO ? V.pedido.cliente_nombre : "";
     if (fac) { f.tipo_id.value = fac.tipo_id || "fisica"; f.identificacion.value = fac.identificacion || ""; f.nombre.value = fac.nombre || ""; f.correo.value = fac.correo || ""; }
@@ -3865,6 +4107,17 @@
         return hacerFESinRed("01");
       }
       if (!enLinea()) { msg.textContent = "Sin internet: la factura de una venta ya enviada se hace cuando vuelva la conexión."; return; }
+      if (recepSoloGuardar) {
+        const g = V.factura
+          ? await db.from("facturas").update({ ...d, estado: "pendiente" }).eq("id", V.factura.id).select().single()
+          : await db.from("facturas").insert({ ...d, pedido_id: V.pedido.id, solicitada_por: "panel" }).select().single();
+        if (g.error) { msg.textContent = errTxt(g.error); return; }
+        V.factura = g.data;
+        $("#dlgReceptor").close();
+        toast("Datos de la factura guardados. La factura sale cuando el administrador cobre.");
+        pintarFEVenta();
+        return;
+      }
       const r = V.factura
         ? await db.from("facturas").update({ ...d, estado: "pendiente" }).eq("id", V.factura.id).select().single()
         : await db.from("facturas").insert({ ...d, pedido_id: V.pedido.id, solicitada_por: "panel" }).select().single();   // estado: pendiente por defecto
@@ -3957,6 +4210,7 @@
   $("#feDocs").addEventListener("click", async (e) => {
     const b = e.target.closest("[data-fe]"); if (!b) return;
     const id = Number(b.dataset.id), acc = b.dataset.fe;
+    if (acc === "correo") return correoDoc(id, b);
     if (acc === "consultar") return accionFE({ accion: "consultar", documento_id: id }, "Consultando a Hacienda…");
     if (acc === "enviar") return accionFE({ accion: "enviar", documento_id: id }, "Enviando a Hacienda…");
     if (acc === "anular") {
@@ -3969,6 +4223,66 @@
     if (acc === "xml") return descargarXmlFE(id);
     if (acc === "pendientes") return abrirPendientes();
   });
+  // ---------- v29: el comprobante por correo al cliente ----------
+  function correoDocHTML(c) {
+    if (!c) return "";
+    if (c.estado === "enviado") return `<span class="etq etq--ok">Enviado por correo a ${U.esc(c.para)} · ${fechaCR(c.created_at, { dateStyle: "short", timeStyle: "short" })}</span>`;
+    if (c.estado === "sin_correo") return '<span class="etq">Sin correo del cliente</span>';
+    return `<span class="etq etq--error">No se envió el correo${c.para ? " a " + U.esc(c.para) : ""}: ${U.esc(MOTIVO_CORREO[c.motivo] || c.detalle || "error")}</span>`;
+  }
+  const MOTIVO_CORREO = {
+    limite_mes: "se llegó al límite de correos del mes", limite_dia: "se llegó al límite de correos de hoy",
+    muchos: "Resend pidió esperar", llave: "la llave de Resend no sirve", dominio: "el dominio no está verificado en Resend", red: "no se pudo hablar con Resend"
+  };
+  async function correoDoc(id, btn) {
+    const doc = (V.fe || []).find((d) => d.id === id);
+    const antes = V.correos?.[id]?.para || doc?.receptor?.correo || doc?.receptor?.correoElectronico || V.factura?.correo || "";
+    const para = await pedirTexto("¿A qué correo se lo mandamos? (PDF, XML y respuesta de Hacienda)", antes, { si: "Enviar" });
+    if (para === null) return;
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(para.trim())) return toast("Revise el correo.", true);
+    btn.disabled = true;
+    try {
+      const r = await llamarFE({ accion: "correo_enviar", documento_id: id, para: para.trim() });
+      toast(`Enviado a ${r.para}.`);
+      V.correos = { ...(V.correos || {}), [id]: { estado: "enviado", para: r.para, created_at: new Date().toISOString() } };
+    } catch (err) {
+      toast(err.message, true);
+      revisarCorreos(true);
+    } finally { btn.disabled = false; pintarFEVenta(); }
+  }
+  // aviso arriba cuando los correos no están saliendo (límite del plan de Resend, llave o dominio)
+  let revisandoCorreos = false, ultimaRevCorreos = 0;
+  async function revisarCorreos(ya = false) {
+    if (!V29 || !V10 || !FE?.activo || !enLinea() || revisandoCorreos || !(puede("ventas") || puede("reportes"))) return;
+    if (!ya && Date.now() - ultimaRevCorreos < 30 * 60e3) return;
+    revisandoCorreos = true; ultimaRevCorreos = Date.now();
+    try {
+      let r = await llamarFE({ accion: "correos_estado" });
+      // lo que quedó sin mandar se reintenta solo (si está trabado por el límite, a lo sumo una vez por hora)
+      const trabadoHace = r.desde ? Date.now() - new Date(r.desde).getTime() : Infinity;
+      if (r.configurado && r.pendientes > 0 && (!r.bloqueado || trabadoHace > 60 * 60e3)) r = await llamarFE({ accion: "correos_reintentar" });
+      pintarBandaCorreo(r);
+    } catch { /* sin función nueva o sin internet: no se avisa nada */ }
+    finally { revisandoCorreos = false; }
+  }
+  function pintarBandaCorreo(r) {
+    let el = $("#bandaCorreo");
+    if (!el) { el = document.createElement("div"); el.id = "bandaCorreo"; el.className = "banda-red"; el.setAttribute("role", "alert"); const red = $("#bandaRed"); if (red) red.after(el); else document.body.prepend(el); }
+    const pend = r.pendientes ? ` Hay ${r.pendientes} ${r.pendientes === 1 ? "correo pendiente" : "correos pendientes"}: se mandan solos cuando se pueda.` : "";
+    const txt = !r.configurado ? ""
+      : r.bloqueado === "limite_mes" ? `Los correos de las facturas no se están enviando: se llegó al límite de ${r.mes.toLocaleString("es-CR")} correos al mes del plan gratis de Resend. Las facturas siguen saliendo bien con Hacienda.${pend} Para seguir mandando ya, pase a un plan pagado en resend.com.`
+      : r.bloqueado === "limite_dia" ? `Los correos de las facturas no se están enviando: se llegó al límite de ${r.dia} correos por día de Resend. Vuelven a salir después de las 6 p. m.${pend}`
+      : r.bloqueado === "llave" ? `Los correos de las facturas no se están enviando: Resend no acepta la llave (secreto RESEND_API_KEY en Supabase).${pend}`
+      : r.bloqueado === "dominio" ? `Los correos de las facturas no se están enviando: el dominio no está verificado en Resend o el secreto CORREO_REMITENTE está mal.${pend}`
+      : r.enviados_mes >= r.mes * 0.9 ? `Ojo: van ${r.enviados_mes.toLocaleString("es-CR")} de ${r.mes.toLocaleString("es-CR")} correos de facturas este mes (plan de Resend). Al llegar al límite dejan de salir.`
+      : "";
+    if (r.bloqueado && el.dataset.motivo !== r.bloqueado) toast("Los correos de las facturas no se están enviando. Vea el aviso arriba.", true);
+    el.dataset.motivo = r.bloqueado || "";
+    el.hidden = !txt;
+    el.dataset.tipo = r.bloqueado ? "error" : "aviso";
+    el.textContent = txt;
+  }
+
   async function descargarXmlFE(id) {
     const { data, error } = await db.from("fe_documentos").select("clave,xml_firmado,respuesta_xml").eq("id", id).single();
     if (error) return toast(errTxt(error), true);
@@ -5729,6 +6043,15 @@
     const credListo = cred && !!p && !!p.credito && !V.dirty && !V.local;
     $("#boxPago").hidden = !pend || (cred && !(credListo && V.abonoAbierto));
     $("#btnAbonar").hidden = !(pend && credListo && !V.abonoAbierto);
+    // v27: con internet, el empleado manda la venta a cobrar y el administrador cobra
+    const bloq = noCobraAqui(), caja = $("#boxCobraAdmin");
+    if (bloq) { $("#boxPago").hidden = true; $("#btnAbonar").hidden = true; }
+    caja.hidden = !(bloq && pend && (!cred || credListo));
+    if (!caja.hidden) {
+      $("#cobraAdminTxt").textContent = cred ? "Los abonos los recibe el administrador."
+        : !p ? "Esta venta la cobra el administrador. Toque “Enviar a cobrar” y le aparece en su compu al momento."
+        : "Enviada a cobrar: le aparece al administrador en Ventas › Para cobrar. Si cambia algo, toque “Guardar cambios”.";
+    }
     $("#boxPago .cobro__tit").textContent = cred ? "Abono" : "Cobrar";
     if (fp.dataset.montoAuto !== "0") fp.monto.value = cred ? "" : saldo || "";
     pintarVuelto();
@@ -5740,9 +6063,10 @@
     const aCredito = V.cond === "credito" && (!p || !p.credito || !!V.local);
     const fuerte = aCredito || (!p && V.cond !== "contado");
     const total = V.items ? V.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_unit) || 0), 0) : 0;
+    const aCobrar = !p && V.cond === "contado" && noCobraAqui();      // v27: el empleado la manda al administrador
     g.textContent = aCredito ? `Guardar a crédito${total > 0 ? " " + fmt(total) : ""}` : p ? "Guardar cambios"
-      : V.cond === "apartado" ? "Guardar apartado" : "Guardar para después";
-    g.className = `btn ${aCredito ? "btn--cobrar" : fuerte ? "btn--negro" : "btn--linea"}`;
+      : V.cond === "apartado" ? "Guardar apartado" : aCobrar ? `Enviar a cobrar${total > 0 ? " " + fmt(total) : ""}` : "Guardar para después";
+    g.className = `btn ${aCredito || aCobrar ? "btn--cobrar" : fuerte ? "btn--negro" : "btn--linea"}`;
     g.hidden = !!V.copia || p?.estado === "anulada" || (!!p && !V.dirty);
   }
   $("#btnAbonar").addEventListener("click", () => {
@@ -5917,6 +6241,7 @@
       toast(d.verificado ? `Cobrado ${fmt(d.monto)}` : "Cobro anotado. Queda por verificar en el banco.");
       await abrirVenta(p.id);
       cargarVentas(); contarPorVerificar();
+      if (cobraAqui() && V10 && FE?.activo) { await comprobanteAlCobrar(); return; }
       // pagada: lo siguiente es el comprobante
       const sig = ["#btnFETiquete", "#btnFEFactura"].map((x) => $(x)).find((b) => b && !b.hidden && !b.disabled && b.offsetParent);
       if (sig) { sig.scrollIntoView({ block: "center", behavior: "smooth" }); sig.focus({ preventScroll: true }); }
@@ -6017,6 +6342,26 @@
     const b = e.target.closest("[data-preg-estado]");
     if (b) { if (await estadoPregunta(Number(b.dataset.id), b.dataset.pregEstado)) toast(b.dataset.pregEstado === "archivada" ? "Pregunta archivada" : b.dataset.pregEstado === "respondida" ? "Marcada como respondida" : "Pregunta sin responder otra vez"); }
   });
+
+  // ---------- v30: respaldo automático en Google Drive (lo hace GitHub cada noche) ----------
+  function pintarRespaldoNube(filas) {
+    const el = $("#respaldoNube"), ok = filas.find((f) => f.ok), ult = filas[0];
+    el.hidden = false;
+    const hace = (f) => { const h = (Date.now() - new Date(f.fecha).getTime()) / 36e5; return h < 1 ? "hace menos de una hora" : h < 48 ? `hace ${Math.round(h)} horas` : `hace ${Math.round(h / 24)} días`; };
+    el.textContent = !ult ? "Respaldo automático en Google Drive: todavía no se ha hecho ninguno (vea RESPALDO.md para activarlo)."
+      : `Respaldo automático en Google Drive: ${ok ? `el último bueno fue ${hace(ok)} (${fechaCR(ok.fecha, { dateStyle: "medium", timeStyle: "short" })}, ${Math.max(1, Math.round((ok.bytes || 0) / 1024))} KB)` : "ninguno ha salido bien todavía"}.`
+        + (ult && !ult.ok ? ` El último intento falló: ${ult.detalle || "vea GitHub → Actions → Respaldo diario"}.` : "");
+    el.classList.toggle("msg--error", !!ult && (!ult.ok || !ok || Date.now() - new Date(ok.fecha).getTime() > 36 * 36e5));
+    // aviso arriba solo si ya estaba funcionando y dejó de hacerlo
+    if (!ult) return;
+    const viejo = !ok || Date.now() - new Date(ok.fecha).getTime() > 36 * 36e5;
+    if (!(viejo || !ult.ok)) return;
+    let b = $("#bandaRespaldo");
+    if (!b) { b = document.createElement("div"); b.id = "bandaRespaldo"; b.className = "banda-red"; b.setAttribute("role", "alert"); const red = $("#bandaRed"); if (red) red.after(b); else document.body.prepend(b); }
+    b.dataset.tipo = "error";
+    b.textContent = !ok ? "El respaldo automático en Google Drive no ha salido bien ninguna vez. Revise GitHub → Actions → Respaldo diario (y RESPALDO.md)."
+      : `El respaldo automático en Google Drive no se está haciendo: el último bueno fue ${hace(ok)}. ${!ult.ok ? (ult.detalle || "") + ". " : "GitHub pudo haberlo pausado: abra Actions → Respaldo diario → Enable workflow. "}Mientras tanto, descargue un respaldo a mano en Datos del negocio.`;
+  }
 
   // ---------- respaldo en la compu ----------
   const LS_RESPALDO = "lc_ultimo_respaldo_v1";
@@ -6507,7 +6852,7 @@
       </div>
       <div class="fila__acc">
         ${g.comprobante_path ? `<button type="button" class="btn btn--sm btn--linea" data-comp="${U.esc(g.comprobante_path)}">Comprobante</button>` : ""}
-        ${!g.anulado && !g.verificado ? `<button type="button" class="btn btn--sm btn--negro" data-verificar="${g.id}" data-monto="${g.monto}" data-ref="${U.esc(g.referencia || "")}">Ya lo vi en el banco</button>` : ""}
+        ${!g.anulado && !g.verificado && !soloAdminCobra() ? `<button type="button" class="btn btn--sm btn--negro" data-verificar="${g.id}" data-monto="${g.monto}" data-ref="${U.esc(g.referencia || "")}">Ya lo vi en el banco</button>` : ""}
         <button type="button" class="enlace" data-ver-venta="${g.pedidos?.id}">Ver venta</button>
       </div>
     </li>`;
@@ -6647,6 +6992,12 @@
     r.innerHTML = html;
     const img = r.querySelector("img");
     await Promise.all([listoCss, img ? esperar(img, img.complete) : null]);
+    // en el programa de escritorio (carpeta escritorio/) sale directo a la impresora, sin la ventana de imprimir
+    if (window.lcEscritorio?.imprimir) {
+      const r = await window.lcEscritorio.imprimir().catch((e) => ({ ok: false, error: e?.message }));
+      if (r && !r.ok && r.error && !/cancel/i.test(r.error)) toast("No se pudo imprimir: " + r.error + ". Revise la impresora en el menú Impresora (tecla Alt).", true);
+      return;
+    }
     window.print();
   }
   // saldo al día del cliente de crédito, para ponerlo en el recibo (si no hay internet, sale sin él)
