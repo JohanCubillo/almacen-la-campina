@@ -79,6 +79,8 @@ npx supabase login
 npx supabase functions deploy facturar --project-ref osuhkkojtwweepniwxtp --use-api
 ```
 
+**Sin instalar nada (desde GitHub):** cree un token en Supabase → su foto (arriba a la derecha) → **Account preferences → Access Tokens → Generate new token** (nombre `github-publicar`). Póngalo en GitHub → **Settings → Secrets and variables → Actions** como `SUPABASE_ACCESS_TOKEN`. Después, cada vez que haya que publicar: **Actions → Publicar funciones de Supabase → Run workflow** → escoger `facturar`.
+
 ## 5. Poner los secretos
 
 Primero pase la llave .p12 a texto (base64). En **PowerShell**:
