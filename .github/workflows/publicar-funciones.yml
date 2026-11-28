@@ -46,5 +46,6 @@ jobs:
           esac
           for f in $LISTA; do
             echo "Publicando $f…"
-            npx --yes supabase@latest functions deploy "$f" --project-ref "$PROYECTO" --use-api
+            # --yes: sin esto la CLI pide confirmar y en Actions no hay quien conteste
+            npx --yes supabase@latest functions deploy "$f" --project-ref "$PROYECTO" --use-api --yes
           done
