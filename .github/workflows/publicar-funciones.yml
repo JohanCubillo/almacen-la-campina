@@ -1,0 +1,50 @@
+# Publica las funciones de Supabase (facturar, usuarios) tal como están en el repositorio.
+# Solo a mano: Actions → "Publicar funciones de Supabase" → Run workflow → escoger cuál.
+# Necesita el secreto SUPABASE_ACCESS_TOKEN (Supabase → Account → Access Tokens).
+# Los secretos de Hacienda y de Resend NO pasan por aquí: siguen en Supabase.
+name: Publicar funciones de Supabase
+
+on:
+  workflow_dispatch:
+    inputs:
+      funcion:
+        description: "Qué función publicar"
+        type: choice
+        options: [facturar, usuarios, las dos]
+        default: facturar
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publicar-funciones
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROYECTO: osuhkkojtwweepniwxtp
+    steps:
+      - name: Revisar el secreto
+        run: '[ -n "$SUPABASE_ACCESS_TOKEN" ] || { echo "::error::Falta el secreto SUPABASE_ACCESS_TOKEN (vea FACTURACION.md, paso 4)."; exit 1; }'
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Publicar
+        run: |
+          set -euo pipefail
+          case "${{ inputs.funcion }}" in
+            "las dos") LISTA="facturar usuarios" ;;
+            *) LISTA="${{ inputs.funcion }}" ;;
+          esac
+          for f in $LISTA; do
+            echo "Publicando $f…"
+            npx --yes supabase@latest functions deploy "$f" --project-ref "$PROYECTO" --use-api
+          done
