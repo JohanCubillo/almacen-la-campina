@@ -35,6 +35,7 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 18d. **SQL Editor → New query** → pegar `supabase/v27_cobra_admin.sql` → **Run** (después de v26). Interruptor **Solo el administrador cobra** (ver *Solo el administrador cobra* más abajo). Si algún día vuelve a correr v13, v19 o v24, corra otra vez v27 al final.
 18e. **SQL Editor → New query** → pegar `supabase/v28_margen_precios.sql` → **Run** (después de v27). **Descuento máximo en la venta** y el lápiz ✎ para cambiar precios (ver *Precios en la venta*). Si algún día vuelve a correr v17 o v24, corra otra vez v28 al final.
 18f. *(Cuando tenga dominio propio)* **SQL Editor → New query** → pegar `supabase/v29_correos.sql` → **Run**, y seguir **CORREO.md**: las facturas le llegan al cliente por correo (PDF + XML) y el panel avisa si se llega al límite de correos del mes.
+18g. **SQL Editor → New query** → pegar `supabase/v30_respaldo_nube.sql` → **Run**, y seguir **RESPALDO.md**: respaldo automático de la base de datos en Google Drive cada noche (el panel avisa si falla).
 19. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
 20. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
 21. Registrar al administrador (el dueño):

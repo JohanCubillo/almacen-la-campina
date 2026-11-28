@@ -118,7 +118,8 @@
   let COBRO_ADMIN = false; // el interruptor está encendido
   let V28 = false;         // descuento máximo en la venta (v28_margen_precios.sql)
   let DESC_MAX = 15;
-  let V29 = false;         // facturas por correo al cliente (v29_correos.sql)       // % que se puede bajar un precio en la venta (con permiso de precios)
+  let V29 = false;
+  let V30 = false;         // respaldo automático en Google Drive (v30_respaldo_nube.sql)         // facturas por correo al cliente (v29_correos.sql)       // % que se puede bajar un precio en la venta (con permiso de precios)
   let V25 = false;         // factura electrónica de compra (v25_factura_compra.sql)         // precio 2 y descuento por cliente (v24_precios_cliente.sql)         // devoluciones parciales (v23_devoluciones.sql)         // exoneración de IVA en ventas (v22_exoneracion.sql)
   // pestañas y pantallas: sin v17 todos los del panel las ven, como antes
   const soyAdministrador = () => !ACCESO || ACCESO.rol === "administrador";
@@ -430,7 +431,7 @@
     } else {
       // todas las preguntas a la base salen juntas (antes iban una por una y sumaban segundos)
       const probar = (q) => Promise.resolve(q).then((x) => x, (e) => ({ error: e }));
-      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22, r23, r24, r25, r27, r28, r29] = await Promise.all([
+      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22, r23, r24, r25, r27, r28, r29, r30] = await Promise.all([
         probar(db.from("avisos").select("id").limit(1)),
         probar(db.from("productos").select("codigo").limit(1)),
         probar(db.from("fe_emisor").select("*").eq("id", 1).maybeSingle()),
@@ -450,6 +451,7 @@
         probar(db.from("config_cobro").select("solo_admin").eq("id", 1).maybeSingle()),
         probar(db.from("config_ventas").select("descuento_max").eq("id", 1).maybeSingle()),
         probar(db.from("fe_correos").select("id").limit(1)),
+        esAdministradorReal() ? probar(db.from("respaldos_nube").select("id,fecha,ok,archivo,bytes,detalle").order("id", { ascending: false }).limit(20)) : { error: true },
         cargarCategorias()
       ]);
       V4 = r.error && U.esErrorRed(r.error) ? !!copia.leer().v4 : !r.error;
@@ -463,6 +465,8 @@
       if (r27.error && U.esErrorRed(r27.error)) { V27 = !!copia.leer().v27; COBRO_ADMIN = !!copia.leer().cobro_admin; }
       else { V27 = !r27.error; COBRO_ADMIN = V27 && !!r27.data?.solo_admin; copia.poner("v27", V27); copia.poner("cobro_admin", COBRO_ADMIN); }
       V29 = !r29.error;
+      V30 = !r30.error;
+      if (V30) setTimeout(() => pintarRespaldoNube(r30.data || []), 0);
       if (r28.error && U.esErrorRed(r28.error)) { V28 = !!copia.leer().v28; DESC_MAX = Number(copia.leer().desc_max ?? 15); }
       else { V28 = !r28.error; DESC_MAX = V28 ? Number(r28.data?.descuento_max ?? 15) : 15; copia.poner("v28", V28); copia.poner("desc_max", DESC_MAX); }
       // para poder abrir el panel sin internet con lo mismo que tiene la base
@@ -6338,6 +6342,26 @@
     const b = e.target.closest("[data-preg-estado]");
     if (b) { if (await estadoPregunta(Number(b.dataset.id), b.dataset.pregEstado)) toast(b.dataset.pregEstado === "archivada" ? "Pregunta archivada" : b.dataset.pregEstado === "respondida" ? "Marcada como respondida" : "Pregunta sin responder otra vez"); }
   });
+
+  // ---------- v30: respaldo automático en Google Drive (lo hace GitHub cada noche) ----------
+  function pintarRespaldoNube(filas) {
+    const el = $("#respaldoNube"), ok = filas.find((f) => f.ok), ult = filas[0];
+    el.hidden = false;
+    const hace = (f) => { const h = (Date.now() - new Date(f.fecha).getTime()) / 36e5; return h < 1 ? "hace menos de una hora" : h < 48 ? `hace ${Math.round(h)} horas` : `hace ${Math.round(h / 24)} días`; };
+    el.textContent = !ult ? "Respaldo automático en Google Drive: todavía no se ha hecho ninguno (vea RESPALDO.md para activarlo)."
+      : `Respaldo automático en Google Drive: ${ok ? `el último bueno fue ${hace(ok)} (${fechaCR(ok.fecha, { dateStyle: "medium", timeStyle: "short" })}, ${Math.max(1, Math.round((ok.bytes || 0) / 1024))} KB)` : "ninguno ha salido bien todavía"}.`
+        + (ult && !ult.ok ? ` El último intento falló: ${ult.detalle || "vea GitHub → Actions → Respaldo diario"}.` : "");
+    el.classList.toggle("msg--error", !!ult && (!ult.ok || !ok || Date.now() - new Date(ok.fecha).getTime() > 36 * 36e5));
+    // aviso arriba solo si ya estaba funcionando y dejó de hacerlo
+    if (!ult) return;
+    const viejo = !ok || Date.now() - new Date(ok.fecha).getTime() > 36 * 36e5;
+    if (!(viejo || !ult.ok)) return;
+    let b = $("#bandaRespaldo");
+    if (!b) { b = document.createElement("div"); b.id = "bandaRespaldo"; b.className = "banda-red"; b.setAttribute("role", "alert"); const red = $("#bandaRed"); if (red) red.after(b); else document.body.prepend(b); }
+    b.dataset.tipo = "error";
+    b.textContent = !ok ? "El respaldo automático en Google Drive no ha salido bien ninguna vez. Revise GitHub → Actions → Respaldo diario (y RESPALDO.md)."
+      : `El respaldo automático en Google Drive no se está haciendo: el último bueno fue ${hace(ok)}. ${!ult.ok ? (ult.detalle || "") + ". " : "GitHub pudo haberlo pausado: abra Actions → Respaldo diario → Enable workflow. "}Mientras tanto, descargue un respaldo a mano en Datos del negocio.`;
+  }
 
   // ---------- respaldo en la compu ----------
   const LS_RESPALDO = "lc_ultimo_respaldo_v1";
