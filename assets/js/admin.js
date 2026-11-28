@@ -113,12 +113,18 @@
   let V22 = false;
   let V23 = false;
   let V24 = false;
+  let MI_UID = null;       // id del usuario conectado
+  let V27 = false;         // interruptor "Solo el administrador cobra" (v27_cobra_admin.sql)
+  let COBRO_ADMIN = false; // el interruptor está encendido
   let V25 = false;         // factura electrónica de compra (v25_factura_compra.sql)         // precio 2 y descuento por cliente (v24_precios_cliente.sql)         // devoluciones parciales (v23_devoluciones.sql)         // exoneración de IVA en ventas (v22_exoneracion.sql)
   // pestañas y pantallas: sin v17 todos los del panel las ven, como antes
   const soyAdministrador = () => !ACCESO || ACCESO.rol === "administrador";
   // borrar ventas y cambiar roles: sin v17 se usa el rol de v16
   const esAdministradorReal = () => (ACCESO ? ACCESO.rol === "administrador" : !V16 || YO?.rol === "administrador");
   const puede = (p) => !ACCESO || ACCESO.rol === "administrador" || (ACCESO.permisos || []).includes(p);
+  // v27 "Solo el administrador cobra": un empleado no cobra ni verifica con internet (sin internet sí cobra)
+  const soloAdminCobra = () => V27 && COBRO_ADMIN && !esAdministradorReal();
+  const noCobraAqui = () => soloAdminCobra() && enLinea();
   const PERMISOS = [
     ["ventas", "Ventas y cobros"], ["anular", "Anular ventas"], ["caja", "Caja"], ["credito", "Crédito y abonos"],
     ["inventario", "Inventario (entradas)"], ["productos", "Productos y fotos"], ["precios", "Cambiar precios"],
@@ -406,6 +412,7 @@
     if (!sinRed) ponerLS(LS_PERMISO, { email: user.email, acceso: ACCESO, hasta: Date.now() + HORAS_SIN_RED * 3600 * 1000 });
     if (panelListo) return;
     panelListo = true;
+    MI_UID = user.id;
     idbProd.usuario(user.email || user.id);
     vigilarInactividad();
     pintarDiasHorario();
@@ -413,12 +420,13 @@
       const c = copia.leer(), vs = c.versiones || {};
       V4 = !!c.v4; V9 = !!c.v9;
       V10 = !!vs.V10; V12 = !!vs.V12; V13 = !!vs.V13; V14 = !!vs.V14; V18 = !!vs.V18; V19 = !!vs.V19;
+      V27 = !!c.v27; COBRO_ADMIN = V27 && !!c.cobro_admin;
       FE = c.fe || null;
       if (V13) cargarClientes();
     } else {
       // todas las preguntas a la base salen juntas (antes iban una por una y sumaban segundos)
       const probar = (q) => Promise.resolve(q).then((x) => x, (e) => ({ error: e }));
-      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22, r23, r24, r25] = await Promise.all([
+      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22, r23, r24, r25, r27] = await Promise.all([
         probar(db.from("avisos").select("id").limit(1)),
         probar(db.from("productos").select("codigo").limit(1)),
         probar(db.from("fe_emisor").select("*").eq("id", 1).maybeSingle()),
@@ -435,6 +443,7 @@
         probar(db.from("devoluciones").select("id").limit(1)),
         probar(db.from("productos").select("precio2").limit(1)),
         probar(db.from("fe_documentos").select("entrada_id").limit(1)),
+        probar(db.from("config_cobro").select("solo_admin").eq("id", 1).maybeSingle()),
         cargarCategorias()
       ]);
       V4 = r.error && U.esErrorRed(r.error) ? !!copia.leer().v4 : !r.error;
@@ -445,6 +454,8 @@
       V11 = !r11.error; V12 = !r12.error; V13 = !r13.error;
       if (V13) cargarClientes();
       V14 = !r14.error; V15 = !r15.error; V16 = !r16.error; V18 = !r18.error; V19 = !r19.error; V21 = !r21.error; V22 = !r22.error; V23 = !r23.error; V24 = !r24.error; V25 = !r25.error;
+      if (r27.error && U.esErrorRed(r27.error)) { V27 = !!copia.leer().v27; COBRO_ADMIN = !!copia.leer().cobro_admin; }
+      else { V27 = !r27.error; COBRO_ADMIN = V27 && !!r27.data?.solo_admin; copia.poner("v27", V27); copia.poner("cobro_admin", COBRO_ADMIN); }
       // para poder abrir el panel sin internet con lo mismo que tiene la base
       if (!r16.error || !U.esErrorRed(r16.error)) {
         copia.poner("versiones", { V10, V12, V13, V14, V18, V19 });
@@ -463,6 +474,7 @@
     // formas de pago de v18: sin la base nueva no se ofrecen; lo abonado en Moriah solo lo anota el administrador
     $$("option[data-v18]").forEach((o) => { if (!V18 || (o.hasAttribute("data-solo-admin") && !esAdministradorReal())) o.remove(); });
     $("#btnSaldosMoriah").hidden = !V18 || !esAdministradorReal();
+    pintarCobroConf(); vigilarCobros();
     $("#tabBit").hidden = !V16;
     if (V16 && soyAdministrador()) cargarUsuarios();
     document.documentElement.classList.toggle("sin-v13", !V13);
@@ -502,6 +514,7 @@
       if (navigator.onLine && (CAIDA || SIN_RED)) probarRed();
       enviarCola();
       if (enLinea()) prepararFESinRed();          // sin red de nuevo: solo revisa lo que le queda a esta compu
+      if (enLinea()) releerCobroConf().then(vigilarCobros);
       if (enLinea() && !$("#dlgVenta").open) {
         if (puede("ventas") || puede("caja")) { cargarVentas(); contarPorVerificar(); }
         if (puede("preguntas")) cargarPreguntas();
@@ -1515,7 +1528,7 @@
   }
   async function cargarVentas() {
     let qv = db.from("pedidos")
-      .select("id,codigo,origen,revisado,cliente_nombre,cliente_telefono,estado,estado_pago,total,pagado_registrado,pagado_verificado,created_at,pagos(metodo,monto,anulado,nota)" + (V13 ? ",credito,vence" : "") + (V18 ? ",apartado,apartado_vence" : ""));
+      .select("id,codigo,origen,revisado,cliente_nombre,cliente_telefono,estado,estado_pago,total,pagado_registrado,pagado_verificado,created_at,created_by,pagos(metodo,monto,anulado,nota)" + (V13 ? ",credito,vence" : "") + (V18 ? ",apartado,apartado_vence" : ""));
     if (V18) qv = qv.eq("saldo_inicial", false);       // lo que se debía en Moriah está en Crédito, no es venta
     const { data, error, deCopia } = await consulta("ventas", qv.order("created_at", { ascending: false }).limit(500));
     if (error) { pintarVentas(); return toast(errTxt(error), true); }
@@ -1537,9 +1550,104 @@
     $("#badgeApartados").hidden = !apVencidos; $("#badgeApartados").textContent = apVencidos || "";
     pintarCifras();
     pintarVentas();
+    avisarParaCobrar();
   }
 
   const esNuevo = (v) => v.estado !== "anulada" && (!v.revisado || compNuevos.has(v.id));
+
+  // ---------- v27: ventas que el administrador tiene que cobrar ----------
+  // de contado (o apartado sin ningún abono), hechas en el panel, abiertas y con saldo
+  const paraCobrar = (v) => v.origen !== "web" && v.estado === "abierta" && !v.credito && Number(v.total) > 0
+    && ["sin_pago", "parcial"].includes(v.estado_pago) && (!v.apartado || Number(v.pagado_registrado) <= 0);
+  const cobraAqui = () => V27 && COBRO_ADMIN && esAdministradorReal();
+  let vistosCobrar = null;
+  function avisarParaCobrar() {
+    const activo = cobraAqui();
+    $("#fParaCobrar").hidden = !activo;
+    if (!activo) {
+      vistosCobrar = null; $("#badgeParaCobrar").hidden = true;
+      if (filtroVenta === "para_cobrar") $("#filtroVentas [data-f=nuevos]").click();
+      return;
+    }
+    const l = ventas.filter(paraCobrar);
+    $("#badgeParaCobrar").hidden = !l.length;
+    $("#badgeParaCobrar").textContent = l.length || "";
+    const nuevas = vistosCobrar ? l.filter((v) => !vistosCobrar.has(v.id) && v.created_by !== MI_UID) : [];
+    vistosCobrar = new Set([...(vistosCobrar || []), ...l.map((v) => v.id)]);
+    if (!nuevas.length) return;
+    sonarCobro();
+    const txt = nuevas.length === 1 ? `Para cobrar: ${nuevas[0].cliente_nombre} · ${fmt(nuevas[0].total)}` : `${nuevas.length} ventas nuevas para cobrar`;
+    toast(txt + " (Ventas › Para cobrar)");
+    try {
+      if (document.hidden && "Notification" in window && Notification.permission === "granted") {
+        const n = new Notification("La Campiña · Para cobrar", { body: txt, icon: "assets/img/icono-192.png", tag: "para-cobrar" });
+        n.onclick = () => { window.focus(); irAParaCobrar(); n.close(); };
+      }
+    } catch { /* sin avisos del sistema */ }
+  }
+  function irAParaCobrar() {
+    $("#tabVen")?.click();
+    $("#filtroVentas [data-f=para_cobrar]")?.click();
+  }
+  let audioCobro = null;
+  function sonarCobro() {
+    try {
+      audioCobro = audioCobro || new (window.AudioContext || window.webkitAudioContext)();
+      const ac = audioCobro; if (ac.state === "suspended") ac.resume();
+      [[880, 0], [1320, 0.18]].forEach(([hz, t]) => {
+        const o = ac.createOscillator(), g = ac.createGain();
+        o.frequency.value = hz; o.type = "sine";
+        g.gain.setValueAtTime(0.0001, ac.currentTime + t);
+        g.gain.exponentialRampToValueAtTime(0.3, ac.currentTime + t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + t + 0.16);
+        o.connect(g).connect(ac.destination); o.start(ac.currentTime + t); o.stop(ac.currentTime + t + 0.17);
+      });
+    } catch { /* sin sonido */ }
+  }
+  // la compu del administrador se entera al momento de cada venta (además de la revisión de cada minuto)
+  let canalCobro = null, tCanalCobro = null;
+  function vigilarCobros() {
+    const activo = cobraAqui() && !SIN_RED;
+    if (!activo) { if (canalCobro) { try { db.removeChannel(canalCobro); } catch { /* ya cerrado */ } canalCobro = null; } return; }
+    if (canalCobro) return;
+    try {
+      canalCobro = db.channel("para-cobrar")
+        .on("postgres_changes", { event: "*", schema: "public", table: "pedidos" }, () => {
+          clearTimeout(tCanalCobro);
+          tCanalCobro = setTimeout(() => { if (enLinea()) cargarVentas(); }, 1500);   // la venta termina de guardarse (renglones y total)
+        })
+        .subscribe();
+    } catch { canalCobro = null; }
+  }
+  // el interruptor (Datos del negocio): lo cambia el administrador; los demás lo leen cada minuto
+  function pintarCobroConf() {
+    const f = $("#formCobro");
+    f.hidden = !V27 || !esAdministradorReal();
+    f.solo_admin.checked = COBRO_ADMIN;
+  }
+  async function releerCobroConf() {
+    if (!V27 || !enLinea()) return;
+    let r; try { r = await db.from("config_cobro").select("solo_admin").eq("id", 1).maybeSingle(); } catch { return; }
+    if (r.error || !r.data) return;
+    const antes = COBRO_ADMIN;
+    COBRO_ADMIN = !!r.data.solo_admin; copia.poner("cobro_admin", COBRO_ADMIN);
+    if (antes !== COBRO_ADMIN) {
+      pintarCobroConf(); vigilarCobros(); avisarParaCobrar();
+      if (!esAdministradorReal()) toast(COBRO_ADMIN ? "El administrador encendió “Solo el administrador cobra”: las ventas se mandan a cobrar." : "Ya puede cobrar otra vez: el administrador apagó “Solo el administrador cobra”.");
+      if ($("#dlgVenta").open && V) pintarVenta();
+    }
+  }
+  $("#formCobro").solo_admin.addEventListener("change", async (e) => {
+    const quiere = e.target.checked, msg = $("#cobroMsg");
+    msg.className = "msg"; msg.textContent = "Guardando…";
+    const { data, error } = await db.rpc("poner_solo_admin_cobra", { p_activo: quiere });
+    if (error) { e.target.checked = !quiere; msg.className = "msg msg--error"; msg.textContent = errTxt(error); return; }
+    COBRO_ADMIN = !!data; copia.poner("cobro_admin", COBRO_ADMIN);
+    msg.textContent = COBRO_ADMIN ? "Encendido: solo los administradores cobran. Las ventas de la caja le llegan a Ventas › Para cobrar." : "Apagado: todos los que tienen permiso de ventas pueden cobrar.";
+    if (COBRO_ADMIN && "Notification" in window && Notification.permission === "default") { try { Notification.requestPermission(); } catch { /* sin avisos */ } }
+    if (COBRO_ADMIN) sonarCobro();          // de una vez queda permitido el sonido en esta compu
+    vigilarCobros(); avisarParaCobrar();
+  });
 
   // ---------- cómo queda una venta con lo que se hizo sin internet y todavía no se envía ----------
   const estadoPagoDe = (total, reg, ver) => (reg <= 0 ? "sin_pago" : reg < total ? "parcial" : ver < reg ? "por_verificar" : reg > total ? "sobrepago" : "pagado");
@@ -1636,6 +1744,7 @@
   function pintarVentas() {
     const q = $("#vBuscar").value.trim().toLowerCase();
     const pasa = {
+      para_cobrar: paraCobrar,
       nuevos: esNuevo,
       cobrar: (v) => v.estado === "abierta" && ["sin_pago", "parcial"].includes(v.estado_pago),
       por_verificar: (v) => v.estado !== "anulada" && Number(v.pagado_registrado) > Number(v.pagado_verificado),
@@ -1681,12 +1790,13 @@
             ${esApartado(v) ? `<span class="etq">Apartado${v.apartado_vence ? " · hasta " + U.esc(fechaCorta(v.apartado_vence)) : ""}</span>` : ""}
             ${apartadoVencido(v) ? '<span class="etq etq--error">Se pasó la fecha</span>' : ""}
             ${v.pendiente ? etqPendientes(acciones.deVenta({ id: v.id })) : ""}
+            ${cobraAqui() && paraCobrar(v) ? '<span class="etq etq--por_verificar">Para cobrar</span>' : ""}
           </span>
         </div>
         <div class="fila__monto"><b>${fmt(v.total)}</b>${comoPago(v)}${v.estado !== "anulada" && saldo > 0 ? `<small>Falta ${fmt(saldo)}</small>` : ""}</div>
         <div class="fila__acc"><button type="button" class="btn btn--sm btn--linea" data-ver-venta="${v.id}">Abrir</button></div>
       </li>`;
-    }).join("") || (locales.length ? "" : `<li class="vacio-adm">${filtroVenta === "nuevos" ? "No hay pedidos nuevos. Los pedidos que hagan los clientes en la página aparecen aquí." : filtroVenta === "todas" ? "Todavía no hay ventas." : filtroVenta === "apartados" ? "No hay apartados pendientes. Para apartar, abra una venta y escoja <b>Apartado</b>." : "No hay ventas en este grupo."}</li>`));
+    }).join("") || (locales.length ? "" : `<li class="vacio-adm">${filtroVenta === "nuevos" ? "No hay pedidos nuevos. Los pedidos que hagan los clientes en la página aparecen aquí." : filtroVenta === "todas" ? "Todavía no hay ventas." : filtroVenta === "apartados" ? "No hay apartados pendientes. Para apartar, abra una venta y escoja <b>Apartado</b>." : filtroVenta === "para_cobrar" ? "No hay nada para cobrar. Cuando la caja mande una venta, aparece aquí con un sonido." : "No hay ventas en este grupo."}</li>`));
   }
 
   $("#filtroVentas").addEventListener("click", (e) => {
@@ -1884,7 +1994,7 @@
       for (const rec of l) {
         if (V && V.local === rec.id && V.dirty) continue;          // la está editando: se manda después
         let r;
-        try { r = await conTiempo(db.rpc("registrar_venta_sin_internet", { p_id: rec.id, p_venta: rec.venta }), 20000); } catch (e) { r = { error: e }; }
+        try { r = await conTiempo(db.rpc("registrar_venta_sin_internet", { p_id: rec.id, p_venta: { ...rec.venta, sin_internet: true } }), 20000); } catch (e) { r = { error: e }; }
         if (r.error && U.esErrorRed(r.error)) { sinSenal(r.error); break; }
         if (r.error && r.error.code === "PGRST202") {
           V5 = false;
@@ -1925,7 +2035,7 @@
   const quedaEnHacienda = (d) => (d.estado === "rechazado" ? { listo: true } : d.estado === "aceptado" ? { listo: true, aceptado: true } : { listo: false });
   const ENVIAR = {
     async pago(a, id) {
-      const r = await db.from("pagos").insert({ ...a.datos, pedido_id: id, offline_id: a.id }).select("id").single();
+      const r = await db.from("pagos").insert({ ...a.datos, pedido_id: id, offline_id: a.id, ...(V27 ? { sin_internet: true } : {}) }).select("id").single();
       if (r.error?.code === "23505") return /offline/.test(r.error.message) ? {} : { error: { message: `El comprobante ${a.datos.referencia || ""} ya está registrado en otra venta.` } };
       return r.error ? { error: r.error } : {};
     },
@@ -1980,7 +2090,7 @@
       return r.error ? { error: r.error } : {};
     },
     async abono(a) {
-      const { error } = await db.rpc("registrar_abono", { p: { ...a.datos, offline_id: a.id } });
+      const { error } = await db.rpc("registrar_abono", { p: { ...a.datos, offline_id: a.id, sin_internet: true } });
       return error ? { error } : {};
     },
     async verificar_abono(a) {
@@ -2175,7 +2285,7 @@
       </div>
       <div class="pago__acc">
         <button type="button" class="btn btn--sm btn--linea" data-comp="${U.esc(c.ruta)}">Ver comprobante</button>
-        ${c.estado === "nuevo" && p && p.estado !== "anulada" ? `<button type="button" class="btn btn--sm btn--negro" data-registrar-comp="${c.id}">Registrar como pago</button>
+        ${c.estado === "nuevo" && p && p.estado !== "anulada" && !noCobraAqui() ? `<button type="button" class="btn btn--sm btn--negro" data-registrar-comp="${c.id}">Registrar como pago</button>
         <button type="button" class="enlace enlace--peligro" data-rechazar-comp="${c.id}">Rechazar</button>` : ""}
       </div>
     </li>`).join("");
@@ -2223,7 +2333,7 @@
     // el registro a mano de una factura hecha en otro sistema solo se ve si la venta ya tiene uno
     $("#boxFactura").hidden = !p || !V4 || (V10 && !!FE?.activo) || !V.factura || !!V.copia || (!!V.local && !V19) || !!p.saldo_inicial;
     if (!$("#boxFactura").hidden) pintarFactura();
-    $("#boxFE").hidden = !p || !V10 || !FE?.activo || !!p.saldo_inicial;
+    $("#boxFE").hidden = (!p && !(noCobraAqui() && V.cond === "contado")) || !V10 || !FE?.activo || !!p?.saldo_inicial;
     if (!$("#boxFE").hidden) pintarFEVenta();
     $("#btnAnularVenta").hidden = !p || p.estado === "anulada" || !puede("anular");
     pintarDevoluciones();
@@ -2263,6 +2373,7 @@
     cola.guardar(rec); abrirLocal(rec.id); pintarVentas();
   });
 
+  const nombreUsuario = (uid) => { const u = uid && USUARIOS.find((x) => x.user_id === uid); return u ? u.nombre || u.usuario || u.correo || "" : ""; };
   function pagoHTML(g) {
     const red = enLinea();
     const estado = g.anulado
@@ -2281,11 +2392,11 @@
         ${g.nombre_origen || g.telefono_origen ? `<span>De ${U.esc(g.nombre_origen || "")} ${U.esc(g.telefono_origen || "")}</span>` : ""}
         ${g.nota ? `<span>${U.esc(g.nota)}</span>` : ""}
         <span>${fechaCR(g.fecha)}</span>
-        <span>${estado}</span>
+        <span>${estado}${g.sin_internet ? ` <span class="etq">Cobrado sin internet${nombreUsuario(g.created_by) ? " · " + U.esc(nombreUsuario(g.created_by)) : ""}</span>` : ""}</span>
       </div>
       <div class="pago__acc">
         ${g.comprobante_path && red ? `<button type="button" class="btn btn--sm btn--linea" data-comp="${U.esc(g.comprobante_path)}">Ver comprobante</button>` : ""}
-        ${!g.anulado && !g.verificado ? `<button type="button" class="btn btn--sm btn--negro" data-verificar="${g.id}" data-monto="${g.monto}" data-ref="${U.esc(g.referencia || "")}">Ya lo vi en el banco</button>` : ""}
+        ${!g.anulado && !g.verificado && !soloAdminCobra() ? `<button type="button" class="btn btn--sm btn--negro" data-verificar="${g.id}" data-monto="${g.monto}" data-ref="${U.esc(g.referencia || "")}">Ya lo vi en el banco</button>` : ""}
         ${!g.anulado && !g.pendiente && red ? `<button type="button" class="enlace enlace--peligro" data-anular-pago="${g.id}">Anular</button>` : ""}
         ${g.pendiente && !V.local ? `<button type="button" class="enlace enlace--peligro" data-quitar-pago-pend="${U.esc(String(g.id).slice(4))}">Quitar</button>` : ""}
       </div>
@@ -2564,8 +2675,10 @@
     } finally { btn.disabled = false; }
   }
   $("#btnGuardarVenta").addEventListener("click", async () => {
-    const paraDespues = !V.pedido && V.cond === "contado";
+    const paraDespues = !V.pedido && V.cond === "contado", aCobrar = paraDespues && noCobraAqui();
     if (!(await guardarVenta())) return;
+    if (aCobrar && V.local) { $("#dlgVenta").close(); toast("Se cayó el internet: la venta quedó en esta compu. Sin internet puede cobrarla usted (Ventas, arriba)."); return; }
+    if (aCobrar) { $("#dlgVenta").close(); toast("Enviada a cobrar. Le aparece al administrador en Ventas › Para cobrar."); return; }
     if (paraDespues) { $("#dlgVenta").close(); toast("Guardada para después. La encuentra en Ventas › Por cobrar."); }
   });
   // clic afuera de una ventana = tocar su botón de cerrar (así cada una hace su propia pregunta si hay algo sin guardar)
@@ -3060,14 +3173,15 @@
           ${ab.anulado ? `<span><span class="etq">Anulado</span> ${U.esc(ab.motivo_anulacion || "")}</span>` : sinVer ? '<span class="etq etq--por_verificar">Por verificar</span>' : `<span class="etq etq--pagado">Recibido</span>${verPend.has(Number(ab.id)) ? ' <span class="etq etq--por_verificar">Por enviar</span>' : ""}`}
           ${ab.nota ? `<span>${U.esc(ab.nota)}</span>` : ""}
         </div>
-        <div class="pago__acc">${ab.anulado ? "" : `${sinVer ? `<button type="button" class="btn btn--sm btn--negro" data-verificar-abono="${ab.id}">Ya lo vi en el banco</button>` : ""}${enLinea() ? `<button type="button" class="enlace enlace--peligro" data-anular-abono="${ab.id}">Anular</button>` : ""}`}</div>
+        <div class="pago__acc">${ab.anulado ? "" : `${sinVer && !soloAdminCobra() ? `<button type="button" class="btn btn--sm btn--negro" data-verificar-abono="${ab.id}">Ya lo vi en el banco</button>` : ""}${enLinea() ? `<button type="button" class="enlace enlace--peligro" data-anular-abono="${ab.id}">Anular</button>` : ""}`}</div>
       </li>`;
     }).join("") || `<li class="vacio-adm">Todavía no hay abonos.</li>`;
     const fa = $("#formAbono");
     fa.monto.max = CLI.saldo || "";
     $("#btnAbonoTodo").textContent = `Todo lo que debe (${fmt(CLI.saldo)})`;
     $("#btnAbonoTodo").disabled = !(Number(CLI.saldo) > 0);
-    $("#boxAbono").hidden = !(Number(CLI.saldo) > 0);
+    $("#boxAbono").hidden = !(Number(CLI.saldo) > 0) || noCobraAqui();     // v27: con internet los abonos los recibe el administrador
+    $("#abonoSoloAdmin").hidden = !(Number(CLI.saldo) > 0 && noCobraAqui());
   }
   $("#cliSoloSaldo").addEventListener("change", pintarCuentaCliente);
   $("#cliVentas").addEventListener("click", (e) => {
@@ -3127,6 +3241,7 @@
     const monto = Number(f.monto.value), ref = f.referencia.value.trim();
     msg.className = "msg msg--error";
     if (!(monto > 0)) { msg.textContent = "Escriba el monto."; return; }
+    if (noCobraAqui()) { msg.textContent = "Los abonos los recibe el administrador."; return; }
     if (monto > Number(CLI.saldo) + 0.001) { msg.textContent = `Debe ${fmt(CLI.saldo)}: el abono no puede ser mayor.`; return; }
     if (["sinpe", "transferencia", "cheque"].includes(f.metodo.value) && !ref) { msg.textContent = f.metodo.value === "cheque" ? "Ponga el número del cheque." : "Ponga el número de comprobante."; return; }
     const fecha = f.fecha.value ? new Date(f.fecha.value + ":00-06:00").toISOString() : null;
@@ -3517,6 +3632,18 @@
       </li>`;
     }).join("") || `<li class="vacio-adm">Esta venta todavía no tiene comprobante electrónico.</li>`;
     const vig = feVigente(), anulada = V.pedido?.estado === "anulada";
+    // v27: con "Solo el administrador cobra", el empleado deja los datos y el comprobante sale cuando el administrador cobra
+    const alCobrar = noCobraAqui() && !V.local && !vig && !anulada && V.cond !== "credito" && !V.pedido?.credito;
+    $("#feAlCobrar").hidden = !alCobrar;
+    if (alCobrar) {
+      $("#feEmitir").hidden = true; $("#feSinRedInfo").hidden = true;
+      $("#feAlCobrarTxt").textContent = V.factura
+        ? `Factura a nombre de ${V.factura.nombre} (${V.factura.identificacion}). Sale sola cuando el administrador cobre.`
+        : V.exo ? "Esta venta tiene exoneración: ponga los datos de la factura. Sale sola cuando el administrador cobre."
+        : "El tiquete sale solo cuando el administrador cobre. Si el cliente quiere factura, ponga sus datos.";
+      $("#btnFEPideFactura").textContent = V.factura ? "Cambiar datos de la factura" : "El cliente pide factura";
+      return;
+    }
     $("#feEmitir").hidden = !!vig || anulada;
     $("#btnFEFactura").disabled = false;
     // sin internet el comprobante se hace aquí con su clave y se firma y manda al volver la señal
@@ -3568,6 +3695,25 @@
     if (!(await asegurarCabys(V.items))) return;
     accionFE({ accion: "emitir", pedido_id: V.pedido.id, tipo: "04", ...plazoFE() }, "Firmando y enviando el tiquete a Hacienda…");
   });
+  $("#btnFEPideFactura").addEventListener("click", async () => {
+    // venta nueva: primero se guarda (así los datos quedan con ella)
+    if (!V.pedido || V.dirty) { if (!(await guardarVenta())) return; }
+    if (V.local) return abrirReceptor();       // se cayó el internet: sigue como venta sin internet
+    abrirReceptor(true);
+  });
+  // v27: el administrador cobró la venta completa: sale el comprobante (factura si dejaron los datos, si no tiquete)
+  async function comprobanteAlCobrar() {
+    const p = V?.pedido;
+    if (!cobraAqui() || !V10 || !FE?.activo || !p || V.local || !enLinea() || p.estado === "anulada" || p.credito || p.saldo_inicial) return;
+    if (Number(p.pagado_registrado) + 0.005 < Number(p.total) || feVigente()) return;
+    if (V.factura && V.factura.estado === "pendiente") {
+      if (!(await asegurarCabys(V.items))) return;
+      return accionFE({ accion: "emitir", pedido_id: p.id, tipo: "01", ...plazoFE() }, "Firmando y enviando la factura a Hacienda…");
+    }
+    if (V.exo) return abrirReceptor();             // con exoneración solo factura: se piden los datos
+    if (!(await asegurarCabys(V.items))) return;
+    return accionFE({ accion: "emitir", pedido_id: p.id, tipo: "04", ...plazoFE() }, "Firmando y enviando el tiquete a Hacienda…");
+  }
   $("#btnFEFactura").addEventListener("click", async () => {
     if (V.dirty && !V.local) return accionFE({}, "");
     if ((!enLinea() || V.local) && V.factura) return hacerFESinRed("01");
@@ -3806,10 +3952,14 @@
 
   // ---------- datos del cliente para la factura ----------
   const RE_ID = { fisica: /^[1-9][0-9]{8}$/, juridica: /^[0-9]{10}$/, dimex: /^[0-9]{11,12}$/, nite: /^[0-9]{10}$/ };
-  let recepAuto = false;          // el nombre lo puso Hacienda (si cambia la cédula, se cambia)
-  function abrirReceptor() {
+  let recepAuto = false;
+  let recepSoloGuardar = false;   // v27: el empleado deja los datos; la factura sale cuando el administrador cobra          // el nombre lo puso Hacienda (si cambia la cédula, se cambia)
+  function abrirReceptor(soloGuardar = false) {
     const f = $("#formReceptor"), fac = V.factura, cli = V.credCli;
-    f.reset(); recepAuto = false;
+    f.reset(); recepAuto = false; recepSoloGuardar = soloGuardar;
+    const be = $("#btnRecepEmitir");
+    be.dataset.txt = be.dataset.txt || be.textContent;
+    be.textContent = soloGuardar ? "Guardar datos de la factura" : be.dataset.txt;
     $("#recepMsg").textContent = ""; $("#recepBusca").textContent = ""; $("#recepBusca").className = "ayuda recep-busca";
     const nom = V.pedido?.cliente_nombre && V.pedido.cliente_nombre !== CLIENTE_CONTADO ? V.pedido.cliente_nombre : "";
     if (fac) { f.tipo_id.value = fac.tipo_id || "fisica"; f.identificacion.value = fac.identificacion || ""; f.nombre.value = fac.nombre || ""; f.correo.value = fac.correo || ""; }
@@ -3865,6 +4015,17 @@
         return hacerFESinRed("01");
       }
       if (!enLinea()) { msg.textContent = "Sin internet: la factura de una venta ya enviada se hace cuando vuelva la conexión."; return; }
+      if (recepSoloGuardar) {
+        const g = V.factura
+          ? await db.from("facturas").update({ ...d, estado: "pendiente" }).eq("id", V.factura.id).select().single()
+          : await db.from("facturas").insert({ ...d, pedido_id: V.pedido.id, solicitada_por: "panel" }).select().single();
+        if (g.error) { msg.textContent = errTxt(g.error); return; }
+        V.factura = g.data;
+        $("#dlgReceptor").close();
+        toast("Datos de la factura guardados. La factura sale cuando el administrador cobre.");
+        pintarFEVenta();
+        return;
+      }
       const r = V.factura
         ? await db.from("facturas").update({ ...d, estado: "pendiente" }).eq("id", V.factura.id).select().single()
         : await db.from("facturas").insert({ ...d, pedido_id: V.pedido.id, solicitada_por: "panel" }).select().single();   // estado: pendiente por defecto
@@ -5729,6 +5890,15 @@
     const credListo = cred && !!p && !!p.credito && !V.dirty && !V.local;
     $("#boxPago").hidden = !pend || (cred && !(credListo && V.abonoAbierto));
     $("#btnAbonar").hidden = !(pend && credListo && !V.abonoAbierto);
+    // v27: con internet, el empleado manda la venta a cobrar y el administrador cobra
+    const bloq = noCobraAqui(), caja = $("#boxCobraAdmin");
+    if (bloq) { $("#boxPago").hidden = true; $("#btnAbonar").hidden = true; }
+    caja.hidden = !(bloq && pend && (!cred || credListo));
+    if (!caja.hidden) {
+      $("#cobraAdminTxt").textContent = cred ? "Los abonos los recibe el administrador."
+        : !p ? "Esta venta la cobra el administrador. Toque “Enviar a cobrar” y le aparece en su compu al momento."
+        : "Enviada a cobrar: le aparece al administrador en Ventas › Para cobrar. Si cambia algo, toque “Guardar cambios”.";
+    }
     $("#boxPago .cobro__tit").textContent = cred ? "Abono" : "Cobrar";
     if (fp.dataset.montoAuto !== "0") fp.monto.value = cred ? "" : saldo || "";
     pintarVuelto();
@@ -5740,9 +5910,10 @@
     const aCredito = V.cond === "credito" && (!p || !p.credito || !!V.local);
     const fuerte = aCredito || (!p && V.cond !== "contado");
     const total = V.items ? V.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio_unit) || 0), 0) : 0;
+    const aCobrar = !p && V.cond === "contado" && noCobraAqui();      // v27: el empleado la manda al administrador
     g.textContent = aCredito ? `Guardar a crédito${total > 0 ? " " + fmt(total) : ""}` : p ? "Guardar cambios"
-      : V.cond === "apartado" ? "Guardar apartado" : "Guardar para después";
-    g.className = `btn ${aCredito ? "btn--cobrar" : fuerte ? "btn--negro" : "btn--linea"}`;
+      : V.cond === "apartado" ? "Guardar apartado" : aCobrar ? `Enviar a cobrar${total > 0 ? " " + fmt(total) : ""}` : "Guardar para después";
+    g.className = `btn ${aCredito || aCobrar ? "btn--cobrar" : fuerte ? "btn--negro" : "btn--linea"}`;
     g.hidden = !!V.copia || p?.estado === "anulada" || (!!p && !V.dirty);
   }
   $("#btnAbonar").addEventListener("click", () => {
@@ -5917,6 +6088,7 @@
       toast(d.verificado ? `Cobrado ${fmt(d.monto)}` : "Cobro anotado. Queda por verificar en el banco.");
       await abrirVenta(p.id);
       cargarVentas(); contarPorVerificar();
+      if (cobraAqui() && V10 && FE?.activo) { await comprobanteAlCobrar(); return; }
       // pagada: lo siguiente es el comprobante
       const sig = ["#btnFETiquete", "#btnFEFactura"].map((x) => $(x)).find((b) => b && !b.hidden && !b.disabled && b.offsetParent);
       if (sig) { sig.scrollIntoView({ block: "center", behavior: "smooth" }); sig.focus({ preventScroll: true }); }
@@ -6507,7 +6679,7 @@
       </div>
       <div class="fila__acc">
         ${g.comprobante_path ? `<button type="button" class="btn btn--sm btn--linea" data-comp="${U.esc(g.comprobante_path)}">Comprobante</button>` : ""}
-        ${!g.anulado && !g.verificado ? `<button type="button" class="btn btn--sm btn--negro" data-verificar="${g.id}" data-monto="${g.monto}" data-ref="${U.esc(g.referencia || "")}">Ya lo vi en el banco</button>` : ""}
+        ${!g.anulado && !g.verificado && !soloAdminCobra() ? `<button type="button" class="btn btn--sm btn--negro" data-verificar="${g.id}" data-monto="${g.monto}" data-ref="${U.esc(g.referencia || "")}">Ya lo vi en el banco</button>` : ""}
         <button type="button" class="enlace" data-ver-venta="${g.pedidos?.id}">Ver venta</button>
       </div>
     </li>`;
@@ -6647,6 +6819,12 @@
     r.innerHTML = html;
     const img = r.querySelector("img");
     await Promise.all([listoCss, img ? esperar(img, img.complete) : null]);
+    // en el programa de escritorio (carpeta escritorio/) sale directo a la impresora, sin la ventana de imprimir
+    if (window.lcEscritorio?.imprimir) {
+      const r = await window.lcEscritorio.imprimir().catch((e) => ({ ok: false, error: e?.message }));
+      if (r && !r.ok && r.error && !/cancel/i.test(r.error)) toast("No se pudo imprimir: " + r.error + ". Revise la impresora en el menú Impresora (tecla Alt).", true);
+      return;
+    }
     window.print();
   }
   // saldo al día del cliente de crédito, para ponerlo en el recibo (si no hay internet, sale sin él)

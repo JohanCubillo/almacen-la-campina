@@ -600,6 +600,12 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 .cobro { margin-top: .75rem; background: var(--fondo-2); border: 0; }
 .cobro__form { display: grid; gap: .9rem; }
 .cobro__tit { margin: 0; font-family: var(--base); font-weight: 600; font-size: 1.2rem; }
+/* v27: la venta la cobra el administrador */
+.cobra-admin { margin-top: .75rem; background: var(--fondo-2); border: 0; border-left: 4px solid var(--cinta); display: grid; gap: .35rem; }
+.cobra-admin p { margin: 0; color: var(--texto); }
+#feAlCobrar { display: grid; gap: .5rem; justify-items: start; }
+#feAlCobrar[hidden] { display: none; }
+#feAlCobrarTxt { margin: 0; }
 .cobro__metodos { display: flex; flex-wrap: wrap; gap: .45rem; }
 .cobro__chip { font: 600 1rem var(--base); padding: .6em 1.15em; border-radius: 99px; border: 1.5px solid var(--borde); background: #fff; color: var(--texto); cursor: pointer; min-height: 44px; }
 .cobro__chip:hover { border-color: var(--negro); }

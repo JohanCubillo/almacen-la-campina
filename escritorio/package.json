@@ -1,0 +1,35 @@
+{
+  "name": "la-campina-escritorio",
+  "productName": "La Campiña",
+  "version": "1.0.0",
+  "description": "Panel de Almacén La Campiña como programa de Windows (imprime directo a la impresora).",
+  "author": "Almacén La Campiña",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "exe": "electron-builder --win nsis --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "38.x",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "cr.almacenlacampina.panel",
+    "productName": "La Campiña",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["main.js", "preload.js", "sin-internet.html", "build/icon.png"],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "La Campiña",
+      "artifactName": "LaCampina-Setup.${ext}"
+    }
+  }
+}

@@ -1,0 +1,60 @@
+# Arma el instalador de Windows (LaCampina-Setup.exe) del programa de escritorio.
+# Corre solo cuando cambia algo en escritorio/ o a mano (Actions → "Programa de escritorio" → Run workflow).
+# El instalador queda publicado en Releases; el enlace de descarga siempre es el mismo:
+#   https://github.com/JohanCubillo/almacen-la-campina/releases/latest/download/LaCampina-Setup.exe
+name: Programa de escritorio
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "escritorio/**"
+      - ".github/workflows/escritorio.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: escritorio
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar Electron
+        run: npm install --no-audit --no-fund
+
+      - name: Armar el instalador
+        run: npm run exe
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"   # sin certificado de firma (Windows muestra el aviso azul la primera vez)
+
+      - name: Leer la versión
+        id: version
+        shell: bash
+        run: echo "v=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Guardar el instalador (Actions → esta corrida → Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: LaCampina-Setup
+          path: escritorio/dist/LaCampina-Setup.exe
+
+      - name: Publicar en Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: escritorio-v${{ steps.version.outputs.v }}
+          name: Programa de escritorio ${{ steps.version.outputs.v }}
+          make_latest: true
+          body: |
+            Instalador del panel de Almacén La Campiña para Windows.
+            Descargue **LaCampina-Setup.exe**, ábralo y listo: queda el ícono en el escritorio.
+            La primera vez Windows puede decir "Windows protegió su PC": toque *Más información* → *Ejecutar de todas formas*.
+          files: escritorio/dist/LaCampina-Setup.exe

@@ -143,6 +143,7 @@
         <div class="espera" id="ventasEspera" hidden aria-label="Ventas en espera"></div>
         <dl class="cifras" id="cifrasVentas"></dl>
         <div class="segmentos" role="radiogroup" aria-label="Filtrar ventas" id="filtroVentas">
+          <button type="button" role="radio" aria-checked="false" data-f="para_cobrar" id="fParaCobrar" hidden>Para cobrar <span class="badge" id="badgeParaCobrar" hidden></span></button>
           <button type="button" role="radio" aria-checked="true" data-f="nuevos">Nuevos <span class="badge" id="badgeNuevos" hidden></span></button>
           <button type="button" role="radio" aria-checked="false" data-f="cobrar">Por cobrar</button>
           <button type="button" role="radio" aria-checked="false" data-f="por_verificar">Por verificar</button>
@@ -499,6 +500,16 @@
           <p class="msg" id="ajMsg" role="status"></p>
         </form>
 
+        <form id="formCobro" class="tarjeta ajustes" novalidate hidden>
+          <fieldset>
+            <legend>Quién cobra</legend>
+            <label class="check"><input type="checkbox" name="solo_admin" /> Solo el administrador cobra</label>
+            <p class="ayuda">Encendido: los empleados (la caja) arman la venta y los datos de la factura y tocan <b>Enviar a cobrar</b>. La venta le aparece al administrador al momento en <b>Ventas › Para cobrar</b>, con un sonido. Solo el administrador registra pagos y abonos y marca “Ya lo vi en el banco”, y el tiquete o la factura electrónica sale solo cuando él cobra. Las ventas a crédito las sigue haciendo el empleado.</p>
+            <p class="ayuda">Sin internet el empleado sí puede cobrar (la venta no le puede llegar al administrador): esos pagos quedan marcados <b>Cobrado sin internet</b> con su nombre.</p>
+          </fieldset>
+          <p class="msg" id="cobroMsg" role="status"></p>
+        </form>
+
         <form id="formAvisos" class="tarjeta ajustes v4" novalidate>
           <fieldset>
             <legend>Avisos por Telegram</legend>
@@ -803,6 +814,7 @@
           </table>
         </div>
 
+        <p class="ayuda tarjeta" id="abonoSoloAdmin" hidden>Los abonos los recibe el administrador (Datos del negocio › Solo el administrador cobra). Sin internet sí puede recibirlos usted.</p>
         <details class="tarjeta registrar" id="boxAbono">
           <summary>Registrar abono</summary>
           <form id="formAbono" class="registrar__form" novalidate>
@@ -1329,6 +1341,11 @@
       </section>
 
 
+      <section class="tarjeta cobra-admin" id="boxCobraAdmin" hidden>
+        <h3 class="cobro__tit">Cobra el administrador</h3>
+        <p id="cobraAdminTxt"></p>
+      </section>
+
       <div class="venta__guardar">
         <button type="button" class="btn btn--linea" id="btnGuardarVenta">Guardar para después</button>
         <button type="button" class="btn btn--linea" id="btnAbonar" hidden>Recibir un abono</button>
@@ -1378,6 +1395,10 @@
       <section class="v10" id="boxFE" hidden>
         <h3 class="subt">Comprobante electrónico</h3>
         <ul class="pagos" id="feDocs"></ul>
+        <div id="feAlCobrar" hidden>
+          <p class="ayuda" id="feAlCobrarTxt"></p>
+          <button type="button" class="btn btn--sm btn--linea" id="btnFEPideFactura">El cliente pide factura</button>
+        </div>
         <div class="form-linea__btns" id="feEmitir">
           <button type="button" class="btn btn--sm btn--negro" id="btnFETiquete">Emitir tiquete</button>
           <button type="button" class="btn btn--sm btn--linea" id="btnFEFactura">Emitir factura</button>

@@ -32,6 +32,7 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 18. **SQL Editor → New query** → pegar `supabase/v19_sin_internet.sql` → **Run** (después de v18). Trabajar **sin internet**: crédito, apartados, abonos, caja y comprobantes electrónicos que se mandan solos al volver la conexión. Ver *Sin internet* más abajo.
 18b. **SQL Editor → New query** → pegar `supabase/v20_actividad_caecr.sql` → **Run**. Acepta el código de actividad como lo da TRIBU-CR (ej. `6201.0`).
 18c. **SQL Editor → New query** → pegar `supabase/v21_compras_ajustes.sql` → **Run** (después de v20). Salidas y conteos de inventario, compras a crédito y proveedores, facturas recibidas y la lista para dejar Moriah. Si algún día vuelve a correr v12 o v17, corra otra vez v21 al final.
+18d. **SQL Editor → New query** → pegar `supabase/v27_cobra_admin.sql` → **Run** (después de v26). Interruptor **Solo el administrador cobra** (ver *Solo el administrador cobra* más abajo). Si algún día vuelve a correr v13, v19 o v24, corra otra vez v27 al final.
 19. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
 20. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
 21. Registrar al administrador (el dueño):
@@ -97,7 +98,30 @@ Tienda: Agregar productos al carrito  ─►  Enviar pedido (nombre + teléfono)
 | Spam de pedidos o archivos | Máx. 3 pedidos por teléfono cada 15 min; subidas solo a rutas autorizadas, 5 por pedido al día, 5 MB |
 | Comprobantes expuestos | Bucket privado; solo el admin los ve con enlaces de 2 minutos |
 
-## Usar el panel como programa (en la compu del almacén)
+## Solo el administrador cobra (v27)
+
+Para que la caja (por ejemplo Tomás) arme las ventas y solo el administrador (por ejemplo Roberto) reciba la plata.
+
+- **Encender o apagar:** **Datos del negocio → Quién cobra → Solo el administrador cobra** (solo lo ve un administrador). Apagado, todo funciona como siempre.
+- **El empleado** agrega los productos y toca **Enviar a cobrar**. Si el cliente quiere factura, toca **El cliente pide factura** y pone cédula, nombre y correo: quedan guardados con la venta. No ve el cuadro **Cobrar**, ni **Registrar abono**, ni **Ya lo vi en el banco**. Las ventas a **crédito** las sigue haciendo él (no llevan cobro).
+- **El administrador** recibe la venta al momento en **Ventas → Para cobrar** (con un sonido, y aviso de Windows si la ventana está minimizada). La abre, cobra, y el **tiquete o la factura electrónica sale solo** (factura si el empleado dejó los datos; si no, tiquete).
+- **Sin internet** la venta no le puede llegar al administrador, así que **el empleado sí cobra** como siempre. Esos pagos quedan con la etiqueta **Cobrado sin internet** y el nombre de quien cobró, y van a la bitácora.
+- Lo revisa la base de datos: aunque alguien manipule la página, con el interruptor encendido un empleado no puede registrar pagos con internet ni marcarlos como vistos en el banco. (Un empleado que sepa de computación podría hacer pasar un pago como "sin internet"; por eso queda marcado y con su nombre para que el administrador lo vea.)
+- Para que el aviso llegue al momento, la tabla de ventas se agrega al tiempo real de Supabase (lo hace v27). Si no, igual aparece en menos de un minuto.
+
+## Programa de escritorio (.exe para Windows)
+
+En la carpeta `escritorio/` está el panel como programa de Windows. Abre el panel publicado en su propia ventana, así que **se actualiza solo** cada vez que se publica (no hay que reinstalar), abre sin internet y **imprime los recibos directo a la impresora**, sin la ventana de imprimir.
+
+**Descargar:** https://github.com/JohanCubillo/almacen-la-campina/releases/latest/download/LaCampina-Setup.exe
+
+1. Descargar y abrir `LaCampina-Setup.exe`. Si Windows dice *"Windows protegió su PC"*: **Más información → Ejecutar de todas formas** (sale porque el programa no tiene un certificado de firma pagado).
+2. Se instala solo y queda **La Campiña** en el escritorio y en el menú Inicio. Entrar con el usuario de siempre.
+3. **Impresora:** tecla **Alt** → menú **Impresora** → escoger la térmica (o dejar *la predeterminada de Windows*). **Imprimir sin preguntar** viene marcado; desmárquelo si quiere ver la ventana de imprimir.
+
+Cómo se arma: cada vez que se sube un cambio en `escritorio/` a GitHub, **Actions → Programa de escritorio** arma el instalador solo y lo publica en **Releases** (también se puede correr a mano con *Run workflow*). Para sacar una versión nueva del programa, suba el número de `version` en `escritorio/package.json`. Los cambios del panel **no** necesitan versión nueva del programa.
+
+## Usar el panel como programa desde el navegador (sin instalar nada)
 
 1. En la compu del almacén, abrir el panel en **Chrome** o **Edge**: `https://johancubillo.github.io/almacen-la-campina/admin.html`.
 2. Entrar con el usuario del almacén y tocar **Instalar como programa** (arriba, junto al correo). Si no aparece el botón, usar el ícono de instalar en la barra de direcciones (o menú ⋮ → *Instalar La Campiña*).
