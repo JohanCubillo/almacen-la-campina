@@ -764,3 +764,6 @@ html.panel-cargando .pestanas, html.panel-cargando [role=tabpanel] { visibility:
 .lapiz { flex: none; width: 36px; height: 36px; border: 1px solid var(--borde); border-radius: 6px; background: #fff; cursor: pointer; font-size: 1rem; line-height: 1; }
 .lapiz:hover, .lapiz:focus-visible { border-color: var(--negro); }
 #dlgPrecio .check { font-weight: 400; display: flex; gap: .5rem; align-items: center; }
+/* v29: aviso de correos de facturas */
+#bandaCorreo { position: static; text-align: center; }
+.banda-red[data-tipo="aviso"] { background: var(--cinta); color: var(--negro); }

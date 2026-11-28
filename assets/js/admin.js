@@ -117,7 +117,8 @@
   let V27 = false;         // interruptor "Solo el administrador cobra" (v27_cobra_admin.sql)
   let COBRO_ADMIN = false; // el interruptor está encendido
   let V28 = false;         // descuento máximo en la venta (v28_margen_precios.sql)
-  let DESC_MAX = 15;       // % que se puede bajar un precio en la venta (con permiso de precios)
+  let DESC_MAX = 15;
+  let V29 = false;         // facturas por correo al cliente (v29_correos.sql)       // % que se puede bajar un precio en la venta (con permiso de precios)
   let V25 = false;         // factura electrónica de compra (v25_factura_compra.sql)         // precio 2 y descuento por cliente (v24_precios_cliente.sql)         // devoluciones parciales (v23_devoluciones.sql)         // exoneración de IVA en ventas (v22_exoneracion.sql)
   // pestañas y pantallas: sin v17 todos los del panel las ven, como antes
   const soyAdministrador = () => !ACCESO || ACCESO.rol === "administrador";
@@ -429,7 +430,7 @@
     } else {
       // todas las preguntas a la base salen juntas (antes iban una por una y sumaban segundos)
       const probar = (q) => Promise.resolve(q).then((x) => x, (e) => ({ error: e }));
-      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22, r23, r24, r25, r27, r28] = await Promise.all([
+      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22, r23, r24, r25, r27, r28, r29] = await Promise.all([
         probar(db.from("avisos").select("id").limit(1)),
         probar(db.from("productos").select("codigo").limit(1)),
         probar(db.from("fe_emisor").select("*").eq("id", 1).maybeSingle()),
@@ -448,6 +449,7 @@
         probar(db.from("fe_documentos").select("entrada_id").limit(1)),
         probar(db.from("config_cobro").select("solo_admin").eq("id", 1).maybeSingle()),
         probar(db.from("config_ventas").select("descuento_max").eq("id", 1).maybeSingle()),
+        probar(db.from("fe_correos").select("id").limit(1)),
         cargarCategorias()
       ]);
       V4 = r.error && U.esErrorRed(r.error) ? !!copia.leer().v4 : !r.error;
@@ -460,6 +462,7 @@
       V14 = !r14.error; V15 = !r15.error; V16 = !r16.error; V18 = !r18.error; V19 = !r19.error; V21 = !r21.error; V22 = !r22.error; V23 = !r23.error; V24 = !r24.error; V25 = !r25.error;
       if (r27.error && U.esErrorRed(r27.error)) { V27 = !!copia.leer().v27; COBRO_ADMIN = !!copia.leer().cobro_admin; }
       else { V27 = !r27.error; COBRO_ADMIN = V27 && !!r27.data?.solo_admin; copia.poner("v27", V27); copia.poner("cobro_admin", COBRO_ADMIN); }
+      V29 = !r29.error;
       if (r28.error && U.esErrorRed(r28.error)) { V28 = !!copia.leer().v28; DESC_MAX = Number(copia.leer().desc_max ?? 15); }
       else { V28 = !r28.error; DESC_MAX = V28 ? Number(r28.data?.descuento_max ?? 15) : 15; copia.poner("v28", V28); copia.poner("desc_max", DESC_MAX); }
       // para poder abrir el panel sin internet con lo mismo que tiene la base
@@ -481,6 +484,7 @@
     $$("option[data-v18]").forEach((o) => { if (!V18 || (o.hasAttribute("data-solo-admin") && !esAdministradorReal())) o.remove(); });
     $("#btnSaldosMoriah").hidden = !V18 || !esAdministradorReal();
     pintarCobroConf(); vigilarCobros();
+    setTimeout(() => revisarCorreos(true), 4000);
     $("#formDescuento").hidden = !V28 || !esAdministradorReal();
     $("#formDescuento").descuento_max.value = DESC_MAX;
     $("#tabBit").hidden = !V16;
@@ -523,6 +527,7 @@
       enviarCola();
       if (enLinea()) prepararFESinRed();          // sin red de nuevo: solo revisa lo que le queda a esta compu
       if (enLinea()) releerCobroConf().then(vigilarCobros);
+      if (enLinea()) revisarCorreos();
       if (enLinea() && !$("#dlgVenta").open) {
         if (puede("ventas") || puede("caja")) { cargarVentas(); contarPorVerificar(); }
         if (puede("preguntas")) cargarPreguntas();
@@ -1912,9 +1917,16 @@
     if (V4) { try { fac = await db.from("facturas").select("*").eq("pedido_id", id).maybeSingle(); } catch { fac = { data: null }; } }
     let fe = { data: [] };
     if (V10 && FE?.activo) { try { fe = await db.from("v_fe_documentos").select("*").eq("pedido_id", id).order("id"); } catch { fe = { data: [] }; } }
+    let correos = {};
+    if (V29 && (fe.data || []).length) {
+      try {
+        const { data: cs } = await db.from("fe_correos").select("documento_id,para,estado,motivo,detalle,created_at").in("documento_id", fe.data.map((d) => d.id)).order("id");
+        for (const c of cs || []) correos[c.documento_id] = c;         // el último de cada comprobante
+      } catch { correos = {}; }
+    }
     let dev = { data: [] };
     if (V23) { try { dev = await db.from("devoluciones").select("*,devolucion_items(*)").eq("pedido_id", id).order("id"); } catch { dev = { data: [] }; } }
-    V = { devs: dev.data || [], pedido: p.data, items: it.data.map((i) => ({ ...i })), pagos: pg.data, comps: cc.data, factura: fac.data || null, fe: fe.data || [], dirty: false,
+    V = { correos, devs: dev.data || [], pedido: p.data, items: it.data.map((i) => ({ ...i })), pagos: pg.data, comps: cc.data, factura: fac.data || null, fe: fe.data || [], dirty: false,
       base: { pedido: p.data, pagos: pg.data } };
     aplicarPendientesVenta();
     V.cond = p.data.apartado ? "apartado" : p.data.credito ? "credito" : "contado";
@@ -3693,6 +3705,7 @@
       if (["enviado", "procesando"].includes(d.estado)) acc.push(`<button type="button" class="btn btn--sm btn--linea" data-fe="consultar" data-id="${d.id}">Consultar</button>`);
       if (d.estado === "aceptado" && d.tipo !== "03" && !d.anulado && puede("anular") && !(V.devs || []).length) acc.push(`<button type="button" class="enlace enlace--peligro" data-fe="anular" data-id="${d.id}">Anular con nota de crédito</button>`);
       if (!d.sinRed && enLinea()) acc.push(`<button type="button" class="enlace" data-fe="xml" data-id="${d.id}">XML</button>`);
+      if (V29 && d.estado === "aceptado" && !d.sinRed && enLinea()) acc.push(`<button type="button" class="enlace" data-fe="correo" data-id="${d.id}">${V.correos?.[d.id]?.estado === "enviado" ? "Reenviar por correo" : "Enviar por correo"}</button>`);
       if (d.sinRed) acc.push(`<button type="button" class="enlace" data-fe="pendientes">Ver pendientes</button>`);
       return `<li class="pago fe-doc ${d.anulado ? "pago--anulado" : ""}">
         <div class="pago__monto">${d.tipo === "03" ? "−" : ""}${fmt(d.total)}${d.parcial ? "<small>Nota de crédito</small><small>por devolución</small>" : `<small>${FE_TIPO[d.tipo] || d.tipo}</small>`}</div>
@@ -3700,6 +3713,7 @@
           <span>N.º <b>${U.esc(d.consecutivo.slice(-10).replace(/^0+/, ""))}</b> · ${fechaCR(d.fecha_emision, { dateStyle: "short", timeStyle: "short" })}${d.sinRed || String(d.clave).charAt(41) === "3" ? " · sin internet" : ""}</span>
           <span><span class="etq ${cls}">${txt}</span>${d.anulado ? ' <span class="etq">Anulado</span>' : ""}${d.ambiente === "pruebas" ? ' <span class="etq">Pruebas</span>' : ""}</span>
           ${d.detalle ? `<span>${U.esc(d.detalle)}</span>` : ""}
+          ${correoDocHTML(V.correos?.[d.id])}
           <span class="fe-doc__clave">Clave ${U.esc(d.clave)}</span>
         </div>
         <div class="pago__acc">${acc.join("")}</div>
@@ -4192,6 +4206,7 @@
   $("#feDocs").addEventListener("click", async (e) => {
     const b = e.target.closest("[data-fe]"); if (!b) return;
     const id = Number(b.dataset.id), acc = b.dataset.fe;
+    if (acc === "correo") return correoDoc(id, b);
     if (acc === "consultar") return accionFE({ accion: "consultar", documento_id: id }, "Consultando a Hacienda…");
     if (acc === "enviar") return accionFE({ accion: "enviar", documento_id: id }, "Enviando a Hacienda…");
     if (acc === "anular") {
@@ -4204,6 +4219,66 @@
     if (acc === "xml") return descargarXmlFE(id);
     if (acc === "pendientes") return abrirPendientes();
   });
+  // ---------- v29: el comprobante por correo al cliente ----------
+  function correoDocHTML(c) {
+    if (!c) return "";
+    if (c.estado === "enviado") return `<span class="etq etq--ok">Enviado por correo a ${U.esc(c.para)} · ${fechaCR(c.created_at, { dateStyle: "short", timeStyle: "short" })}</span>`;
+    if (c.estado === "sin_correo") return '<span class="etq">Sin correo del cliente</span>';
+    return `<span class="etq etq--error">No se envió el correo${c.para ? " a " + U.esc(c.para) : ""}: ${U.esc(MOTIVO_CORREO[c.motivo] || c.detalle || "error")}</span>`;
+  }
+  const MOTIVO_CORREO = {
+    limite_mes: "se llegó al límite de correos del mes", limite_dia: "se llegó al límite de correos de hoy",
+    muchos: "Resend pidió esperar", llave: "la llave de Resend no sirve", dominio: "el dominio no está verificado en Resend", red: "no se pudo hablar con Resend"
+  };
+  async function correoDoc(id, btn) {
+    const doc = (V.fe || []).find((d) => d.id === id);
+    const antes = V.correos?.[id]?.para || doc?.receptor?.correo || doc?.receptor?.correoElectronico || V.factura?.correo || "";
+    const para = await pedirTexto("¿A qué correo se lo mandamos? (PDF, XML y respuesta de Hacienda)", antes, { si: "Enviar" });
+    if (para === null) return;
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(para.trim())) return toast("Revise el correo.", true);
+    btn.disabled = true;
+    try {
+      const r = await llamarFE({ accion: "correo_enviar", documento_id: id, para: para.trim() });
+      toast(`Enviado a ${r.para}.`);
+      V.correos = { ...(V.correos || {}), [id]: { estado: "enviado", para: r.para, created_at: new Date().toISOString() } };
+    } catch (err) {
+      toast(err.message, true);
+      revisarCorreos(true);
+    } finally { btn.disabled = false; pintarFEVenta(); }
+  }
+  // aviso arriba cuando los correos no están saliendo (límite del plan de Resend, llave o dominio)
+  let revisandoCorreos = false, ultimaRevCorreos = 0;
+  async function revisarCorreos(ya = false) {
+    if (!V29 || !V10 || !FE?.activo || !enLinea() || revisandoCorreos || !(puede("ventas") || puede("reportes"))) return;
+    if (!ya && Date.now() - ultimaRevCorreos < 30 * 60e3) return;
+    revisandoCorreos = true; ultimaRevCorreos = Date.now();
+    try {
+      let r = await llamarFE({ accion: "correos_estado" });
+      // lo que quedó sin mandar se reintenta solo (si está trabado por el límite, a lo sumo una vez por hora)
+      const trabadoHace = r.desde ? Date.now() - new Date(r.desde).getTime() : Infinity;
+      if (r.configurado && r.pendientes > 0 && (!r.bloqueado || trabadoHace > 60 * 60e3)) r = await llamarFE({ accion: "correos_reintentar" });
+      pintarBandaCorreo(r);
+    } catch { /* sin función nueva o sin internet: no se avisa nada */ }
+    finally { revisandoCorreos = false; }
+  }
+  function pintarBandaCorreo(r) {
+    let el = $("#bandaCorreo");
+    if (!el) { el = document.createElement("div"); el.id = "bandaCorreo"; el.className = "banda-red"; el.setAttribute("role", "alert"); const red = $("#bandaRed"); if (red) red.after(el); else document.body.prepend(el); }
+    const pend = r.pendientes ? ` Hay ${r.pendientes} ${r.pendientes === 1 ? "correo pendiente" : "correos pendientes"}: se mandan solos cuando se pueda.` : "";
+    const txt = !r.configurado ? ""
+      : r.bloqueado === "limite_mes" ? `Los correos de las facturas no se están enviando: se llegó al límite de ${r.mes.toLocaleString("es-CR")} correos al mes del plan gratis de Resend. Las facturas siguen saliendo bien con Hacienda.${pend} Para seguir mandando ya, pase a un plan pagado en resend.com.`
+      : r.bloqueado === "limite_dia" ? `Los correos de las facturas no se están enviando: se llegó al límite de ${r.dia} correos por día de Resend. Vuelven a salir después de las 6 p. m.${pend}`
+      : r.bloqueado === "llave" ? `Los correos de las facturas no se están enviando: Resend no acepta la llave (secreto RESEND_API_KEY en Supabase).${pend}`
+      : r.bloqueado === "dominio" ? `Los correos de las facturas no se están enviando: el dominio no está verificado en Resend o el secreto CORREO_REMITENTE está mal.${pend}`
+      : r.enviados_mes >= r.mes * 0.9 ? `Ojo: van ${r.enviados_mes.toLocaleString("es-CR")} de ${r.mes.toLocaleString("es-CR")} correos de facturas este mes (plan de Resend). Al llegar al límite dejan de salir.`
+      : "";
+    if (r.bloqueado && el.dataset.motivo !== r.bloqueado) toast("Los correos de las facturas no se están enviando. Vea el aviso arriba.", true);
+    el.dataset.motivo = r.bloqueado || "";
+    el.hidden = !txt;
+    el.dataset.tipo = r.bloqueado ? "error" : "aviso";
+    el.textContent = txt;
+  }
+
   async function descargarXmlFE(id) {
     const { data, error } = await db.from("fe_documentos").select("clave,xml_firmado,respuesta_xml").eq("id", id).single();
     if (error) return toast(errTxt(error), true);

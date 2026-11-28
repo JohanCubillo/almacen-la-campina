@@ -160,7 +160,7 @@ Con `v21_compras_ajustes.sql` y la función `facturar` publicada otra vez (`inde
 
 ## Lo que todavía no hace
 
-- No envía el PDF y el XML al correo del cliente. Por ahora el cliente recibe el recibo impreso y el XML se descarga desde la venta.
+- ~~No envía el PDF y el XML al correo del cliente.~~ Desde v29 sí: ver **CORREO.md** (Resend con dominio propio).
 - **Contingencia con comprobantes preimpresos** (situación 2): no hace falta mientras la compu funcione; sin internet se usa la situación 3 (arriba).
 
 ## Sin facturación encendida
