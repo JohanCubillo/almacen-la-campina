@@ -510,6 +510,16 @@
           <p class="msg" id="cobroMsg" role="status"></p>
         </form>
 
+        <form id="formDescuento" class="tarjeta ajustes" novalidate hidden>
+          <fieldset>
+            <legend>Precios en la venta</legend>
+            <label>Descuento máximo en la venta (%)<input name="descuento_max" type="number" min="0" max="90" step="0.5" inputmode="decimal" required /></label>
+            <p class="ayuda">En la venta el precio de un producto se cambia con el lápiz ✎. Quien tiene permiso de <b>Cambiar precios</b> lo puede bajar hasta este porcentaje (contando ofertas y descuentos del cliente). El administrador puede bajarlo más, pero el panel le pide confirmar. Con 0 solo el administrador baja precios.</p>
+          </fieldset>
+          <button class="btn btn--negro" type="submit">Guardar</button>
+          <p class="msg" id="descMsg" role="status"></p>
+        </form>
+
         <form id="formAvisos" class="tarjeta ajustes v4" novalidate>
           <fieldset>
             <legend>Avisos por Telegram</legend>
@@ -1556,6 +1566,21 @@
       <div class="pregunta__btns">
         <button type="submit" value="si" class="btn btn--negro" id="preguntaSi">Sí</button>
         <button type="submit" value="no" class="btn btn--linea" id="preguntaNo">Cancelar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlgPrecio" class="dlg dlg--pregunta" aria-labelledby="precioTit">
+    <form method="dialog" class="pregunta" id="formPrecio" novalidate>
+      <h2 id="precioTit" class="pregunta__tit">Cambiar el precio</h2>
+      <p id="precioProd" class="pregunta__txt"></p>
+      <label class="pregunta__campo">Precio ₡ (con IVA)<input id="precioNuevo" type="number" min="0" step="0.01" inputmode="decimal" autocomplete="off" /></label>
+      <p class="ayuda" id="precioInfo"></p>
+      <label class="check" id="precioCatLbl"><input type="checkbox" id="precioCat" /> Cambiar también el precio del producto (catálogo y tienda)</label>
+      <p class="msg msg--error" id="precioMsg" role="alert"></p>
+      <div class="pregunta__btns">
+        <button type="submit" value="si" class="btn btn--negro" id="precioSi">Poner este precio</button>
+        <button type="submit" value="no" class="btn btn--linea" formnovalidate>Cancelar</button>
       </div>
     </form>
   </dialog>

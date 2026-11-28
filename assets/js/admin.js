@@ -116,6 +116,8 @@
   let MI_UID = null;       // id del usuario conectado
   let V27 = false;         // interruptor "Solo el administrador cobra" (v27_cobra_admin.sql)
   let COBRO_ADMIN = false; // el interruptor está encendido
+  let V28 = false;         // descuento máximo en la venta (v28_margen_precios.sql)
+  let DESC_MAX = 15;       // % que se puede bajar un precio en la venta (con permiso de precios)
   let V25 = false;         // factura electrónica de compra (v25_factura_compra.sql)         // precio 2 y descuento por cliente (v24_precios_cliente.sql)         // devoluciones parciales (v23_devoluciones.sql)         // exoneración de IVA en ventas (v22_exoneracion.sql)
   // pestañas y pantallas: sin v17 todos los del panel las ven, como antes
   const soyAdministrador = () => !ACCESO || ACCESO.rol === "administrador";
@@ -421,12 +423,13 @@
       V4 = !!c.v4; V9 = !!c.v9;
       V10 = !!vs.V10; V12 = !!vs.V12; V13 = !!vs.V13; V14 = !!vs.V14; V18 = !!vs.V18; V19 = !!vs.V19;
       V27 = !!c.v27; COBRO_ADMIN = V27 && !!c.cobro_admin;
+      V28 = !!c.v28; DESC_MAX = Number(c.desc_max ?? 15);
       FE = c.fe || null;
       if (V13) cargarClientes();
     } else {
       // todas las preguntas a la base salen juntas (antes iban una por una y sumaban segundos)
       const probar = (q) => Promise.resolve(q).then((x) => x, (e) => ({ error: e }));
-      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22, r23, r24, r25, r27] = await Promise.all([
+      const [r, r9, r10, r11, r12, r13, r14, r15, r16, r18, r19, r21, r22, r23, r24, r25, r27, r28] = await Promise.all([
         probar(db.from("avisos").select("id").limit(1)),
         probar(db.from("productos").select("codigo").limit(1)),
         probar(db.from("fe_emisor").select("*").eq("id", 1).maybeSingle()),
@@ -444,6 +447,7 @@
         probar(db.from("productos").select("precio2").limit(1)),
         probar(db.from("fe_documentos").select("entrada_id").limit(1)),
         probar(db.from("config_cobro").select("solo_admin").eq("id", 1).maybeSingle()),
+        probar(db.from("config_ventas").select("descuento_max").eq("id", 1).maybeSingle()),
         cargarCategorias()
       ]);
       V4 = r.error && U.esErrorRed(r.error) ? !!copia.leer().v4 : !r.error;
@@ -456,6 +460,8 @@
       V14 = !r14.error; V15 = !r15.error; V16 = !r16.error; V18 = !r18.error; V19 = !r19.error; V21 = !r21.error; V22 = !r22.error; V23 = !r23.error; V24 = !r24.error; V25 = !r25.error;
       if (r27.error && U.esErrorRed(r27.error)) { V27 = !!copia.leer().v27; COBRO_ADMIN = !!copia.leer().cobro_admin; }
       else { V27 = !r27.error; COBRO_ADMIN = V27 && !!r27.data?.solo_admin; copia.poner("v27", V27); copia.poner("cobro_admin", COBRO_ADMIN); }
+      if (r28.error && U.esErrorRed(r28.error)) { V28 = !!copia.leer().v28; DESC_MAX = Number(copia.leer().desc_max ?? 15); }
+      else { V28 = !r28.error; DESC_MAX = V28 ? Number(r28.data?.descuento_max ?? 15) : 15; copia.poner("v28", V28); copia.poner("desc_max", DESC_MAX); }
       // para poder abrir el panel sin internet con lo mismo que tiene la base
       if (!r16.error || !U.esErrorRed(r16.error)) {
         copia.poner("versiones", { V10, V12, V13, V14, V18, V19 });
@@ -475,6 +481,8 @@
     $$("option[data-v18]").forEach((o) => { if (!V18 || (o.hasAttribute("data-solo-admin") && !esAdministradorReal())) o.remove(); });
     $("#btnSaldosMoriah").hidden = !V18 || !esAdministradorReal();
     pintarCobroConf(); vigilarCobros();
+    $("#formDescuento").hidden = !V28 || !esAdministradorReal();
+    $("#formDescuento").descuento_max.value = DESC_MAX;
     $("#tabBit").hidden = !V16;
     if (V16 && soyAdministrador()) cargarUsuarios();
     document.documentElement.classList.toggle("sin-v13", !V13);
@@ -2253,7 +2261,8 @@
       <tr data-n="${n}">
         <td><input data-k="descripcion" value="${U.esc(i.descripcion)}" maxlength="120" aria-label="Descripción" ${edit ? "" : "disabled"} />${edit ? `<small class="stock-nota" data-stock="${n}">${notaStock(i)}</small>` : ""}</td>
         <td class="num"><input data-k="cantidad" type="number" min="0.01" step="0.01" value="${U.esc(i.cantidad)}" ${edit && isFinite(disponible(i.producto_id)) ? `max="${disponible(i.producto_id)}"` : ""} aria-label="Cantidad" ${edit ? "" : "disabled"} /></td>
-        <td class="num"><input data-k="precio_unit" type="number" min="0" step="0.01" value="${U.esc(i.precio_unit)}" aria-label="Precio unitario" ${edit && (puede("precios") || !i.producto_id || !precioCatalogo(i.producto_id)) ? "" : "disabled"} /></td>
+        <td class="num">${precioConLapiz(i) ? `<div class="precio-cel"><input data-k="precio_unit" type="number" value="${U.esc(i.precio_unit)}" aria-label="Precio unitario" disabled />${edit && puede("precios") ? `<button type="button" class="lapiz" data-precio-item="${n}" title="Cambiar el precio" aria-label="Cambiar el precio de ${U.esc(i.descripcion)}">✎</button>` : ""}</div>`
+          : `<input data-k="precio_unit" type="number" min="0" step="0.01" value="${U.esc(i.precio_unit)}" aria-label="Precio unitario" ${edit ? "" : "disabled"} />`}</td>
         <td class="num" data-sub>${fmt(i.cantidad * i.precio_unit)}</td>
         <td>${edit ? `<button type="button" class="cerrar-x" data-quitar-item="${n}" aria-label="Quitar renglón">✕</button>` : ""}</td>
       </tr>`).join("") || `<tr><td colspan="5" class="vacio-adm">Agregue productos a la venta.</td></tr>`;
@@ -2434,12 +2443,77 @@
     actualizarTotal();
   });
   $("#itemsVenta").addEventListener("click", (e) => {
+    const lp = e.target.closest("[data-precio-item]");
+    if (lp) return abrirPrecio(Number(lp.dataset.precioItem));
     const b = e.target.closest("[data-quitar-item]");
     if (!b) return;
     V.items.splice(Number(b.dataset.quitarItem), 1);
     V.dirty = true;
     pintarVenta();
   });
+  // ---------- v28: el precio de un producto del catálogo se cambia con el lápiz ✎ ----------
+  // renglón libre o producto "a consultar" (sin precio): el precio se escribe directo, como antes
+  const precioConLapiz = (i) => !!i.producto_id && precioCatalogo(i.producto_id) != null;
+  let precioN = null;
+  // lo que le toca a este renglón sin rebajas a mano (oferta, precio del cliente, exoneración) y lo más bajo permitido
+  function limitesPrecio(it) {
+    const prod = prodDe(it.producto_id), base = r2(precioVenta(prod, precioCatalogo(it.producto_id)));
+    const pct = V28 ? DESC_MAX : 0;
+    return { base, pct, minimo: puede("precios") ? r2(base * (1 - pct / 100)) : base };
+  }
+  function abrirPrecio(n) {
+    const it = V.items[n]; if (!it) return;
+    precioN = n;
+    const { base, pct, minimo } = limitesPrecio(it), admin = esAdministradorReal();
+    $("#precioProd").textContent = it.descripcion;
+    $("#precioNuevo").value = it.precio_unit;
+    $("#precioInfo").textContent = `Precio normal ${fmt(base)}.` + (pct > 0 ? ` Se puede bajar hasta ${fmt(minimo)} (${pct} %).` : " No se puede bajar.")
+      + (admin ? " Usted es administrador: puede bajarlo más, con confirmación." : "");
+    $("#precioCat").checked = false;
+    $("#precioCatLbl").hidden = !puede("precios") || !enLinea() || !!V.local;
+    $("#precioMsg").textContent = "";
+    $("#dlgPrecio").showModal();
+    $("#precioNuevo").focus(); $("#precioNuevo").select();
+  }
+  $("#formPrecio").addEventListener("submit", async (e) => {
+    if (e.submitter?.value !== "si") return;            // Cancelar: cierra sin más
+    e.preventDefault();
+    const it = V.items[precioN], msg = $("#precioMsg");
+    if (!it) { $("#dlgPrecio").close(); return; }
+    const val = r2(Number($("#precioNuevo").value));
+    if (!(val > 0)) { msg.textContent = "Escriba el precio."; return; }
+    const { base, pct, minimo } = limitesPrecio(it);
+    if (val < minimo - 0.005) {
+      if (!esAdministradorReal()) { msg.textContent = pct > 0 ? `No se puede bajar más de ${pct} %: lo mínimo es ${fmt(minimo)}. Pídale al administrador.` : "No se puede bajar el precio. Pídale al administrador."; return; }
+      const baja = Math.round((1 - val / base) * 100);
+      if (!await preguntar(`${it.descripcion}: ${fmt(base)} → ${fmt(val)} es ${baja} % menos, más de lo permitido (${pct} %). ¿Seguro que es ese precio?`, { titulo: "Precio muy bajo", si: `Sí, ${fmt(val)}`, peligro: true })) return;
+    } else if (val > base * 2 && !await preguntar(`${it.descripcion}: ${fmt(base)} → ${fmt(val)} es más del doble del precio normal. ¿Seguro?`, { si: `Sí, ${fmt(val)}` })) return;
+    if ($("#precioCat").checked) {
+      const { error } = await db.from("productos").update({ precio: val }).eq("id", it.producto_id);
+      if (error) { msg.textContent = errTxt(error); return; }
+      const pr = prodDe(it.producto_id); if (pr) pr.precio = val;
+      toast(`Precio de ${it.descripcion} cambiado a ${fmt(val)} en el catálogo.`);
+    }
+    it.precio_unit = val;
+    V.dirty = true;
+    $("#dlgPrecio").close();
+    const tr = $(`#itemsVenta tr[data-n="${precioN}"]`);
+    if (tr) { tr.querySelector('[data-k="precio_unit"]').value = val; tr.querySelector("[data-sub]").textContent = fmt((Number(it.cantidad) || 0) * val); }
+    actualizarTotal();
+    if (V.cond === "credito" || V.cond === "apartado") pintarCondicion();
+    refrescarGuardar();
+  });
+  $("#formDescuento").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.currentTarget, msg = $("#descMsg"), pct = Number(f.descuento_max.value);
+    if (!f.reportValidity()) return;
+    msg.className = "msg"; msg.textContent = "Guardando…";
+    const { data, error } = await db.rpc("poner_descuento_max", { p_pct: pct });
+    if (error) { msg.className = "msg msg--error"; msg.textContent = errTxt(error); return; }
+    DESC_MAX = Number(data); copia.poner("desc_max", DESC_MAX);
+    msg.textContent = DESC_MAX > 0 ? `Listo: en la venta se puede bajar un precio hasta ${DESC_MAX} %.` : "Listo: solo el administrador puede bajar precios en la venta.";
+  });
+
   // ---------- buscador de productos (ventas y ajuste de precios) ----------
   // con miles de productos una lista desplegable no sirve: se escribe parte del nombre o el código
   // (el lector de código de barras escribe el código y da Enter)

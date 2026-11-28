@@ -33,6 +33,7 @@ En línea: https://johancubillo.github.io/almacen-la-campina/
 18b. **SQL Editor → New query** → pegar `supabase/v20_actividad_caecr.sql` → **Run**. Acepta el código de actividad como lo da TRIBU-CR (ej. `6201.0`).
 18c. **SQL Editor → New query** → pegar `supabase/v21_compras_ajustes.sql` → **Run** (después de v20). Salidas y conteos de inventario, compras a crédito y proveedores, facturas recibidas y la lista para dejar Moriah. Si algún día vuelve a correr v12 o v17, corra otra vez v21 al final.
 18d. **SQL Editor → New query** → pegar `supabase/v27_cobra_admin.sql` → **Run** (después de v26). Interruptor **Solo el administrador cobra** (ver *Solo el administrador cobra* más abajo). Si algún día vuelve a correr v13, v19 o v24, corra otra vez v27 al final.
+18e. **SQL Editor → New query** → pegar `supabase/v28_margen_precios.sql` → **Run** (después de v27). **Descuento máximo en la venta** y el lápiz ✎ para cambiar precios (ver *Precios en la venta*). Si algún día vuelve a correr v17 o v24, corra otra vez v28 al final.
 19. *(Cuando se vaya a facturar desde el panel)* **SQL Editor → New query** → pegar `supabase/v10_facturacion.sql` → **Run**, y seguir **FACTURACION.md** (función `facturar` y secretos de Hacienda).
 20. **Authentication → Users → Add user** (correo + contraseña de 12+ caracteres, *Auto Confirm*).
 21. Registrar al administrador (el dueño):
@@ -108,6 +109,14 @@ Para que la caja (por ejemplo Tomás) arme las ventas y solo el administrador (p
 - **Sin internet** la venta no le puede llegar al administrador, así que **el empleado sí cobra** como siempre. Esos pagos quedan con la etiqueta **Cobrado sin internet** y el nombre de quien cobró, y van a la bitácora.
 - Lo revisa la base de datos: aunque alguien manipule la página, con el interruptor encendido un empleado no puede registrar pagos con internet ni marcarlos como vistos en el banco. (Un empleado que sepa de computación podría hacer pasar un pago como "sin internet"; por eso queda marcado y con su nombre para que el administrador lo vea.)
 - Para que el aviso llegue al momento, la tabla de ventas se agrega al tiempo real de Supabase (lo hace v27). Si no, igual aparece en menos de un minuto.
+
+## Precios en la venta (v28)
+
+- En la venta, el precio de un producto del catálogo **ya no se escribe directo** (para que no se cambie sin querer). Se toca el lápiz **✎** del renglón: dice el precio normal y hasta cuánto se puede bajar.
+- **Datos del negocio → Precios en la venta → Descuento máximo (%)**: 15 % si no se cambia. Cuenta desde el precio que le toca al renglón (oferta, precio 2 o descuento del cliente, exoneración).
+- Quien tiene permiso de **Cambiar precios** baja hasta ese porcentaje; más abajo, la base de datos no lo deja. Quien no tiene ese permiso no ve el lápiz (como antes, no baja precios). El **administrador** puede bajar más, pero el panel le pregunta *"¿Seguro que es ese precio?"*. También pregunta si el precio nuevo es más del doble del normal.
+- En la misma ventanita: **Cambiar también el precio del producto** lo cambia en el catálogo y en la tienda (queda en *Movimientos* de precios).
+- Renglones libres y productos "a consultar" (sin precio) se escriben directo, como siempre.
 
 ## Programa de escritorio (.exe para Windows)
 
